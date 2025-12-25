@@ -2,7 +2,8 @@
   (:require [reagent.core :as r]
             [reagent.dom.client :as rdom]
             [tramando.model :as model]
-            [tramando.views :as views]))
+            [tramando.views :as views]
+            [tramando.settings :as settings]))
 
 (defonce root (atom nil))
 
@@ -12,6 +13,9 @@
 
 (defn init []
   (js/console.log "Tramando starting...")
+
+  ;; Initialize settings
+  (settings/init!)
 
   ;; Check for autosave and restore or init sample data
   (if (model/has-autosave?)

@@ -1,6 +1,7 @@
 (ns tramando.model
   (:require [clojure.string :as str]
-            [reagent.core :as r]))
+            [reagent.core :as r]
+            [tramando.settings :as settings]))
 
 ;; =============================================================================
 ;; Chunk Model
@@ -288,7 +289,6 @@
 ;; Timer ID for "Salvato" fade
 (defonce ^:private saved-fade-timer (atom nil))
 
-(def ^:private autosave-delay-ms 3000)
 (def ^:private saved-fade-delay-ms 2000)
 
 (def ^:private localstorage-key "tramando-autosave")
@@ -335,9 +335,9 @@
     (js/clearTimeout @autosave-timer))
   ;; Mark as modified
   (reset! save-status :modified)
-  ;; Schedule new autosave
+  ;; Schedule new autosave with delay from settings
   (reset! autosave-timer
-          (js/setTimeout do-autosave! autosave-delay-ms)))
+          (js/setTimeout do-autosave! (settings/get-autosave-delay))))
 
 (defn mark-modified!
   "Mark the document as modified and schedule autosave"

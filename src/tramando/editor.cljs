@@ -2,6 +2,7 @@
   (:require [clojure.string :as str]
             [reagent.core :as r]
             [tramando.model :as model]
+            [tramando.settings :as settings]
             ["@codemirror/state" :refer [EditorState]]
             ["@codemirror/view" :refer [EditorView keymap lineNumbers highlightActiveLine
                                         highlightActiveLineGutter drawSelection]]
@@ -13,22 +14,22 @@
             ["@codemirror/search" :refer [searchKeymap highlightSelectionMatches]]))
 
 ;; =============================================================================
-;; CodeMirror 6 Theme
+;; CodeMirror 6 Theme (uses CSS variables from settings)
 ;; =============================================================================
 
 (def tramando-theme
   (.theme EditorView
-          #js {".cm-content" #js {:color "#eee"
-                                  :caretColor "#e94560"}
-               ".cm-cursor" #js {:borderLeftColor "#e94560"}
+          #js {".cm-content" #js {:color "var(--color-text)"
+                                  :caretColor "var(--color-accent)"}
+               ".cm-cursor" #js {:borderLeftColor "var(--color-accent)"}
                "&.cm-focused .cm-selectionBackground" #js {:backgroundColor "rgba(233, 69, 96, 0.3)"}
                ".cm-selectionBackground" #js {:backgroundColor "rgba(233, 69, 96, 0.2)"}
                ".cm-activeLine" #js {:backgroundColor "rgba(233, 69, 96, 0.08)"}
-               ".cm-gutters" #js {:backgroundColor "#16213e"
-                                  :color "#666"
-                                  :borderRight "1px solid #0f3460"}
-               ".cm-activeLineGutter" #js {:backgroundColor "#0f3460"}
-               "&" #js {:backgroundColor "#1a1a2e"}}))
+               ".cm-gutters" #js {:backgroundColor "var(--color-sidebar)"
+                                  :color "var(--color-text-muted)"
+                                  :borderRight "1px solid var(--color-border)"}
+               ".cm-activeLineGutter" #js {:backgroundColor "var(--color-editor-bg)"}
+               "&" #js {:backgroundColor "var(--color-background)"}}))
 
 ;; =============================================================================
 ;; Update Handler
@@ -54,6 +55,7 @@
                                  (highlightActiveLine)
                                  (highlightActiveLineGutter)
                                  (drawSelection)
+                                 (.-lineWrapping EditorView)
                                  (history)
                                  (indentOnInput)
                                  (bracketMatching)
@@ -119,7 +121,8 @@
         error-msg (r/atom nil)
         last-chunk-id (r/atom nil)]
     (fn []
-      (let [chunk (model/get-selected-chunk)]
+      (let [chunk (model/get-selected-chunk)
+            colors (:colors @settings/settings)]
         ;; Reset editing state when chunk changes
         (when (and chunk (not= (:id chunk) @last-chunk-id))
           (reset! last-chunk-id (:id chunk))
@@ -129,14 +132,14 @@
           (if @editing?
             ;; Editing mode
             [:div {:style {:display "flex" :align-items "center" :gap "8px" :margin-bottom "8px"}}
-             [:span {:style {:color "#666" :font-size "0.85rem"}} "["]
+             [:span {:style {:color (:text-muted colors) :font-size "0.85rem"}} "["]
              [:input {:type "text"
                       :value @temp-id
                       :auto-focus true
                       :style {:background "transparent"
-                              :border "1px solid #0f3460"
+                              :border (str "1px solid " (:border colors))
                               :border-radius "3px"
-                              :color "#e94560"
+                              :color (:accent colors)
                               :font-size "0.85rem"
                               :font-family "monospace"
                               :padding "2px 6px"
@@ -158,20 +161,20 @@
                                    (let [result (model/rename-chunk-id! (:id chunk) @temp-id)]
                                      (when (:error result)
                                        (reset! error-msg (:error result))))))}]
-             [:span {:style {:color "#666" :font-size "0.85rem"}} "]"]
+             [:span {:style {:color (:text-muted colors) :font-size "0.85rem"}} "]"]
              (when @error-msg
                [:span {:style {:color "#ff6b6b" :font-size "0.75rem" :margin-left "8px"}}
                 @error-msg])]
 
             ;; Display mode
             [:div {:style {:display "flex" :align-items "center" :gap "4px" :margin-bottom "8px"}}
-             [:span {:style {:color "#666"
+             [:span {:style {:color (:text-muted colors)
                              :font-size "0.85rem"
                              :font-family "monospace"
                              :cursor "pointer"
                              :padding "2px 6px"
                              :border-radius "3px"
-                             :background "#0f3460"}
+                             :background (:editor-bg colors)}
                      :title "Clicca per modificare l'ID"
                      :on-click (fn []
                                  (reset! temp-id (:id chunk))
@@ -184,11 +187,20 @@
 ;; =============================================================================
 
 (defn summary-input []
-  (let [chunk (model/get-selected-chunk)]
+  (let [chunk (model/get-selected-chunk)
+        colors (:colors @settings/settings)]
     (when chunk
       [:input {:type "text"
                :value (:summary chunk)
                :placeholder "Titolo del chunk..."
+               :style {:background "transparent"
+                       :border (str "1px solid " (:border colors))
+                       :border-radius "4px"
+                       :color (:text colors)
+                       :padding "8px 12px"
+                       :font-size "1rem"
+                       :width "100%"
+                       :outline "none"}
                :on-change (fn [e]
                             (model/update-chunk! (:id chunk)
                                                  {:summary (.. e -target -value)}))}])))
@@ -198,13 +210,19 @@
 ;; =============================================================================
 
 (defn aspects-display []
-  (let [chunk (model/get-selected-chunk)]
+  (let [chunk (model/get-selected-chunk)
+        colors (:colors @settings/settings)]
     (when (and chunk (seq (:aspects chunk)))
       [:div.aspects-list
        (doall
         (for [aspect-id (:aspects chunk)]
           ^{:key aspect-id}
-          [:span.aspect-tag (str "@" aspect-id)]))])))
+          [:span.aspect-tag {:style {:background (:editor-bg colors)
+                                     :color (:accent colors)
+                                     :padding "2px 8px"
+                                     :border-radius "3px"
+                                     :font-size "0.8rem"}}
+           (str "@" aspect-id)]))])))
 
 ;; =============================================================================
 ;; Parent Selector
@@ -214,16 +232,17 @@
   (let [chunk (model/get-selected-chunk)
         error-msg (r/atom nil)]
     (fn []
-      (let [chunk (model/get-selected-chunk)]
+      (let [chunk (model/get-selected-chunk)
+            colors (:colors @settings/settings)]
         (when (and chunk (not (model/is-aspect-container? (:id chunk))))
           (let [possible-parents (model/get-possible-parents (:id chunk))
                 current-parent-id (:parent-id chunk)]
             [:div {:style {:display "flex" :align-items "center" :gap "8px" :margin-top "8px"}}
-             [:span {:style {:color "#666" :font-size "0.8rem"}} "Parent:"]
+             [:span {:style {:color (:text-muted colors) :font-size "0.8rem"}} "Parent:"]
              [:select {:value (or current-parent-id "")
-                       :style {:background "#0f3460"
-                               :color "#eee"
-                               :border "1px solid #0f3460"
+                       :style {:background (:editor-bg colors)
+                               :color (:text colors)
+                               :border (str "1px solid " (:border colors))
                                :border-radius "3px"
                                :padding "4px 8px"
                                :font-size "0.8rem"
@@ -254,9 +273,10 @@
   (let [confirming? (r/atom false)
         error-msg (r/atom nil)]
     (fn []
-      (let [chunk (model/get-selected-chunk)]
+      (let [chunk (model/get-selected-chunk)
+            colors (:colors @settings/settings)]
         (when (and chunk (not (model/is-aspect-container? (:id chunk))))
-          [:div {:style {:margin-top "12px" :padding-top "12px" :border-top "1px solid #0f3460"}}
+          [:div {:style {:margin-top "12px" :padding-top "12px" :border-top (str "1px solid " (:border colors))}}
            (if @confirming?
              [:div {:style {:display "flex" :gap "8px" :align-items "center"}}
               [:span {:style {:color "#ff6b6b" :font-size "0.85rem"}} "Confermi?"]
@@ -275,8 +295,8 @@
                                         (reset! confirming? false))))}
                "Elimina"]
               [:button {:style {:background "transparent"
-                                :color "#888"
-                                :border "1px solid #888"
+                                :color (:text-muted colors)
+                                :border (str "1px solid " (:text-muted colors))
                                 :padding "4px 12px"
                                 :border-radius "3px"
                                 :cursor "pointer"
@@ -314,33 +334,34 @@
   (let [current @active-tab
         chunk (model/get-selected-chunk)
         has-children? (seq (model/get-children (:id chunk)))
-        is-aspect? (model/is-aspect? chunk)]
-    [:div {:style {:display "flex" :gap "0" :border-bottom "1px solid #0f3460" :margin-bottom "12px"}}
-     [:button {:style {:background (if (= current :edit) "#0f3460" "transparent")
-                       :color (if (= current :edit) "#e94560" "#888")
+        is-aspect? (model/is-aspect? chunk)
+        colors (:colors @settings/settings)]
+    [:div {:style {:display "flex" :gap "0" :border-bottom (str "1px solid " (:border colors)) :margin-bottom "12px"}}
+     [:button {:style {:background (if (= current :edit) (:editor-bg colors) "transparent")
+                       :color (if (= current :edit) (:accent colors) (:text-muted colors))
                        :border "none"
                        :padding "8px 16px"
                        :cursor "pointer"
                        :font-size "0.85rem"
-                       :border-bottom (when (= current :edit) "2px solid #e94560")}
+                       :border-bottom (when (= current :edit) (str "2px solid " (:accent colors)))}
                :on-click #(set-tab! :edit)}
       "Modifica"]
-     [:button {:style {:background (if (= current :refs) "#0f3460" "transparent")
-                       :color (if (= current :refs) "#e94560" "#888")
+     [:button {:style {:background (if (= current :refs) (:editor-bg colors) "transparent")
+                       :color (if (= current :refs) (:accent colors) (:text-muted colors))
                        :border "none"
                        :padding "8px 16px"
                        :cursor "pointer"
                        :font-size "0.85rem"
-                       :border-bottom (when (= current :refs) "2px solid #e94560")}
+                       :border-bottom (when (= current :refs) (str "2px solid " (:accent colors)))}
                :on-click #(set-tab! :refs)}
       (if is-aspect? "Usato da" "Figli")]
-     [:button {:style {:background (if (= current :read) "#0f3460" "transparent")
-                       :color (if (= current :read) "#e94560" "#888")
+     [:button {:style {:background (if (= current :read) (:editor-bg colors) "transparent")
+                       :color (if (= current :read) (:accent colors) (:text-muted colors))
                        :border "none"
                        :padding "8px 16px"
                        :cursor "pointer"
                        :font-size "0.85rem"
-                       :border-bottom (when (= current :read) "2px solid #e94560")}
+                       :border-bottom (when (= current :read) (str "2px solid " (:accent colors)))}
                :on-click #(set-tab! :read)}
       "Lettura"]]))
 
@@ -353,7 +374,8 @@
     (fn []
       (let [chunk (model/get-selected-chunk)
             all-aspects (model/get-all-aspects)
-            current-aspects (:aspects chunk)]
+            current-aspects (:aspects chunk)
+            colors (:colors @settings/settings)]
         (when (and chunk (not (model/is-aspect-container? (:id chunk))))
           [:div {:style {:margin-top "8px"}}
            [:div {:style {:display "flex" :flex-wrap "wrap" :gap "6px" :align-items "center"}}
@@ -362,8 +384,8 @@
              (for [aspect-id current-aspects]
                (let [aspect (first (filter #(= (:id %) aspect-id) (model/get-chunks)))]
                  ^{:key aspect-id}
-                 [:span {:style {:background "#0f3460"
-                                 :color "#e94560"
+                 [:span {:style {:background (:editor-bg colors)
+                                 :color (:accent colors)
                                  :padding "2px 8px"
                                  :border-radius "3px"
                                  :font-size "0.8rem"
@@ -373,7 +395,7 @@
                   (str "@" (or (:summary aspect) aspect-id))
                   [:button {:style {:background "none"
                                     :border "none"
-                                    :color "#888"
+                                    :color (:text-muted colors)
                                     :cursor "pointer"
                                     :padding "0 2px"
                                     :font-size "0.9rem"
@@ -385,8 +407,8 @@
             ;; Add aspect dropdown
             [:div {:style {:position "relative"}}
              [:button {:style {:background "transparent"
-                               :color "#888"
-                               :border "1px dashed #0f3460"
+                               :color (:text-muted colors)
+                               :border (str "1px dashed " (:border colors))
                                :padding "2px 8px"
                                :border-radius "3px"
                                :font-size "0.8rem"
@@ -397,8 +419,8 @@
                [:div {:style {:position "absolute"
                               :top "100%"
                               :left 0
-                              :background "#16213e"
-                              :border "1px solid #0f3460"
+                              :background (:sidebar colors)
+                              :border (str "1px solid " (:border colors))
                               :border-radius "4px"
                               :min-width "200px"
                               :max-height "200px"
@@ -407,15 +429,16 @@
                               :margin-top "4px"}}
                 (let [available (remove #(contains? current-aspects (:id %)) all-aspects)]
                   (if (empty? available)
-                    [:div {:style {:padding "8px" :color "#666" :font-size "0.8rem"}}
+                    [:div {:style {:padding "8px" :color (:text-muted colors) :font-size "0.8rem"}}
                      "Tutti gli aspetti già aggiunti"]
                     (doall
                      (for [aspect available]
                       ^{:key (:id aspect)}
                       [:div {:style {:padding "6px 10px"
                                      :cursor "pointer"
-                                     :font-size "0.8rem"}
-                             :on-mouse-over #(set! (.. % -target -style -background) "#0f3460")
+                                     :font-size "0.8rem"
+                                     :color (:text colors)}
+                             :on-mouse-over #(set! (.. % -target -style -background) (:editor-bg colors))
                              :on-mouse-out #(set! (.. % -target -style -background) "transparent")
                              :on-click (fn []
                                          (model/add-aspect-to-chunk! (:id chunk) (:id aspect))
@@ -428,56 +451,57 @@
 
 (defn refs-view []
   (let [chunk (model/get-selected-chunk)
-        is-aspect? (model/is-aspect? chunk)]
+        is-aspect? (model/is-aspect? chunk)
+        colors (:colors @settings/settings)]
     [:div {:style {:padding "16px" :overflow-y "auto" :flex 1}}
      (if is-aspect?
        ;; Show chunks that use this aspect
        (let [users (model/chunks-using-aspect (:id chunk))]
          [:div
-          [:h3 {:style {:color "#888" :font-size "0.85rem" :margin-bottom "12px"}}
+          [:h3 {:style {:color (:text-muted colors) :font-size "0.85rem" :margin-bottom "12px"}}
            (str "Chunk che usano @" (:id chunk) " (" (count users) ")")]
           (if (empty? users)
-            [:div {:style {:color "#666" :font-style "italic"}}
+            [:div {:style {:color (:text-muted colors) :font-style "italic"}}
              "Nessun chunk usa questo aspetto"]
             [:div {:style {:display "flex" :flex-direction "column" :gap "8px"}}
              (doall
               (for [c users]
                 ^{:key (:id c)}
-                [:div {:style {:background "#16213e"
+                [:div {:style {:background (:sidebar colors)
                                :padding "10px 14px"
                                :border-radius "4px"
                                :cursor "pointer"
-                               :border-left "3px solid #e94560"}
+                               :border-left (str "3px solid " (:accent colors))}
                        :on-click #(model/select-chunk! (:id c))}
-                 [:div {:style {:color "#e94560" :font-size "0.8rem" :margin-bottom "4px"}}
+                 [:div {:style {:color (:accent colors) :font-size "0.8rem" :margin-bottom "4px"}}
                   (:id c)]
-                 [:div {:style {:color "#eee"}}
+                 [:div {:style {:color (:text colors)}}
                   (:summary c)]]))])])
 
        ;; Show children
        (let [children (model/get-children (:id chunk))]
          [:div
-          [:h3 {:style {:color "#888" :font-size "0.85rem" :margin-bottom "12px"}}
+          [:h3 {:style {:color (:text-muted colors) :font-size "0.85rem" :margin-bottom "12px"}}
            (str "Figli di \"" (:summary chunk) "\" (" (count children) ")")]
           (if (empty? children)
-            [:div {:style {:color "#666" :font-style "italic"}}
+            [:div {:style {:color (:text-muted colors) :font-style "italic"}}
              "Nessun figlio"]
             [:div {:style {:display "flex" :flex-direction "column" :gap "8px"}}
              (doall
               (for [c children]
                ^{:key (:id c)}
-               [:div {:style {:background "#16213e"
+               [:div {:style {:background (:sidebar colors)
                               :padding "10px 14px"
                               :border-radius "4px"
                               :cursor "pointer"
-                              :border-left "3px solid #0f3460"}
+                              :border-left (str "3px solid " (:border colors))}
                       :on-click #(model/select-chunk! (:id c))}
-                [:div {:style {:color "#e94560" :font-size "0.8rem" :margin-bottom "4px"}}
+                [:div {:style {:color (:accent colors) :font-size "0.8rem" :margin-bottom "4px"}}
                  (:id c)]
-                [:div {:style {:color "#eee" :margin-bottom "4px"}}
+                [:div {:style {:color (:text colors) :margin-bottom "4px"}}
                  (:summary c)]
                 (when (seq (:content c))
-                  [:div {:style {:color "#888" :font-size "0.85rem"}}
+                  [:div {:style {:color (:text-muted colors) :font-size "0.85rem"}}
                    (subs (:content c) 0 (min 100 (count (:content c))))
                    (when (> (count (:content c)) 100) "...")])]))])]))]))
 
@@ -493,68 +517,78 @@
           (mapcat #(collect-content (:id %) (inc depth)) children))))
 
 (defn- render-chunk-block [{:keys [chunk depth]}]
-  [:div {:style {:margin-left (str (* depth 20) "px")
-                 :margin-bottom "16px"
-                 :padding-bottom "16px"
-                 :border-bottom (when (zero? depth) "1px solid #0f3460")}}
-   [:div {:style {:display "flex" :align-items "center" :gap "8px" :margin-bottom "8px"}}
-    [:span {:style {:color "#e94560" :font-size "0.75rem" :font-family "monospace"}}
-     (str "[" (:id chunk) "]")]
-    [:h3 {:style {:color "#eee"
-                  :font-size (case depth 0 "1.3rem" 1 "1.1rem" "1rem")
-                  :font-weight (if (< depth 2) "600" "500")
-                  :margin 0}}
-     (:summary chunk)]
-    (when (seq (:aspects chunk))
-      [:span {:style {:color "#888" :font-size "0.75rem"}}
-       (str "(" (str/join ", " (map #(str "@" %) (:aspects chunk))) ")")])]
-   (when (seq (:content chunk))
-     [:div {:style {:color "#ccc"
-                    :line-height "1.6"
-                    :white-space "pre-wrap"
-                    :font-size "0.95rem"}}
-      (:content chunk)])])
+  (let [colors (:colors @settings/settings)]
+    [:div {:style {:margin-left (str (* depth 20) "px")
+                   :margin-bottom "16px"
+                   :padding-bottom "16px"
+                   :border-bottom (when (zero? depth) (str "1px solid " (:border colors)))}}
+     [:div {:style {:display "flex" :align-items "center" :gap "8px" :margin-bottom "8px"}}
+      [:span {:style {:color (:accent colors) :font-size "0.75rem" :font-family "monospace"}}
+       (str "[" (:id chunk) "]")]
+      [:h3 {:style {:color (:text colors)
+                    :font-size (case depth 0 "1.3rem" 1 "1.1rem" "1rem")
+                    :font-weight (if (< depth 2) "600" "500")
+                    :margin 0}}
+       (:summary chunk)]
+      (when (seq (:aspects chunk))
+        [:span {:style {:color (:text-muted colors) :font-size "0.75rem"}}
+         (str "(" (str/join ", " (map #(str "@" %) (:aspects chunk))) ")")])]
+     (when (seq (:content chunk))
+       [:div {:style {:color (:text colors)
+                      :line-height "1.6"
+                      :white-space "pre-wrap"
+                      :font-size "0.95rem"
+                      :opacity "0.85"}}
+        (:content chunk)])]))
+
+(defn- render-user-content
+  "Render all content for a user chunk with proper keys"
+  [user-id colors]
+  (let [all-content (collect-content user-id 0)]
+    [:div {:key user-id
+           :style {:margin-bottom "24px" :padding "16px" :background (:sidebar colors) :border-radius "6px"}}
+     (doall
+      (for [{:keys [chunk depth] :as item} all-content]
+        ^{:key (str user-id "-" (:id chunk) "-" depth)}
+        [render-chunk-block item]))]))
 
 (defn read-view []
   (let [chunk (model/get-selected-chunk)
-        is-aspect? (model/is-aspect? chunk)]
-    [:div {:style {:padding "20px" :overflow-y "auto" :flex 1 :background "#1a1a2e"}}
+        is-aspect? (model/is-aspect? chunk)
+        colors (:colors @settings/settings)]
+    [:div {:style {:padding "20px" :overflow-y "auto" :flex 1 :background (:background colors)}}
      (if is-aspect?
        ;; For aspects: show the aspect info, then all chunks that use it with their content
        (let [users (model/chunks-using-aspect (:id chunk))]
          [:div
           ;; Aspect header
-          [:div {:style {:margin-bottom "24px" :padding-bottom "16px" :border-bottom "2px solid #e94560"}}
+          [:div {:style {:margin-bottom "24px" :padding-bottom "16px" :border-bottom (str "2px solid " (:accent colors))}}
            [:div {:style {:display "flex" :align-items "center" :gap "8px" :margin-bottom "8px"}}
-            [:span {:style {:color "#e94560" :font-size "0.85rem" :font-family "monospace"}}
+            [:span {:style {:color (:accent colors) :font-size "0.85rem" :font-family "monospace"}}
              (str "@" (:id chunk))]
-            [:h2 {:style {:color "#eee" :font-size "1.4rem" :margin 0}}
+            [:h2 {:style {:color (:text colors) :font-size "1.4rem" :margin 0}}
              (:summary chunk)]]
            (when (seq (:content chunk))
-             [:div {:style {:color "#ccc" :line-height "1.6" :white-space "pre-wrap"}}
+             [:div {:style {:color (:text colors) :line-height "1.6" :white-space "pre-wrap" :opacity "0.85"}}
               (:content chunk)])]
           ;; Chunks using this aspect
           (if (empty? users)
-            [:div {:style {:color "#666" :font-style "italic"}}
+            [:div {:style {:color (:text-muted colors) :font-style "italic"}}
              "Nessun chunk usa questo aspetto"]
             [:div
-             [:h3 {:style {:color "#888" :font-size "0.85rem" :margin-bottom "16px"}}
+             [:h3 {:style {:color (:text-muted colors) :font-size "0.85rem" :margin-bottom "16px"}}
               (str "Appare in " (count users) " chunk:")]
              (doall
               (for [user users]
-                (let [all-content (collect-content (:id user) 0)]
-                  ^{:key (:id user)}
-                  (into [:div {:style {:margin-bottom "24px" :padding "16px" :background "#16213e" :border-radius "6px"}}]
-                        (for [{:keys [chunk depth] :as item} all-content]
-                          ^{:key (:id chunk)}
-                          [render-chunk-block item])))))])])
+                ^{:key (:id user)}
+                [render-user-content (:id user) colors]))])])
 
        ;; For structural chunks: show hierarchy as before
        (let [all-content (collect-content (:id chunk) 0)]
          (doall
           (for [{:keys [chunk depth] :as item} all-content]
-            ^{:key (:id chunk)}
-            [render-chunk-block item]))))])))
+            ^{:key (str (:id chunk) "-" depth)}
+            [render-chunk-block item]))))]))
 
 ;; =============================================================================
 ;; Tab Content

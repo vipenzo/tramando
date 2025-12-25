@@ -5,6 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Tramando</title>
   <style>
+    /* Default CSS variables (overridden by settings.cljs) */
+    :root {
+      --color-background: #1a1a2e;
+      --color-sidebar: #16213e;
+      --color-text: #eeeeee;
+      --color-text-muted: #888888;
+      --color-accent: #e94560;
+      --color-structure: #4a90d9;
+      --color-personaggi: #e94560;
+      --color-luoghi: #50c878;
+      --color-temi: #ffd700;
+      --color-sequenze: #9370db;
+      --color-timeline: #ff6b6b;
+      --color-editor-bg: #0f3460;
+      --color-border: #0f3460;
+    }
+
     * {
       box-sizing: border-box;
       margin: 0;
@@ -13,8 +30,8 @@
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #1a1a2e;
-      color: #eee;
+      background: var(--color-background);
+      color: var(--color-text);
       height: 100vh;
       overflow: hidden;
     }
@@ -26,9 +43,9 @@
     }
 
     .header {
-      background: #16213e;
+      background: var(--color-sidebar);
       padding: 12px 20px;
-      border-bottom: 1px solid #0f3460;
+      border-bottom: 1px solid var(--color-border);
       display: flex;
       align-items: center;
       gap: 20px;
@@ -37,7 +54,7 @@
     .header h1 {
       font-size: 1.4rem;
       font-weight: 600;
-      color: #e94560;
+      color: var(--color-accent);
     }
 
     .main-container {
@@ -48,8 +65,8 @@
 
     .outline-panel {
       width: 280px;
-      background: #16213e;
-      border-right: 1px solid #0f3460;
+      background: var(--color-sidebar);
+      border-right: 1px solid var(--color-border);
       overflow-y: auto;
       padding: 16px;
     }
@@ -58,7 +75,7 @@
       font-size: 0.85rem;
       text-transform: uppercase;
       letter-spacing: 0.5px;
-      color: #888;
+      color: var(--color-text-muted);
       margin-bottom: 12px;
     }
 
@@ -74,16 +91,16 @@
     }
 
     .chunk-item:hover {
-      background: #0f3460;
+      background: var(--color-editor-bg);
     }
 
     .chunk-item.selected {
-      background: #e94560;
+      background: var(--color-accent);
       color: white;
     }
 
     .chunk-item .chunk-id {
-      color: #e94560;
+      color: var(--color-accent);
       font-weight: 500;
     }
 
@@ -93,7 +110,7 @@
 
     .chunk-children {
       margin-left: 16px;
-      border-left: 1px solid #0f3460;
+      border-left: 1px solid var(--color-border);
       padding-left: 8px;
     }
 
@@ -102,18 +119,19 @@
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      background: var(--color-background);
     }
 
     .editor-header {
       padding: 12px 20px;
-      background: #1a1a2e;
-      border-bottom: 1px solid #0f3460;
+      background: var(--color-background);
+      border-bottom: 1px solid var(--color-border);
     }
 
     .editor-header input {
       background: transparent;
       border: none;
-      color: #fff;
+      color: var(--color-text);
       font-size: 1.2rem;
       font-weight: 500;
       width: 100%;
@@ -121,7 +139,7 @@
     }
 
     .editor-header input::placeholder {
-      color: #666;
+      color: var(--color-text-muted);
     }
 
     .editor-container {
@@ -146,19 +164,19 @@
       outline: none;
     }
 
-    /* Dark theme for CodeMirror */
+    /* CodeMirror theme using CSS variables */
     .cm-editor {
-      background: #1a1a2e;
+      background: var(--color-background);
     }
 
     .cm-editor .cm-gutters {
-      background: #16213e;
-      border-right: 1px solid #0f3460;
-      color: #666;
+      background: var(--color-sidebar);
+      border-right: 1px solid var(--color-border);
+      color: var(--color-text-muted);
     }
 
     .cm-editor .cm-activeLineGutter {
-      background: #0f3460;
+      background: var(--color-editor-bg);
     }
 
     .cm-editor .cm-activeLine {
@@ -170,7 +188,7 @@
     }
 
     .cm-editor .cm-cursor {
-      border-left-color: #e94560;
+      border-left-color: var(--color-accent);
     }
 
     .aspects-list {
@@ -181,8 +199,8 @@
     }
 
     .aspect-tag {
-      background: #0f3460;
-      color: #e94560;
+      background: var(--color-editor-bg);
+      color: var(--color-accent);
       padding: 2px 8px;
       border-radius: 3px;
       font-size: 0.8rem;
