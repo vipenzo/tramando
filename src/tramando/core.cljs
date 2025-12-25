@@ -13,8 +13,15 @@
 (defn init []
   (js/console.log "Tramando starting...")
 
-  ;; Initialize with sample data
-  (model/init-sample-data!)
+  ;; Check for autosave and restore or init sample data
+  (if (model/has-autosave?)
+    (when (js/confirm "È presente un salvataggio automatico. Vuoi ripristinarlo?")
+      (model/restore-autosave!))
+    (model/init-sample-data!))
+
+  ;; If no chunks, init sample data
+  (when (empty? (model/get-chunks))
+    (model/init-sample-data!))
 
   ;; Mount React app
   (let [container (js/document.getElementById "app")

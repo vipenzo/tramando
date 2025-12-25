@@ -201,9 +201,10 @@
   (let [chunk (model/get-selected-chunk)]
     (when (and chunk (seq (:aspects chunk)))
       [:div.aspects-list
-       (for [aspect-id (:aspects chunk)]
-         ^{:key aspect-id}
-         [:span.aspect-tag (str "@" aspect-id)])])))
+       (doall
+        (for [aspect-id (:aspects chunk)]
+          ^{:key aspect-id}
+          [:span.aspect-tag (str "@" aspect-id)]))])))
 
 ;; =============================================================================
 ;; Parent Selector
@@ -236,10 +237,11 @@
                                         (reset! error-msg (:error result))
                                         (reset! error-msg nil))))}
               [:option {:value ""} "(root)"]
-              (for [p possible-parents]
-                ^{:key (:id p)}
-                [:option {:value (:id p)}
-                 (str (:id p) " - " (subs (:summary p) 0 (min 25 (count (:summary p)))))])]
+              (doall
+               (for [p possible-parents]
+                 ^{:key (:id p)}
+                 [:option {:value (:id p)}
+                  (str (:id p) " - " (subs (:summary p) 0 (min 25 (count (:summary p)))))]))]
              (when @error-msg
                [:span {:style {:color "#ff6b6b" :font-size "0.75rem"}}
                 @error-msg])]))))))
@@ -356,28 +358,29 @@
           [:div {:style {:margin-top "8px"}}
            [:div {:style {:display "flex" :flex-wrap "wrap" :gap "6px" :align-items "center"}}
             ;; Current aspects with remove button
-            (for [aspect-id current-aspects]
-              (let [aspect (first (filter #(= (:id %) aspect-id) (model/get-chunks)))]
-                ^{:key aspect-id}
-                [:span {:style {:background "#0f3460"
-                                :color "#e94560"
-                                :padding "2px 8px"
-                                :border-radius "3px"
-                                :font-size "0.8rem"
-                                :display "flex"
-                                :align-items "center"
-                                :gap "4px"}}
-                 (str "@" (or (:summary aspect) aspect-id))
-                 [:button {:style {:background "none"
-                                   :border "none"
-                                   :color "#888"
-                                   :cursor "pointer"
-                                   :padding "0 2px"
-                                   :font-size "0.9rem"
-                                   :line-height "1"}
-                           :title "Rimuovi"
-                           :on-click #(model/remove-aspect-from-chunk! (:id chunk) aspect-id)}
-                  "×"]]))
+            (doall
+             (for [aspect-id current-aspects]
+               (let [aspect (first (filter #(= (:id %) aspect-id) (model/get-chunks)))]
+                 ^{:key aspect-id}
+                 [:span {:style {:background "#0f3460"
+                                 :color "#e94560"
+                                 :padding "2px 8px"
+                                 :border-radius "3px"
+                                 :font-size "0.8rem"
+                                 :display "flex"
+                                 :align-items "center"
+                                 :gap "4px"}}
+                  (str "@" (or (:summary aspect) aspect-id))
+                  [:button {:style {:background "none"
+                                    :border "none"
+                                    :color "#888"
+                                    :cursor "pointer"
+                                    :padding "0 2px"
+                                    :font-size "0.9rem"
+                                    :line-height "1"}
+                            :title "Rimuovi"
+                            :on-click #(model/remove-aspect-from-chunk! (:id chunk) aspect-id)}
+                   "×"]])))
 
             ;; Add aspect dropdown
             [:div {:style {:position "relative"}}
@@ -406,7 +409,8 @@
                   (if (empty? available)
                     [:div {:style {:padding "8px" :color "#666" :font-size "0.8rem"}}
                      "Tutti gli aspetti già aggiunti"]
-                    (for [aspect available]
+                    (doall
+                     (for [aspect available]
                       ^{:key (:id aspect)}
                       [:div {:style {:padding "6px 10px"
                                      :cursor "pointer"
@@ -416,7 +420,7 @@
                              :on-click (fn []
                                          (model/add-aspect-to-chunk! (:id chunk) (:id aspect))
                                          (reset! dropdown-open? false))}
-                       (str "@" (:id aspect) " - " (:summary aspect))])))])]]])))))
+                       (str "@" (:id aspect) " - " (:summary aspect))]))))])]]])))))
 
 ;; =============================================================================
 ;; References View (who uses this aspect / children list)
@@ -436,18 +440,19 @@
             [:div {:style {:color "#666" :font-style "italic"}}
              "Nessun chunk usa questo aspetto"]
             [:div {:style {:display "flex" :flex-direction "column" :gap "8px"}}
-             (for [c users]
-               ^{:key (:id c)}
-               [:div {:style {:background "#16213e"
-                              :padding "10px 14px"
-                              :border-radius "4px"
-                              :cursor "pointer"
-                              :border-left "3px solid #e94560"}
-                      :on-click #(model/select-chunk! (:id c))}
-                [:div {:style {:color "#e94560" :font-size "0.8rem" :margin-bottom "4px"}}
-                 (:id c)]
-                [:div {:style {:color "#eee"}}
-                 (:summary c)]])])])
+             (doall
+              (for [c users]
+                ^{:key (:id c)}
+                [:div {:style {:background "#16213e"
+                               :padding "10px 14px"
+                               :border-radius "4px"
+                               :cursor "pointer"
+                               :border-left "3px solid #e94560"}
+                       :on-click #(model/select-chunk! (:id c))}
+                 [:div {:style {:color "#e94560" :font-size "0.8rem" :margin-bottom "4px"}}
+                  (:id c)]
+                 [:div {:style {:color "#eee"}}
+                  (:summary c)]]))])])
 
        ;; Show children
        (let [children (model/get-children (:id chunk))]
@@ -458,7 +463,8 @@
             [:div {:style {:color "#666" :font-style "italic"}}
              "Nessun figlio"]
             [:div {:style {:display "flex" :flex-direction "column" :gap "8px"}}
-             (for [c children]
+             (doall
+              (for [c children]
                ^{:key (:id c)}
                [:div {:style {:background "#16213e"
                               :padding "10px 14px"
@@ -473,7 +479,7 @@
                 (when (seq (:content c))
                   [:div {:style {:color "#888" :font-size "0.85rem"}}
                    (subs (:content c) 0 (min 100 (count (:content c))))
-                   (when (> (count (:content c)) 100) "...")])])])]))]))
+                   (when (> (count (:content c)) 100) "...")])]))])]))]))
 
 ;; =============================================================================
 ;; Read View (expanded content, read-only)
@@ -483,7 +489,7 @@
   "Recursively collect content from chunk and all descendants"
   (let [chunk (first (filter #(= (:id %) chunk-id) (model/get-chunks)))
         children (model/get-children chunk-id)]
-    (cons {:chunk chunk :depth depth}
+    (into [{:chunk chunk :depth depth}]
           (mapcat #(collect-content (:id %) (inc depth)) children))))
 
 (defn- render-chunk-block [{:keys [chunk depth]}]
@@ -534,19 +540,21 @@
             [:div
              [:h3 {:style {:color "#888" :font-size "0.85rem" :margin-bottom "16px"}}
               (str "Appare in " (count users) " chunk:")]
-             (for [user users]
-               (let [all-content (collect-content (:id user) 0)]
-                 ^{:key (:id user)}
-                 [:div {:style {:margin-bottom "24px" :padding "16px" :background "#16213e" :border-radius "6px"}}
-                  (for [{:keys [chunk depth] :as item} all-content]
-                    ^{:key (:id chunk)}
-                    [render-chunk-block item])]))])])
+             (doall
+              (for [user users]
+                (let [all-content (collect-content (:id user) 0)]
+                  ^{:key (:id user)}
+                  (into [:div {:style {:margin-bottom "24px" :padding "16px" :background "#16213e" :border-radius "6px"}}]
+                        (for [{:keys [chunk depth] :as item} all-content]
+                          ^{:key (:id chunk)}
+                          [render-chunk-block item])))))])])
 
        ;; For structural chunks: show hierarchy as before
        (let [all-content (collect-content (:id chunk) 0)]
-         (for [{:keys [chunk depth] :as item} all-content]
-           ^{:key (:id chunk)}
-           [render-chunk-block item])))]))
+         (doall
+          (for [{:keys [chunk depth] :as item} all-content]
+            ^{:key (:id chunk)}
+            [render-chunk-block item]))))])))
 
 ;; =============================================================================
 ;; Tab Content

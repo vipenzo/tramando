@@ -1,8 +1,32 @@
 (ns tramando.views
-  (:require [reagent.core :as r]
+  (:require [clojure.string :as str]
+            [reagent.core :as r]
             [tramando.model :as model]
             [tramando.editor :as editor]
             [tramando.outline :as outline]))
+
+;; =============================================================================
+;; Save Status Indicator
+;; =============================================================================
+
+(defn save-status-indicator []
+  (let [status @model/save-status]
+    (when (not= status :idle)
+      [:span {:style {:padding "4px 8px"
+                      :border-radius "4px"
+                      :font-size "0.8rem"
+                      :transition "opacity 0.3s"
+                      :background (case status
+                                    :modified "#f5a623"
+                                    :saving "#f5a623"
+                                    :saved "#4caf50"
+                                    "transparent")
+                      :color "#fff"}}
+       (case status
+         :modified "Modificato"
+         :saving "Salvataggio..."
+         :saved "Salvato"
+         "")])))
 
 ;; =============================================================================
 ;; Header
@@ -14,7 +38,8 @@
   [:div.header
    [:h1 "Tramando"]
    [:div {:style {:flex 1}}]
-   [:div {:style {:display "flex" :gap "8px" :align-items "center"}}
+   [save-status-indicator]
+   [:div {:style {:display "flex" :gap "8px" :align-items "center" :margin-left "12px"}}
     ;; Hidden file input for loading
     [:input {:type "file"
              :accept ".md,.txt"
@@ -89,15 +114,47 @@
         "Seleziona un chunk dall'outline o creane uno nuovo"])]))
 
 ;; =============================================================================
+;; Keyboard Shortcuts
+;; =============================================================================
+
+(defn- handle-keydown [e]
+  (let [key (str/lower-case (.-key e))
+        ctrl-or-cmd (or (.-ctrlKey e) (.-metaKey e))
+        shift (.-shiftKey e)]
+    (cond
+      ;; Redo: Ctrl+Shift+Z or Cmd+Shift+Z
+      (and ctrl-or-cmd shift (= key "z"))
+      (do
+        (.preventDefault e)
+        (model/redo!))
+
+      ;; Undo: Ctrl+Z or Cmd+Z (without shift)
+      (and ctrl-or-cmd (not shift) (= key "z"))
+      (do
+        (.preventDefault e)
+        (model/undo!)))))
+
+;; =============================================================================
 ;; Main Layout
 ;; =============================================================================
 
 (defn main-layout []
-  [:div#app
-   [header]
-   [:div.main-container
-    [outline/outline-panel]
-    [editor-panel]]])
+  (r/create-class
+   {:component-did-mount
+    (fn [_]
+      (.addEventListener js/document "keydown" handle-keydown))
+
+    :component-will-unmount
+    (fn [_]
+      (.removeEventListener js/document "keydown" handle-keydown))
+
+    :reagent-render
+    (fn []
+      [:div#app
+       [header]
+       [:div.main-container
+        [outline/outline-panel]
+        [editor-panel]]])}))
 
 ;; =============================================================================
 ;; App Root

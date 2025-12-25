@@ -25,6 +25,7 @@
 
 ;; Forward declaration for functions used before definition
 (declare ensure-aspect-containers!)
+(declare load-file-content!)
 
 (defn make-chunk
   "Create a new chunk with the given properties"
@@ -37,16 +38,55 @@
    :aspects (set aspects)
    :ordered-refs (vec ordered-refs)})
 
+(defn- id-prefix-for-parent
+  "Get the ID prefix based on parent-id"
+  [parent-id]
+  (case parent-id
+    "personaggi" "pers"
+    "luoghi" "luogo"
+    "temi" "tema"
+    "sequenze" "seq"
+    "timeline" "time"
+    nil "cap"
+    ;; For other parents (children of chapters), use "scene"
+    "scene"))
+
+(defn- extract-number
+  "Extract the number from an ID like 'cap-12' -> 12"
+  [id prefix]
+  (when id
+    (let [pattern (re-pattern (str "^" prefix "-(\\d+)$"))]
+      (when-let [[_ num] (re-matches pattern id)]
+        (js/parseInt num 10)))))
+
+(defn- next-number-for-prefix
+  "Find the next available number for a given prefix"
+  [prefix chunks]
+  (let [existing-numbers (->> chunks
+                              (map :id)
+                              (keep #(extract-number % prefix))
+                              set)]
+    (loop [n 1]
+      (if (contains? existing-numbers n)
+        (recur (inc n))
+        n))))
+
 (defn generate-id
-  "Generate a simple unique id"
-  []
-  (str (random-uuid)))
+  "Generate a readable id based on parent category (e.g., cap-1, pers-3, scene-12)"
+  ([]
+   (generate-id nil))
+  ([parent-id]
+   (generate-id parent-id []))
+  ([parent-id existing-chunks]
+   (let [prefix (id-prefix-for-parent parent-id)
+         n (next-number-for-prefix prefix existing-chunks)]
+     (str prefix "-" n))))
 
 (defn new-chunk
   "Create a new chunk with auto-generated id"
-  [& {:keys [summary content parent-id aspects ordered-refs]
-      :or {summary "Nuovo chunk" content "" parent-id nil aspects #{} ordered-refs []}}]
-  (make-chunk {:id (generate-id)
+  [& {:keys [summary content parent-id aspects ordered-refs existing-chunks]
+      :or {summary "Nuovo chunk" content "" parent-id nil aspects #{} ordered-refs [] existing-chunks []}}]
+  (make-chunk {:id (generate-id parent-id existing-chunks)
                :summary summary
                :content content
                :parent-id parent-id
@@ -168,6 +208,142 @@
            :selected-id nil
            :filename "untitled.md"}))
 
+;; =============================================================================
+;; History (Undo/Redo)
+;; =============================================================================
+
+(def ^:private max-history-size 100)
+
+(defonce history
+  (r/atom {:states []      ; vector of {:chunks [...] :selected-id ...}
+           :current -1     ; index of current state (-1 = no history yet)
+           :checkpoints []}))
+
+(defn- get-snapshot
+  "Get a snapshot of the current state for history"
+  []
+  {:chunks (:chunks @app-state)
+   :selected-id (:selected-id @app-state)})
+
+(defn- restore-snapshot!
+  "Restore app state from a snapshot (without triggering history push)"
+  [snapshot]
+  (swap! app-state merge (select-keys snapshot [:chunks :selected-id])))
+
+(defn push-history!
+  "Push current state to history. Called after state changes."
+  []
+  (let [snapshot (get-snapshot)
+        {:keys [states current]} @history
+        ;; Discard any future states if we're not at the end
+        ;; Handle case where current is -1 (no history yet)
+        new-states (if (neg? current)
+                     []
+                     (subvec states 0 (inc current)))
+        ;; Add new state
+        new-states (conj new-states snapshot)
+        ;; Trim if over max size
+        new-states (if (> (count new-states) max-history-size)
+                     (subvec new-states (- (count new-states) max-history-size))
+                     new-states)]
+    (reset! history {:states new-states
+                     :current (dec (count new-states))
+                     :checkpoints (:checkpoints @history)})))
+
+(defn can-undo? []
+  (> (:current @history) 0))
+
+(defn can-redo? []
+  (let [{:keys [states current]} @history]
+    (< current (dec (count states)))))
+
+(defn undo!
+  "Go to previous state. Returns true if successful."
+  []
+  (when (can-undo?)
+    (swap! history update :current dec)
+    (let [snapshot (nth (:states @history) (:current @history))]
+      (restore-snapshot! snapshot))
+    true))
+
+(defn redo!
+  "Go to next state. Returns true if successful."
+  []
+  (when (can-redo?)
+    (swap! history update :current inc)
+    (let [snapshot (nth (:states @history) (:current @history))]
+      (restore-snapshot! snapshot))
+    true))
+
+;; =============================================================================
+;; Save Status & Autosave
+;; =============================================================================
+
+;; :saved, :modified, :saving
+(defonce save-status (r/atom :saved))
+
+;; Timer ID for debounced autosave
+(defonce ^:private autosave-timer (atom nil))
+
+;; Timer ID for "Salvato" fade
+(defonce ^:private saved-fade-timer (atom nil))
+
+(def ^:private autosave-delay-ms 3000)
+(def ^:private saved-fade-delay-ms 2000)
+
+(def ^:private localstorage-key "tramando-autosave")
+
+(defn- do-autosave!
+  "Perform autosave to localStorage"
+  []
+  (reset! save-status :saving)
+  (let [content (serialize-file (:chunks @app-state))
+        filename (:filename @app-state)
+        data (js/JSON.stringify #js {:content content :filename filename})]
+    (.setItem js/localStorage localstorage-key data))
+  ;; Show "Salvato" then fade
+  (reset! save-status :saved)
+  (when @saved-fade-timer
+    (js/clearTimeout @saved-fade-timer))
+  (reset! saved-fade-timer
+          (js/setTimeout #(reset! save-status :idle) saved-fade-delay-ms)))
+
+(defn has-autosave?
+  "Check if there's an autosave in localStorage"
+  []
+  (boolean (.getItem js/localStorage localstorage-key)))
+
+(defn restore-autosave!
+  "Restore from localStorage autosave"
+  []
+  (when-let [data-str (.getItem js/localStorage localstorage-key)]
+    (let [data (js/JSON.parse data-str)
+          content (.-content data)
+          filename (.-filename data)]
+      (load-file-content! content filename))))
+
+(defn clear-autosave!
+  "Clear the autosave from localStorage"
+  []
+  (.removeItem js/localStorage localstorage-key))
+
+(defn- schedule-autosave!
+  "Schedule an autosave after the debounce delay"
+  []
+  ;; Cancel any pending autosave
+  (when @autosave-timer
+    (js/clearTimeout @autosave-timer))
+  ;; Mark as modified
+  (reset! save-status :modified)
+  ;; Schedule new autosave
+  (reset! autosave-timer
+          (js/setTimeout do-autosave! autosave-delay-ms)))
+
+(defn mark-modified!
+  "Mark the document as modified and schedule autosave"
+  []
+  (schedule-autosave!))
+
 (defn get-chunks []
   (:chunks @app-state))
 
@@ -185,26 +361,33 @@
 (defn update-chunk!
   "Update a chunk by id with the given changes"
   [id changes]
+  (push-history!)
   (swap! app-state update :chunks
          (fn [chunks]
            (mapv (fn [c]
                    (if (= (:id c) id)
                      (merge c changes)
                      c))
-                 chunks))))
+                 chunks)))
+  (mark-modified!))
 
 (defn add-chunk!
   "Add a new chunk, optionally with a parent"
   [& {:keys [parent-id] :or {parent-id nil}}]
-  (let [chunk (new-chunk :parent-id parent-id)]
+  (push-history!)
+  (let [chunk (new-chunk :parent-id parent-id
+                         :existing-chunks (get-chunks))]
     (swap! app-state update :chunks conj chunk)
     (select-chunk! (:id chunk))
+    (mark-modified!)
     chunk))
 
 (defn delete-chunk! [id]
+  (push-history!)
   (swap! app-state update :chunks
          (fn [chunks]
-           (filterv #(not= (:id %) id) chunks))))
+           (filterv #(not= (:id %) id) chunks)))
+  (mark-modified!))
 
 (defn rename-chunk-id!
   "Rename a chunk's ID and update all references.
@@ -225,6 +408,7 @@
 
     :else
     (do
+      (push-history!)
       (swap! app-state update :chunks
              (fn [chunks]
                (mapv (fn [c]
@@ -253,6 +437,7 @@
       ;; Update selection if needed
       (when (= (get-selected-id) old-id)
         (select-chunk! new-id))
+      (mark-modified!)
       {:ok true})))
 
 ;; =============================================================================
@@ -283,8 +468,10 @@
         siblings (get-siblings chunk)
         idx (first (keep-indexed #(when (= (:id %2) id) %1) siblings))]
     (when (and idx (pos? idx))
+      (push-history!)
       (let [prev-id (:id (nth siblings (dec idx)))]
-        (swap! app-state update :chunks swap-positions id prev-id)))))
+        (swap! app-state update :chunks swap-positions id prev-id))
+      (mark-modified!))))
 
 (defn move-chunk-down!
   "Move a chunk down among its siblings"
@@ -293,8 +480,10 @@
         siblings (get-siblings chunk)
         idx (first (keep-indexed #(when (= (:id %2) id) %1) siblings))]
     (when (and idx (< idx (dec (count siblings))))
+      (push-history!)
       (let [next-id (:id (nth siblings (inc idx)))]
-        (swap! app-state update :chunks swap-positions id next-id)))))
+        (swap! app-state update :chunks swap-positions id next-id))
+      (mark-modified!))))
 
 (defn change-parent!
   "Move a chunk to a new parent. Returns {:ok true} or {:error \"message\"}"
@@ -321,12 +510,14 @@
 
       :else
       (do
+        (push-history!)
         (swap! app-state update :chunks
                (fn [chunks]
                  (mapv #(if (= (:id %) chunk-id)
                           (assoc % :parent-id new-parent-id)
                           %)
                        chunks)))
+        (mark-modified!)
         {:ok true}))))
 
 (defn get-possible-parents
@@ -367,6 +558,10 @@
 (defn save-file!
   "Download the current state as a .md file"
   []
+  ;; Cancel any pending autosave
+  (when @autosave-timer
+    (js/clearTimeout @autosave-timer)
+    (reset! autosave-timer nil))
   (let [content (get-file-content)
         filename (get-filename)
         blob (js/Blob. #js [content] #js {:type "text/markdown"})
@@ -375,13 +570,21 @@
     (set! (.-href a) url)
     (set! (.-download a) filename)
     (.click a)
-    (js/URL.revokeObjectURL url)))
+    (js/URL.revokeObjectURL url))
+  ;; Show "Salvato" then fade
+  (reset! save-status :saved)
+  (when @saved-fade-timer
+    (js/clearTimeout @saved-fade-timer))
+  (reset! saved-fade-timer
+          (js/setTimeout #(reset! save-status :idle) saved-fade-delay-ms)))
 
 (defn load-file-content!
   "Load content from a string (called after file is read)"
   [content filename]
   ;; Clear current state and load new content
   (swap! app-state assoc :chunks [] :selected-id nil)
+  ;; Reset history
+  (reset! history {:states [] :current -1 :checkpoints []})
   ;; Ensure aspect containers exist
   (ensure-aspect-containers!)
   ;; Parse and load the file
@@ -396,7 +599,10 @@
   ;; Select first non-container chunk
   (let [structural (filter #(not (contains? aspect-container-ids (:id %))) (get-chunks))]
     (when (seq structural)
-      (select-chunk! (:id (first structural))))))
+      (select-chunk! (:id (first structural)))))
+  ;; Push initial state to history
+  (push-history!)
+  (reset! save-status :idle))
 
 ;; =============================================================================
 ;; Tree helpers
@@ -488,22 +694,26 @@
 (defn add-aspect-to-chunk!
   "Add an aspect reference to a chunk"
   [chunk-id aspect-id]
+  (push-history!)
   (swap! app-state update :chunks
          (fn [chunks]
            (mapv #(if (= (:id %) chunk-id)
                     (update % :aspects conj aspect-id)
                     %)
-                 chunks))))
+                 chunks)))
+  (mark-modified!))
 
 (defn remove-aspect-from-chunk!
   "Remove an aspect reference from a chunk"
   [chunk-id aspect-id]
+  (push-history!)
   (swap! app-state update :chunks
          (fn [chunks]
            (mapv #(if (= (:id %) chunk-id)
                     (update % :aspects disj aspect-id)
                     %)
-                 chunks))))
+                 chunks)))
+  (mark-modified!))
 
 (defn get-all-aspects
   "Get all aspect chunks (children of aspect containers)"
@@ -513,6 +723,7 @@
 (defn add-aspect!
   "Add a new aspect under the specified container"
   [container-id]
+  (push-history!)
   (let [container (first (filter #(= (:id %) container-id) aspect-containers))
         type-name (case container-id
                     "personaggi" "Personaggio"
@@ -522,9 +733,11 @@
                     "timeline" "Timeline"
                     "Aspetto")
         chunk (new-chunk :summary (str "Nuovo " type-name)
-                         :parent-id container-id)]
+                         :parent-id container-id
+                         :existing-chunks (get-chunks))]
     (swap! app-state update :chunks conj chunk)
     (select-chunk! (:id chunk))
+    (mark-modified!)
     chunk))
 
 (defn try-delete-chunk!
@@ -554,53 +767,59 @@
 (defn init-sample-data! []
   ;; First ensure aspect containers exist
   (ensure-aspect-containers!)
+  ;; Reset history
+  (reset! history {:states [] :current -1 :checkpoints []})
 
   ;; Add sample aspects
   (let [existing-ids (set (map :id (get-chunks)))]
-    (when-not (contains? existing-ids "mario")
+    (when-not (contains? existing-ids "pers-1")
       (swap! app-state update :chunks conj
-             (make-chunk {:id "mario" :summary "Mario Rossi" :parent-id "personaggi"
+             (make-chunk {:id "pers-1" :summary "Mario Rossi" :parent-id "personaggi"
                           :content "Il protagonista della storia."})))
-    (when-not (contains? existing-ids "lucia")
+    (when-not (contains? existing-ids "pers-2")
       (swap! app-state update :chunks conj
-             (make-chunk {:id "lucia" :summary "Lucia Bianchi" :parent-id "personaggi"
+             (make-chunk {:id "pers-2" :summary "Lucia Bianchi" :parent-id "personaggi"
                           :content "La co-protagonista."})))
-    (when-not (contains? existing-ids "casa")
+    (when-not (contains? existing-ids "luogo-1")
       (swap! app-state update :chunks conj
-             (make-chunk {:id "casa" :summary "Casa di Mario" :parent-id "luoghi"
+             (make-chunk {:id "luogo-1" :summary "Casa di Mario" :parent-id "luoghi"
                           :content "Un appartamento in centro città."})))
-    (when-not (contains? existing-ids "redenzione")
+    (when-not (contains? existing-ids "tema-1")
       (swap! app-state update :chunks conj
-             (make-chunk {:id "redenzione" :summary "Redenzione" :parent-id "temi"
+             (make-chunk {:id "tema-1" :summary "Redenzione" :parent-id "temi"
                           :content "Il tema centrale della storia."}))))
 
   ;; Add sample structural chunks
   (let [existing-ids (set (map :id (get-chunks)))]
-    (when-not (contains? existing-ids "cap1")
+    (when-not (contains? existing-ids "cap-1")
       (swap! app-state update :chunks conj
-             (make-chunk {:id "cap1" :summary "Capitolo 1: L'inizio"
+             (make-chunk {:id "cap-1" :summary "Capitolo 1: L'inizio"
                           :content "Un nuovo giorno sorge sulla città."
-                          :aspects #{"mario" "casa"}})))
-    (when-not (contains? existing-ids "scena1")
+                          :aspects #{"pers-1" "luogo-1"}})))
+    (when-not (contains? existing-ids "scene-1")
       (swap! app-state update :chunks conj
-             (make-chunk {:id "scena1" :summary "La sveglia" :parent-id "cap1"
+             (make-chunk {:id "scene-1" :summary "La sveglia" :parent-id "cap-1"
                           :content "Il protagonista si sveglia di soprassalto."
-                          :aspects #{"mario"}})))
-    (when-not (contains? existing-ids "scena2")
+                          :aspects #{"pers-1"}})))
+    (when-not (contains? existing-ids "scene-2")
       (swap! app-state update :chunks conj
-             (make-chunk {:id "scena2" :summary "La colazione" :parent-id "cap1"
+             (make-chunk {:id "scene-2" :summary "La colazione" :parent-id "cap-1"
                           :content "Una tazza di caffè fumante."
-                          :aspects #{"mario" "lucia"}})))
-    (when-not (contains? existing-ids "cap2")
+                          :aspects #{"pers-1" "pers-2"}})))
+    (when-not (contains? existing-ids "cap-2")
       (swap! app-state update :chunks conj
-             (make-chunk {:id "cap2" :summary "Capitolo 2: Lo sviluppo"
+             (make-chunk {:id "cap-2" :summary "Capitolo 2: Lo sviluppo"
                           :content "Le cose si complicano."
-                          :aspects #{"redenzione"}})))
-    (when-not (contains? existing-ids "scena3")
+                          :aspects #{"tema-1"}})))
+    (when-not (contains? existing-ids "scene-3")
       (swap! app-state update :chunks conj
-             (make-chunk {:id "scena3" :summary "L'incontro" :parent-id "cap2"
+             (make-chunk {:id "scene-3" :summary "L'incontro" :parent-id "cap-2"
                           :content "Un incontro inaspettato."
-                          :aspects #{"mario" "lucia"}}))))
+                          :aspects #{"pers-1" "pers-2"}}))))
 
   ;; Select first structural chunk
-  (select-chunk! "cap1"))
+  (select-chunk! "cap-1")
+
+  ;; Push initial state to history
+  (push-history!)
+  (reset! save-status :idle))
