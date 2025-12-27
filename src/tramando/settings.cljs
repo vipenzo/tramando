@@ -7,7 +7,22 @@
 ;; =============================================================================
 
 (def default-themes
-  {:dark {:background "#1a1a2e"
+  {:tessuto {:background "#e8dcc8"
+             :sidebar "#d4c4a8"
+             :text "#3d3225"
+             :text-muted "#7a6f5d"
+             :accent "#c44a4a"
+             :structure "#4a90c2"
+             :personaggi "#c44a4a"
+             :luoghi "#4a9a6a"
+             :temi "#b87333"
+             :sequenze "#8a5ac2"
+             :timeline "#4a90c2"
+             :editor-bg "#f5f0e6"
+             :border "#c4b49a"
+             :background-texture true}
+
+   :dark {:background "#1a1a2e"
           :sidebar "#16213e"
           :text "#eeeeee"
           :text-muted "#888888"
@@ -50,9 +65,10 @@
            :border "#d4c4a8"}})
 
 (def default-settings
-  {:theme :dark
-   :colors (:dark default-themes)
-   :autosave-delay-ms 3000})
+  {:theme :tessuto
+   :colors (:tessuto default-themes)
+   :autosave-delay-ms 3000
+   :tutorial-completed false})
 
 ;; =============================================================================
 ;; Settings State
@@ -122,13 +138,30 @@
   "Reset colors to the currently selected theme defaults"
   []
   (let [current-theme (:theme @settings)
-        theme-key (if (= current-theme :custom) :dark current-theme)]
+        theme-key (if (= current-theme :custom) :tessuto current-theme)]
     (set-theme! theme-key)))
 
 (defn get-autosave-delay
   "Get current autosave delay in milliseconds"
   []
   (:autosave-delay-ms @settings))
+
+(defn tutorial-completed?
+  "Check if tutorial has been completed"
+  []
+  (:tutorial-completed @settings))
+
+(defn complete-tutorial!
+  "Mark tutorial as completed"
+  []
+  (swap! settings assoc :tutorial-completed true)
+  (save-settings!))
+
+(defn reset-tutorial!
+  "Reset tutorial so it shows again"
+  []
+  (swap! settings assoc :tutorial-completed false)
+  (save-settings!))
 
 ;; =============================================================================
 ;; Export/Import settings.edn

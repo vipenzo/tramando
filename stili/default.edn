@@ -1,0 +1,47 @@
+{:name "Default"
+
+ :page
+ {:size "A5"
+  :margins {:top 60 :bottom 70 :left 50 :right 50}
+  :footer {:odd {:text "{page}" :align :right :margin-right 50}
+           :even {:text "{page}" :align :left :margin-left 50}}}
+
+ :fonts
+ {:main "Roboto"
+  :bold "Roboto"
+  :italic "Roboto"}
+
+ :styles
+ {:chapter-title
+  {:font :main :size 18 :align :center
+   :page-break :before
+   :spacing-before 72 :spacing-after 36}
+
+  :scene-separator
+  {:content "***" :align :center
+   :spacing-before 24 :spacing-after 24}
+
+  :paragraph
+  {:font :main :size 11 :align :justify
+   :line-height 1.4}
+
+  :first-paragraph  ; primo paragrafo dopo titolo o separatore: no indentazione
+  {:font :main :size 11 :align :justify
+   :line-height 1.4}
+
+  :body-paragraph   ; paragrafi successivi: con indentazione
+  {:font :main :size 11 :align :justify
+   :line-height 1.4
+   :indent-first 20}
+
+  :h1-in-scene
+  {:font :bold :size 13
+   :spacing-before 18 :spacing-after 9}
+
+  :h2-in-scene
+  {:font :italic :size 11
+   :spacing-before 12 :spacing-after 6}}
+
+ :structure-mapping
+ {:chapter :chapter-title
+  :scene :scene-separator}}

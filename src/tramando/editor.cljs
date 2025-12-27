@@ -3,9 +3,12 @@
             [reagent.core :as r]
             [tramando.model :as model]
             [tramando.settings :as settings]
+            [tramando.annotations :as annotations]
+            [tramando.help :as help]
             ["@codemirror/state" :refer [EditorState]]
             ["@codemirror/view" :refer [EditorView keymap lineNumbers highlightActiveLine
-                                        highlightActiveLineGutter drawSelection]]
+                                        highlightActiveLineGutter drawSelection
+                                        Decoration ViewPlugin MatchDecorator]]
             ["@codemirror/commands" :refer [defaultKeymap history historyKeymap
                                             indentWithTab]]
             ["@codemirror/language" :refer [indentOnInput bracketMatching
@@ -29,7 +32,101 @@
                                   :color "var(--color-text-muted)"
                                   :borderRight "1px solid var(--color-border)"}
                ".cm-activeLineGutter" #js {:backgroundColor "var(--color-editor-bg)"}
-               "&" #js {:backgroundColor "var(--color-background)"}}))
+               "&" #js {:backgroundColor "var(--color-background)"}
+               ;; Annotation styles - full markup mode
+               ".cm-annotation-todo" #js {:backgroundColor "rgba(255, 193, 7, 0.3)"
+                                          :borderRadius "3px"}
+               ".cm-annotation-note" #js {:backgroundColor "rgba(33, 150, 243, 0.25)"
+                                          :borderRadius "3px"}
+               ".cm-annotation-fix" #js {:backgroundColor "rgba(244, 67, 54, 0.25)"
+                                         :borderRadius "3px"}
+               ;; Reading mode - highlighted text only
+               ".cm-annotation-text-todo" #js {:backgroundColor "rgba(255, 193, 7, 0.4)"
+                                               :borderRadius "2px"
+                                               :padding "0 2px"}
+               ".cm-annotation-text-note" #js {:backgroundColor "rgba(33, 150, 243, 0.35)"
+                                               :borderRadius "2px"
+                                               :padding "0 2px"}
+               ".cm-annotation-text-fix" #js {:backgroundColor "rgba(244, 67, 54, 0.35)"
+                                              :borderRadius "2px"
+                                              :padding "0 2px"}
+               ;; Hidden parts in reading mode
+               ".cm-annotation-hidden" #js {:fontSize "0"
+                                            :color "transparent"
+                                            :userSelect "none"}}))
+
+;; =============================================================================
+;; Annotation Highlighting Extension
+;; =============================================================================
+
+;; Syntax: [!TYPE:selected text:priority:comment]
+(def ^:private annotation-regex (js/RegExp. "\\[!(TODO|NOTE|FIX):([^:]*):([^:]*):([^\\]]*)\\]" "g"))
+
+(defn- create-annotation-decorations [view show-markup?]
+  (let [builder #js []
+        doc (.. view -state -doc)
+        text (.toString doc)]
+    ;; Reset regex
+    (set! (.-lastIndex annotation-regex) 0)
+    ;; Find all matches
+    (loop []
+      (when-let [match (.exec annotation-regex text)]
+        (let [full-match (aget match 0)
+              type-str (aget match 1)
+              selected-text (aget match 2)
+              priority-str (aget match 3)
+              comment-text (aget match 4)
+              start (.-index match)
+              end (+ start (count full-match))
+              ;; Calculate positions of parts: [!TYPE:text:priority:comment]
+              prefix-end (+ start 2 (count type-str) 1) ; after [!TYPE:
+              text-start prefix-end
+              text-end (+ text-start (count selected-text))
+              suffix-start text-end ; from :priority:comment] to end
+              type-lower (str/lower-case type-str)
+              ;; Build tooltip from priority and comment
+              tooltip (cond
+                        (and (seq priority-str) (seq comment-text))
+                        (str "[" priority-str "] " comment-text)
+                        (seq comment-text) comment-text
+                        (seq priority-str) (str "[" priority-str "]")
+                        :else (str type-str " annotation"))]
+          (if show-markup?
+            ;; Markup mode: highlight entire annotation
+            (.push builder (.range (.mark Decoration #js {:class (str "cm-annotation-" type-lower)})
+                                   start end))
+            ;; Reading mode: hide prefix/suffix, highlight text
+            (do
+              ;; Hide prefix [!TYPE:
+              (.push builder (.range (.mark Decoration #js {:class "cm-annotation-hidden"})
+                                     start text-start))
+              ;; Highlight selected text
+              (.push builder (.range (.mark Decoration #js {:class (str "cm-annotation-text-" type-lower)
+                                                            :attributes #js {:title tooltip}})
+                                     text-start text-end))
+              ;; Hide suffix :priority:comment]
+              (.push builder (.range (.mark Decoration #js {:class "cm-annotation-hidden"})
+                                     suffix-start end)))))
+        (recur)))
+    ;; Sort by position and create DecorationSet
+    (.sort builder (fn [a b] (- (.-from a) (.-from b))))
+    (.set Decoration builder true)))
+
+(def annotation-highlight
+  (.define ViewPlugin
+           (fn [view]
+             (let [show? @annotations/show-markup?]
+               #js {:decorations (create-annotation-decorations view show?)
+                    :showMarkup show?
+                    :update (fn [vu] ; vu = ViewUpdate
+                              (this-as this
+                                (let [current-show? @annotations/show-markup?]
+                                  (when (or (.-docChanged vu)
+                                            (not= (.-showMarkup this) current-show?))
+                                    (set! (.-showMarkup this) current-show?)
+                                    (set! (.-decorations this)
+                                          (create-annotation-decorations (.-view vu) current-show?))))))}))
+           #js {:decorations (fn [v] (.-decorations v))}))
 
 ;; =============================================================================
 ;; Update Handler
@@ -62,6 +159,7 @@
                                  (highlightSelectionMatches)
                                  (syntaxHighlighting defaultHighlightStyle)
                                  (markdown)
+                                 annotation-highlight
                                  (.of keymap (.concat defaultKeymap historyKeymap searchKeymap #js [indentWithTab]))
                                  (make-update-listener chunk-id)]}))
 
@@ -70,13 +168,85 @@
                     :parent parent-element}))
 
 ;; =============================================================================
+;; Context Menu for Annotations
+;; =============================================================================
+
+(defonce context-menu-state (r/atom nil)) ; {:x :y :selection :view}
+
+(defn- wrap-selection-with-annotation! [view selection annotation-type]
+  "Wrap the selected text with annotation syntax [!TYPE:text:priority:comment]"
+  (let [from (.-from selection)
+        to (.-to selection)
+        selected-text (.. view -state -doc (sliceString from to))
+        wrapped-text (str "[!" annotation-type ":" selected-text "::]")
+        ;; Position cursor after the second : (where priority goes)
+        cursor-pos (+ from 2 (count annotation-type) 1 (count selected-text) 1)]
+    (.dispatch view #js {:changes #js {:from from :to to :insert wrapped-text}
+                         :selection #js {:anchor cursor-pos}})
+    (.focus view)))
+
+(defn- close-context-menu! []
+  (reset! context-menu-state nil))
+
+(defn annotation-context-menu []
+  (let [{:keys [x y selection view]} @context-menu-state
+        colors (:colors @settings/settings)]
+    (when (and x y selection view)
+      [:div {:style {:position "fixed"
+                     :left (str x "px")
+                     :top (str y "px")
+                     :background (:sidebar colors)
+                     :border (str "1px solid " (:border colors))
+                     :border-radius "6px"
+                     :box-shadow "0 4px 12px rgba(0,0,0,0.3)"
+                     :z-index 1000
+                     :min-width "120px"}
+             :on-mouse-leave close-context-menu!}
+       (for [[type-str color] [["TODO" "#f5a623"] ["NOTE" "#2196f3"] ["FIX" "#f44336"]]]
+         ^{:key type-str}
+         [:div {:style {:padding "8px 14px"
+                        :cursor "pointer"
+                        :font-size "0.9rem"
+                        :color (:text colors)
+                        :display "flex"
+                        :align-items "center"
+                        :gap "8px"}
+                :on-mouse-over #(set! (.. % -target -style -background) (:editor-bg colors))
+                :on-mouse-out #(set! (.. % -target -style -background) "transparent")
+                :on-click (fn []
+                            (wrap-selection-with-annotation! view selection type-str)
+                            (close-context-menu!))}
+          [:span {:style {:color color}} "●"]
+          type-str])])))
+
+;; =============================================================================
+;; Markup Toggle Checkbox
+;; =============================================================================
+
+(defn markup-toggle []
+  (let [colors (:colors @settings/settings)]
+    [:label {:style {:display "flex"
+                     :align-items "center"
+                     :gap "6px"
+                     :font-size "0.8rem"
+                     :color (:text-muted colors)
+                     :cursor "pointer"
+                     :user-select "none"}}
+     [:input {:type "checkbox"
+              :checked @annotations/show-markup?
+              :on-change #(swap! annotations/show-markup? not)
+              :style {:cursor "pointer"}}]
+     "Mostra markup"]))
+
+;; =============================================================================
 ;; Editor Component
 ;; =============================================================================
 
 (defn editor-component []
   (let [editor-view (r/atom nil)
         editor-ref (r/atom nil)
-        last-chunk-id (r/atom nil)]
+        last-chunk-id (r/atom nil)
+        last-show-markup (r/atom nil)]
     (r/create-class
      {:display-name "tramando-editor"
 
@@ -86,19 +256,48 @@
           (let [state (create-editor-state (:content chunk) (:id chunk))
                 view (create-editor-view @editor-ref state)]
             (reset! editor-view view)
-            (reset! last-chunk-id (:id chunk)))))
+            (reset! last-chunk-id (:id chunk))
+            (reset! last-show-markup @annotations/show-markup?)
+            ;; Add right-click handler
+            (when @editor-ref
+              (.addEventListener @editor-ref "contextmenu"
+                                 (fn [e]
+                                   (when-let [view @editor-view]
+                                     (let [sel (.. view -state -selection -main)]
+                                       (when (not= (.-from sel) (.-to sel))
+                                         (.preventDefault e)
+                                         (reset! context-menu-state {:x (.-clientX e)
+                                                                     :y (.-clientY e)
+                                                                     :selection sel
+                                                                     :view view}))))))))))
 
       :component-did-update
       (fn [this old-argv]
-        (let [chunk (model/get-selected-chunk)]
-          (when (and chunk (not= (:id chunk) @last-chunk-id))
-            ;; Chunk changed, recreate editor
+        (let [chunk (model/get-selected-chunk)
+              show-markup? @annotations/show-markup?]
+          ;; Recreate editor if chunk changed or show-markup changed
+          (when (or (and chunk (not= (:id chunk) @last-chunk-id))
+                    (not= show-markup? @last-show-markup))
             (when @editor-view
               (.destroy @editor-view))
-            (let [state (create-editor-state (:content chunk) (:id chunk))
-                  view (create-editor-view @editor-ref state)]
-              (reset! editor-view view)
-              (reset! last-chunk-id (:id chunk))))))
+            (when chunk
+              (let [state (create-editor-state (:content chunk) (:id chunk))
+                    view (create-editor-view @editor-ref state)]
+                (reset! editor-view view)
+                (reset! last-chunk-id (:id chunk))
+                (reset! last-show-markup show-markup?)
+                ;; Re-add right-click handler
+                (when @editor-ref
+                  (.addEventListener @editor-ref "contextmenu"
+                                     (fn [e]
+                                       (when-let [view @editor-view]
+                                         (let [sel (.. view -state -selection -main)]
+                                           (when (not= (.-from sel) (.-to sel))
+                                             (.preventDefault e)
+                                             (reset! context-menu-state {:x (.-clientX e)
+                                                                         :y (.-clientY e)
+                                                                         :selection sel
+                                                                         :view view}))))))))))))
 
       :component-will-unmount
       (fn [this]
@@ -107,7 +306,8 @@
 
       :reagent-render
       (fn []
-        (let [_selected (model/get-selected-id)] ; trigger re-render on selection change
+        (let [_selected (model/get-selected-id) ; trigger re-render on selection change
+              _show-markup @annotations/show-markup?] ; trigger re-render on toggle
           [:div.editor-container
            {:ref #(reset! editor-ref %)}]))})))
 
@@ -122,13 +322,15 @@
         last-chunk-id (r/atom nil)]
     (fn []
       (let [chunk (model/get-selected-chunk)
-            colors (:colors @settings/settings)]
+            colors (:colors @settings/settings)
+            is-aspect? (model/is-aspect-chunk? chunk)]
         ;; Reset editing state when chunk changes
         (when (and chunk (not= (:id chunk) @last-chunk-id))
           (reset! last-chunk-id (:id chunk))
           (reset! editing? false)
           (reset! error-msg nil))
-        (when chunk
+        ;; Only show ID input for aspect chunks
+        (when (and chunk is-aspect?)
           (if @editing?
             ;; Editing mode
             [:div {:style {:display "flex" :align-items "center" :gap "8px" :margin-bottom "8px"}}
@@ -180,7 +382,8 @@
                                  (reset! temp-id (:id chunk))
                                  (reset! error-msg nil)
                                  (reset! editing? true))}
-              (str "[" (:id chunk) "]")]]))))))
+              (str "[" (:id chunk) "]")]
+             [help/help-icon :id {:below? true}]]))))))
 
 ;; =============================================================================
 ;; Summary Input Component
@@ -190,20 +393,22 @@
   (let [chunk (model/get-selected-chunk)
         colors (:colors @settings/settings)]
     (when chunk
-      [:input {:type "text"
-               :value (:summary chunk)
-               :placeholder "Titolo del chunk..."
-               :style {:background "transparent"
-                       :border (str "1px solid " (:border colors))
-                       :border-radius "4px"
-                       :color (:text colors)
-                       :padding "8px 12px"
-                       :font-size "1rem"
-                       :width "100%"
-                       :outline "none"}
-               :on-change (fn [e]
-                            (model/update-chunk! (:id chunk)
-                                                 {:summary (.. e -target -value)}))}])))
+      [:div {:style {:display "flex" :align-items "center" :gap "8px"}}
+       [:input {:type "text"
+                :value (:summary chunk)
+                :placeholder "Titolo del chunk..."
+                :style {:background "transparent"
+                        :border (str "1px solid " (:border colors))
+                        :border-radius "4px"
+                        :color (:text colors)
+                        :padding "8px 12px"
+                        :font-size "1rem"
+                        :flex 1
+                        :outline "none"}
+                :on-change (fn [e]
+                             (model/update-chunk! (:id chunk)
+                                                  {:summary (.. e -target -value)}))}]
+       [help/help-icon :summary {:right? true}]])))
 
 ;; =============================================================================
 ;; Aspects Display
@@ -238,7 +443,9 @@
           (let [possible-parents (model/get-possible-parents (:id chunk))
                 current-parent-id (:parent-id chunk)]
             [:div {:style {:display "flex" :align-items "center" :gap "8px" :margin-top "8px"}}
-             [:span {:style {:color (:text-muted colors) :font-size "0.8rem"}} "Parent:"]
+             [:span {:style {:color (:text-muted colors) :font-size "0.8rem" :display "flex" :align-items "center"}}
+              "Parent:"
+              [help/help-icon :parent]]
              [:select {:value (or current-parent-id "")
                        :style {:background (:editor-bg colors)
                                :color (:text colors)
@@ -334,9 +541,9 @@
   (let [current @active-tab
         chunk (model/get-selected-chunk)
         has-children? (seq (model/get-children (:id chunk)))
-        is-aspect? (model/is-aspect? chunk)
+        is-aspect? (model/is-aspect-chunk? chunk)
         colors (:colors @settings/settings)]
-    [:div {:style {:display "flex" :gap "0" :border-bottom (str "1px solid " (:border colors)) :margin-bottom "12px"}}
+    [:div {:style {:display "flex" :gap "0" :border-bottom (str "1px solid " (:border colors)) :margin-bottom "12px" :align-items "center"}}
      [:button {:style {:background (if (= current :edit) (:editor-bg colors) "transparent")
                        :color (if (= current :edit) (:accent colors) (:text-muted colors))
                        :border "none"
@@ -344,6 +551,7 @@
                        :cursor "pointer"
                        :font-size "0.85rem"
                        :border-bottom (when (= current :edit) (str "2px solid " (:accent colors)))}
+               :title (:tab-modifica help/texts)
                :on-click #(set-tab! :edit)}
       "Modifica"]
      [:button {:style {:background (if (= current :refs) (:editor-bg colors) "transparent")
@@ -353,6 +561,7 @@
                        :cursor "pointer"
                        :font-size "0.85rem"
                        :border-bottom (when (= current :refs) (str "2px solid " (:accent colors)))}
+               :title (if is-aspect? (:tab-usato-da help/texts) (:tab-figli help/texts))
                :on-click #(set-tab! :refs)}
       (if is-aspect? "Usato da" "Figli")]
      [:button {:style {:background (if (= current :read) (:editor-bg colors) "transparent")
@@ -362,6 +571,7 @@
                        :cursor "pointer"
                        :font-size "0.85rem"
                        :border-bottom (when (= current :read) (str "2px solid " (:accent colors)))}
+               :title (:tab-lettura help/texts)
                :on-click #(set-tab! :read)}
       "Lettura"]]))
 
@@ -415,6 +625,7 @@
                                :cursor "pointer"}
                        :on-click #(swap! dropdown-open? not)}
               "+ Aspetto"]
+             [help/help-icon :add-aspect]
              (when @dropdown-open?
                [:div {:style {:position "absolute"
                               :top "100%"
@@ -451,7 +662,7 @@
 
 (defn refs-view []
   (let [chunk (model/get-selected-chunk)
-        is-aspect? (model/is-aspect? chunk)
+        is-aspect? (model/is-aspect-chunk? chunk)
         colors (:colors @settings/settings)]
     [:div {:style {:padding "16px" :overflow-y "auto" :flex 1}}
      (if is-aspect?
@@ -459,7 +670,7 @@
        (let [users (model/chunks-using-aspect (:id chunk))]
          [:div
           [:h3 {:style {:color (:text-muted colors) :font-size "0.85rem" :margin-bottom "12px"}}
-           (str "Chunk che usano @" (:id chunk) " (" (count users) ")")]
+           (str "Usato in " (count users) " chunk")]
           (if (empty? users)
             [:div {:style {:color (:text-muted colors) :font-style "italic"}}
              "Nessun chunk usa questo aspetto"]
@@ -473,16 +684,15 @@
                                :cursor "pointer"
                                :border-left (str "3px solid " (:accent colors))}
                        :on-click #(model/select-chunk! (:id c))}
-                 [:div {:style {:color (:accent colors) :font-size "0.8rem" :margin-bottom "4px"}}
-                  (:id c)]
                  [:div {:style {:color (:text colors)}}
-                  (:summary c)]]))])])
+                  (model/get-chunk-path c)]]))])])
 
        ;; Show children
-       (let [children (model/get-children (:id chunk))]
+       (let [children (model/get-children (:id chunk))
+             display-summary (model/expand-summary-macros (:summary chunk) chunk)]
          [:div
           [:h3 {:style {:color (:text-muted colors) :font-size "0.85rem" :margin-bottom "12px"}}
-           (str "Figli di \"" (:summary chunk) "\" (" (count children) ")")]
+           (str (count children) " figli")]
           (if (empty? children)
             [:div {:style {:color (:text-muted colors) :font-style "italic"}}
              "Nessun figlio"]
@@ -496,10 +706,8 @@
                               :cursor "pointer"
                               :border-left (str "3px solid " (:border colors))}
                       :on-click #(model/select-chunk! (:id c))}
-                [:div {:style {:color (:accent colors) :font-size "0.8rem" :margin-bottom "4px"}}
-                 (:id c)]
                 [:div {:style {:color (:text colors) :margin-bottom "4px"}}
-                 (:summary c)]
+                 (model/expand-summary-macros (:summary c) c)]
                 (when (seq (:content c))
                   [:div {:style {:color (:text-muted colors) :font-size "0.85rem"}}
                    (subs (:content c) 0 (min 100 (count (:content c))))
@@ -517,36 +725,49 @@
           (mapcat #(collect-content (:id %) (inc depth)) children))))
 
 (defn- render-chunk-block [{:keys [chunk depth]}]
-  (let [colors (:colors @settings/settings)]
+  (let [colors (:colors @settings/settings)
+        show-markup? @annotations/show-markup?
+        content (if show-markup?
+                  (:content chunk)
+                  (annotations/strip-annotations (:content chunk)))
+        display-summary (model/expand-summary-macros (:summary chunk) chunk)]
     [:div {:style {:margin-left (str (* depth 20) "px")
                    :margin-bottom "16px"
                    :padding-bottom "16px"
                    :border-bottom (when (zero? depth) (str "1px solid " (:border colors)))}}
      [:div {:style {:display "flex" :align-items "center" :gap "8px" :margin-bottom "8px"}}
-      [:span {:style {:color (:accent colors) :font-size "0.75rem" :font-family "monospace"}}
-       (str "[" (:id chunk) "]")]
       [:h3 {:style {:color (:text colors)
                     :font-size (case depth 0 "1.3rem" 1 "1.1rem" "1rem")
                     :font-weight (if (< depth 2) "600" "500")
                     :margin 0}}
-       (:summary chunk)]
+       display-summary]
       (when (seq (:aspects chunk))
         [:span {:style {:color (:text-muted colors) :font-size "0.75rem"}}
          (str "(" (str/join ", " (map #(str "@" %) (:aspects chunk))) ")")])]
-     (when (seq (:content chunk))
+     (when (seq content)
        [:div {:style {:color (:text colors)
                       :line-height "1.6"
                       :white-space "pre-wrap"
                       :font-size "0.95rem"
                       :opacity "0.85"}}
-        (:content chunk)])]))
+        content])]))
 
 (defn- render-user-content
   "Render all content for a user chunk with proper keys"
   [user-id colors]
-  (let [all-content (collect-content user-id 0)]
+  (let [user-chunk (first (filter #(= (:id %) user-id) (model/get-chunks)))
+        all-content (collect-content user-id 0)
+        path (model/get-chunk-path user-chunk)]
     [:div {:key user-id
            :style {:margin-bottom "24px" :padding "16px" :background (:sidebar colors) :border-radius "6px"}}
+     ;; Path header
+     [:div {:style {:color (:accent colors)
+                    :font-size "0.85rem"
+                    :font-weight "500"
+                    :margin-bottom "12px"
+                    :padding-bottom "8px"
+                    :border-bottom (str "1px solid " (:border colors))}}
+      path]
      (doall
       (for [{:keys [chunk depth] :as item} all-content]
         ^{:key (str user-id "-" (:id chunk) "-" depth)}
@@ -554,8 +775,13 @@
 
 (defn read-view []
   (let [chunk (model/get-selected-chunk)
-        is-aspect? (model/is-aspect? chunk)
-        colors (:colors @settings/settings)]
+        is-aspect? (model/is-aspect-chunk? chunk)
+        colors (:colors @settings/settings)
+        show-markup? @annotations/show-markup?
+        aspect-content (if show-markup?
+                         (:content chunk)
+                         (annotations/strip-annotations (:content chunk)))
+        display-summary (model/expand-summary-macros (:summary chunk) chunk)]
     [:div {:style {:padding "20px" :overflow-y "auto" :flex 1 :background (:background colors)}}
      (if is-aspect?
        ;; For aspects: show the aspect info, then all chunks that use it with their content
@@ -563,14 +789,11 @@
          [:div
           ;; Aspect header
           [:div {:style {:margin-bottom "24px" :padding-bottom "16px" :border-bottom (str "2px solid " (:accent colors))}}
-           [:div {:style {:display "flex" :align-items "center" :gap "8px" :margin-bottom "8px"}}
-            [:span {:style {:color (:accent colors) :font-size "0.85rem" :font-family "monospace"}}
-             (str "@" (:id chunk))]
-            [:h2 {:style {:color (:text colors) :font-size "1.4rem" :margin 0}}
-             (:summary chunk)]]
-           (when (seq (:content chunk))
+           [:h2 {:style {:color (:text colors) :font-size "1.4rem" :margin "0 0 8px 0"}}
+            display-summary]
+           (when (seq aspect-content)
              [:div {:style {:color (:text colors) :line-height "1.6" :white-space "pre-wrap" :opacity "0.85"}}
-              (:content chunk)])]
+              aspect-content])]
           ;; Chunks using this aspect
           (if (empty? users)
             [:div {:style {:color (:text-muted colors) :font-style "italic"}}

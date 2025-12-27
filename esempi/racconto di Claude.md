@@ -1,0 +1,235 @@
+[C:personaggi"Personaggi"]
+
+  [C:elena"Elena Ferro"]
+  
+  Protagonista, 38 anni, restauratrice di libri antichi. Lavora alla Biblioteca Civica da dieci anni. Precisa, metodica, abituata a trattare con delicatezza le cose fragili. Dopo la morte del padre, due anni fa, si è chiusa in se stessa.
+  
+    [C:elena-aspetto"Aspetto fisico"]
+    
+    Capelli castani raccolti, occhiali da lettura sempre appesi al collo, mani curate ma segnate dai solventi.
+    
+    [C:elena-voce"Modo di parlare"]
+    
+    Frasi brevi, precise. Raramente alza la voce. Quando è nervosa, si toglie e rimette gli occhiali.
+
+  [C:giorgio"Giorgio Mante"]
+  
+  72 anni, ex libraio antiquario, ora in pensione. Conosceva il padre di Elena. Porta con sé un segreto che riguarda un libro scomparso trent'anni fa.
+
+  [C:padre"Riccardo Ferro"]
+  
+  Il padre di Elena, morto due anni prima dell'inizio della storia. Era bibliotecario. Giorgio rivela che aveva trovato qualcosa di importante poco prima di morire.
+
+[C:luoghi"Luoghi"]
+
+  [C:biblioteca"Biblioteca Civica"]
+  
+  Un palazzo del '700 nel centro storico. Il laboratorio di restauro è nel seminterrato: luce artificiale, odore di colla e carta antica, scaffali di metallo.
+
+  [C:libreria"Libreria Il Catalogo"]
+  
+  L'ex negozio di Giorgio, ora chiuso. Vetrina polverosa, insegna sbiadita. Giorgio ci porta Elena per mostrarle qualcosa.
+
+  [C:casa"Casa di Elena"]
+  
+  Appartamento ordinato, quasi spoglio. Scatoloni del padre ancora da aprire in una stanza.
+
+[C:temi"Temi"]
+
+  [C:eredita"Eredità"]
+  
+  Cosa riceviamo da chi ci ha preceduto. Non solo oggetti, ma segreti, responsabilità, domande senza risposta.
+
+  [C:cura"Cura"]
+  
+  Il gesto di restaurare come metafora: ridare vita a ciò che sembra perduto, sia un libro sia un rapporto.
+
+  [C:verita"Verità nascosta"]
+  
+  Ciò che i morti si portano via, e ciò che lasciano da scoprire.
+
+[C:sequenze"Sequenze"]
+
+  [C:seq-scoperta"La scoperta del segreto"]
+  
+  La catena di eventi che porta Elena a scoprire cosa aveva trovato suo padre.
+  
+    [C:seq-scoperta-1"L'incontro con Giorgio"]
+    
+    Giorgio si presenta in biblioteca con una scusa.
+    
+    [C:seq-scoperta-2"La rivelazione"]
+    
+    Giorgio racconta del libro scomparso e del coinvolgimento di Riccardo.
+    
+    [C:seq-scoperta-3"La ricerca"]
+    
+    Elena cerca tra le cose del padre.
+    
+    [C:seq-scoperta-4"Il ritrovamento"]
+    
+    Elena trova il quaderno con le annotazioni del padre.
+
+[C:timeline"Timeline"]
+
+  [C:tl-storia"Cronologia della storia"]
+  
+    [C:tl-1"2024-11-04 09:00"]
+    
+    Lunedì mattina, Elena arriva in biblioteca.
+    
+    [C:tl-2"2024-11-04 11:30"]
+    
+    Giorgio si presenta in biblioteca.
+    
+    [C:tl-3"2024-11-04 18:00"]
+    
+    Elena va a casa, apre gli scatoloni.
+    
+    [C:tl-4"2024-11-05 16:00"]
+    
+    Elena incontra Giorgio alla vecchia libreria.
+    
+    [C:tl-5"2024-11-05 19:00"]
+    
+    Elena trova il quaderno del padre.
+
+[C:racconto"La carta che resta"]
+
+  [C:cap1"Capitolo 1: Il visitatore"]
+  
+    [C:cap1-scena1"Il laboratorio"][@elena][@biblioteca][@tl-1]
+    
+    Elena posò il bisturi e si massaggiò il collo. Davanti a lei, aperto sul tavolo luminoso, un messale del Quattrocento aspettava che qualcuno decidesse il suo destino. La pergamena si sfaldava ai bordi, l'inchiostro sbiadito in alcune pagine fino a diventare un sussurro.
+    
+    Amava quel momento, quando un libro antico le si offriva con tutte le sue ferite. C'era qualcosa di onesto nella fragilità.
+    
+    Si rimise gli occhiali e tornò al lavoro.
+    
+    [C:cap1-scena2"L'incontro"][@elena][@giorgio][@biblioteca][@tl-2][@seq-scoperta-1]
+    
+    — Mi scusi, cerco la dottoressa Ferro.
+    
+    Elena alzò lo sguardo. Un uomo anziano sulla porta del laboratorio, cappotto grigio, cappello in mano. Lo riconobbe vagamente.
+    
+    — Sono io. Posso aiutarla?
+    
+    — Mi chiamo Giorgio Mante. Ero... un amico di suo padre.
+    
+    La mano di Elena si fermò a mezz'aria, gli occhiali che oscillavano.
+    
+    — Non ricordo che papà parlasse di lei.
+    
+    — No, immagino di no. — Giorgio entrò lentamente, guardandosi intorno. — Suo padre era un uomo riservato. Come lei, direi.
+    
+    Elena non rispose. Aspettò.
+    
+    — Avevo una libreria antiquaria, qui vicino. Suo padre veniva spesso. Parlavamo di libri, naturalmente. Ma non sono qui per i ricordi.
+    
+    Si sedette sulla sedia vicino alla porta, come se le gambe non lo reggessero più.
+    
+    — Sono qui per un libro che è scomparso [!NOTE:trent'anni fa::verificare se la timeline torna]. Un libro che suo padre, credo, aveva trovato.
+
+  [C:cap2"Capitolo 2: Il segreto"][@verita]
+  
+    [C:cap2-scena1"La storia di Giorgio"][@elena][@giorgio][@biblioteca][@seq-scoperta-2]
+    
+    Elena si tolse i guanti da lavoro, lentamente.
+    
+    — Che libro?
+    
+    — Un'edizione rarissima. Un Dante del 1502, stampato a Venezia. Scomparve dalla collezione di un nobile, negli anni Novanta. Si pensò a un furto, ma non fu mai ritrovato.
+    
+    — E cosa c'entra mio padre?
+    
+    Giorgio esitò. Si rigirò il cappello tra le mani.
+    
+    — Suo padre mi telefonò, due settimane prima di morire. Disse che l'aveva trovato. Che era sempre stato qui, in biblioteca, catalogato male. Nascosto in piena vista, disse.
+    
+    Elena sentì qualcosa muoversi nel petto. Una specie di [!FIX:rabbia fredda:5:forse "fastidio" è meglio], o forse paura.
+    
+    — Perché non ne ha parlato prima? Sono passati due anni.
+    
+    — Perché suo padre mi chiese di aspettare. Disse che doveva verificare una cosa, che c'erano delle implicazioni. Poi è morto, e io... non sapevo se fosse giusto.
+    
+    — E adesso?
+    
+    — Adesso sono vecchio, e ci sono cose che non voglio portarmi nella tomba.
+    
+    [C:cap2-scena2"Gli scatoloni"][@elena][@casa][@padre][@tl-3][@seq-scoperta-3][@eredita]
+    
+    Quella sera Elena aprì la porta della stanza che evitava da due anni.
+    
+    Gli scatoloni del padre erano dove li aveva lasciati il giorno del trasloco. Sei scatole di cartone, chiuse col nastro adesivo, etichettate con la sua grafia ordinata: LIBRI PERSONALI, DOCUMENTI, FOTOGRAFIE, VARIE.
+    
+    Si sedette sul pavimento e cominciò da DOCUMENTI.
+    
+    Bollette, ricevute, la garanzia di un televisore che non esisteva più. Lettere formali dalla biblioteca, valutazioni, report. Niente che parlasse di un Dante del 1502.
+    
+    Poi, in fondo, una cartellina senza etichetta.
+    
+    Dentro, ritagli di giornale ingialliti. Articoli sulla scomparsa del libro, datati 1994. E un foglietto scritto a mano: *Mante sa. Parlare con lui prima.*
+    
+    Prima di cosa, papà?
+
+  [C:cap3"Capitolo 3: La carta che resta"][@cura]
+  
+    [C:cap3-scena1"La vecchia libreria"][@elena][@giorgio][@libreria][@tl-4]
+    
+    La libreria Il Catalogo era un buco polveroso tra un bar e una lavanderia. L'insegna pendeva da un gancio arrugginito. Giorgio armeggiò con le chiavi, le mani che tremavano.
+    
+    — Non ci entro da cinque anni. Da quando ho chiuso.
+    
+    Dentro, l'odore era quello giusto: carta, polvere, tempo. Scaffali vuoti, qualche scatolone, un bancone coperto da un telo.
+    
+    — Suo padre veniva qui ogni settimana, — disse Giorgio. — Parlavamo per ore. Era l'unico che capiva.
+    
+    — Capiva cosa?
+    
+    — Che i libri non sono oggetti. Sono [!TODO:trovare parola migliore:10:] testimoni. Portano con sé le mani che li hanno toccati.
+    
+    Elena guardò gli scaffali vuoti.
+    
+    — Il Dante, dove sarebbe adesso?
+    
+    — Non lo so. Suo padre non me l'ha detto. Ma mi ha dato una cosa, l'ultima volta che ci siamo visti.
+    
+    Giorgio andò verso il bancone, sollevò il telo. Sotto c'era una cassetta di legno. La aprì e tirò fuori un quaderno, uno di quei quaderni a quadretti che usavano a scuola.
+    
+    — Questo. Mi disse di darlo a lei, se fosse successo qualcosa. Mi disse: "Elena saprà cosa fare".
+    
+    Elena prese il quaderno. La copertina era consunta, gli angoli rotondi.
+    
+    — Perché non me l'ha dato subito?
+    
+    — Perché avevo paura. Di cosa c'era scritto, di cosa avrebbe significato per lei. Ma adesso...
+    
+    — Adesso è vecchio, sì, l'ha già detto.
+    
+    Giorgio sorrise, un sorriso stanco.
+    
+    — Adesso ho capito che i segreti sono [!NOTE:più pesanti dei libri::bella frase, tenere].
+    
+    [C:cap3-scena2"Il quaderno"][@elena][@casa][@padre][@tl-5][@seq-scoperta-4][@eredita][@verita]
+    
+    Elena lesse il quaderno quella notte, seduta sul pavimento della stanza degli scatoloni.
+    
+    Era un diario di ricerca. Date, annotazioni, riferimenti. Suo padre aveva passato anni a seguire le tracce del Dante scomparso. Aveva scoperto che non era mai uscito dalla biblioteca — era stato catalogato male nel 1994, durante un trasloco degli archivi, e da allora dormiva in un deposito, invisibile.
+    
+    Ma c'era dell'altro.
+    
+    Suo padre aveva scoperto chi aveva causato l'"errore" di catalogazione. Chi aveva nascosto il libro in piena vista, per poterlo recuperare più tardi. Un nome che Elena conosceva, un nome che era ancora in biblioteca.
+    
+    L'ultima pagina era una lettera, mai spedita.
+    
+    *Elena, se stai leggendo questo, significa che non ho fatto in tempo. Il libro è nello scaffale 7B del deposito nord, dietro i registri del '900. Non so ancora cosa fare — denunciare significherebbe distruggere una persona, tacere significherebbe tradire tutto ciò in cui credo. Ho deciso di aspettare, di pensare. Ma tu non devi aspettare. Tu sei sempre stata più coraggiosa di me. Qualunque cosa deciderai, sarà la cosa giusta. Ti voglio bene, papà.*
+    
+    Elena chiuse il quaderno.
+    
+    Fuori, l'alba cominciava a schiarire il cielo. Aveva davanti a sé una scelta che suo padre non era riuscito a fare. Ma aveva anche qualcosa che lui le aveva lasciato, insieme al segreto.
+    
+    La fiducia.
+    
+    Si alzò, si stirò la schiena. Andò in cucina a fare il caffè.
+    
+    Poi avrebbe deciso.
