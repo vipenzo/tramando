@@ -1,7 +1,34 @@
+# Dipendenze
 node_modules/
-public/js/
 .shadow-cljs/
 .cpcache/
 .nrepl-port
-*.log
+.clj-kondo/
+.lsp/
+
+# Build output
+public/js/cljs-runtime/
+public/js/main.js
+public/js/manifest.edn
+
+# Tauri
+src-tauri/target/
+
+# OS files
 .DS_Store
+Thumbs.db
+*.swp
+*~
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Logs
+*.log
+npm-debug.log
+
+# Local settings
+.env
+.env.local

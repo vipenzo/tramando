@@ -5,9 +5,13 @@
   "scripts": {
     "dev": "shadow-cljs watch app",
     "build": "shadow-cljs release app",
-    "clean": "rm -rf public/js"
+    "clean": "rm -rf public/js",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.9.6",
     "shadow-cljs": "^2.28.0"
   },
   "dependencies": {

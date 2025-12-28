@@ -383,7 +383,7 @@
                                  (reset! error-msg nil)
                                  (reset! editing? true))}
               (str "[" (:id chunk) "]")]
-             [help/help-icon :id {:below? true}]]))))))
+             [:span.help-icon {:title (:id help/texts)} "?"]]))))))
 
 ;; =============================================================================
 ;; Summary Input Component
@@ -408,7 +408,7 @@
                 :on-change (fn [e]
                              (model/update-chunk! (:id chunk)
                                                   {:summary (.. e -target -value)}))}]
-       [help/help-icon :summary {:right? true}]])))
+       [:span.help-icon {:title (:summary help/texts)} "?"]])))
 
 ;; =============================================================================
 ;; Aspects Display
@@ -443,9 +443,9 @@
           (let [possible-parents (model/get-possible-parents (:id chunk))
                 current-parent-id (:parent-id chunk)]
             [:div {:style {:display "flex" :align-items "center" :gap "8px" :margin-top "8px"}}
-             [:span {:style {:color (:text-muted colors) :font-size "0.8rem" :display "flex" :align-items "center"}}
+             [:span {:style {:color (:text-muted colors) :font-size "0.8rem" :display "flex" :align-items "center" :gap "4px"}}
               "Parent:"
-              [help/help-icon :parent]]
+              [:span.help-icon {:title (:parent help/texts)} "?"]]
              [:select {:value (or current-parent-id "")
                        :style {:background (:editor-bg colors)
                                :color (:text colors)
