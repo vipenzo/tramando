@@ -24,6 +24,9 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Build frontend (shadow-cljs)
+        run: npx shadow-cljs release app
+
       - name: Build Tauri app (Windows)
         uses: tauri-apps/tauri-action@v0
         with:
