@@ -28,21 +28,21 @@
     }
   },
   "bundle": {
-    "active": true,
-    "targets": ["dmg", "app"],
-    "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
-    ],
-    "macOS": {
-      "minimumSystemVersion": "10.13",
-      "hardenedRuntime": true
-    },
-    "category": "Productivity",
-    "shortDescription": "Tessi la tua storia",
-    "longDescription": "Tramando è uno strumento per scrittori che vogliono gestire storie complesse: personaggi, luoghi, temi, linee temporali."
+  "active": true,
+  "targets": ["dmg", "app", "nsis", "msi"],
+  "icon": [
+    "icons/32x32.png",
+    "icons/128x128.png",
+    "icons/128x128@2x.png",
+    "icons/icon.icns",
+    "icons/icon.ico"
+  ],
+  "macOS": {
+    "minimumSystemVersion": "10.13",
+    "hardenedRuntime": true
+  },
+  "category": "Productivity",
+  "shortDescription": "Tessi la tua storia",
+  "longDescription": "Tramando è uno strumento per scrittori che vogliono gestire storie complesse: personaggi, luoghi, temi, linee temporali."
   }
 }
