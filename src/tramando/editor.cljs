@@ -5,6 +5,7 @@
             [tramando.settings :as settings]
             [tramando.annotations :as annotations]
             [tramando.help :as help]
+            [tramando.i18n :as i18n :refer [t]]
             ["@codemirror/state" :refer [EditorState]]
             ["@codemirror/view" :refer [EditorView keymap lineNumbers highlightActiveLine
                                         highlightActiveLineGutter drawSelection
@@ -236,7 +237,7 @@
               :checked @annotations/show-markup?
               :on-change #(swap! annotations/show-markup? not)
               :style {:cursor "pointer"}}]
-     "Mostra markup"]))
+     (t :show-markup)]))
 
 ;; =============================================================================
 ;; Editor Component
@@ -383,7 +384,7 @@
                                  (reset! error-msg nil)
                                  (reset! editing? true))}
               (str "[" (:id chunk) "]")]
-             [:span.help-icon {:title (:id help/texts)} "?"]]))))))
+             [:span.help-icon {:title (t :help-id)} "?"]]))))))
 
 ;; =============================================================================
 ;; Summary Input Component
@@ -396,7 +397,7 @@
       [:div {:style {:display "flex" :align-items "center" :gap "8px"}}
        [:input {:type "text"
                 :value (:summary chunk)
-                :placeholder "Titolo del chunk..."
+                :placeholder (t :chunk-title-placeholder)
                 :style {:background "transparent"
                         :border (str "1px solid " (:border colors))
                         :border-radius "4px"
@@ -408,7 +409,7 @@
                 :on-change (fn [e]
                              (model/update-chunk! (:id chunk)
                                                   {:summary (.. e -target -value)}))}]
-       [:span.help-icon {:title (:summary help/texts)} "?"]])))
+       [:span.help-icon {:title (t :help-summary)} "?"]])))
 
 ;; =============================================================================
 ;; Aspects Display
@@ -444,8 +445,8 @@
                 current-parent-id (:parent-id chunk)]
             [:div {:style {:display "flex" :align-items "center" :gap "8px" :margin-top "8px"}}
              [:span {:style {:color (:text-muted colors) :font-size "0.8rem" :display "flex" :align-items "center" :gap "4px"}}
-              "Parent:"
-              [:span.help-icon {:title (:parent help/texts)} "?"]]
+              (t :parent)
+              [:span.help-icon {:title (t :help-parent)} "?"]]
              [:select {:value (or current-parent-id "")
                        :style {:background (:editor-bg colors)
                                :color (:text colors)
@@ -462,7 +463,7 @@
                                       (if (:error result)
                                         (reset! error-msg (:error result))
                                         (reset! error-msg nil))))}
-              [:option {:value ""} "(root)"]
+              [:option {:value ""} (t :root)]
               (doall
                (for [p possible-parents]
                  ^{:key (:id p)}
@@ -486,7 +487,7 @@
           [:div {:style {:margin-top "12px" :padding-top "12px" :border-top (str "1px solid " (:border colors))}}
            (if @confirming?
              [:div {:style {:display "flex" :gap "8px" :align-items "center"}}
-              [:span {:style {:color "#ff6b6b" :font-size "0.85rem"}} "Confermi?"]
+              [:span {:style {:color "#ff6b6b" :font-size "0.85rem"}} (t :confirm)]
               [:button {:style {:background "#ff6b6b"
                                 :color "white"
                                 :border "none"
@@ -500,7 +501,7 @@
                                         (do (reset! error-msg (:error result))
                                             (reset! confirming? false))
                                         (reset! confirming? false))))}
-               "Elimina"]
+               (t :delete)]
               [:button {:style {:background "transparent"
                                 :color (:text-muted colors)
                                 :border (str "1px solid " (:text-muted colors))
@@ -509,7 +510,7 @@
                                 :cursor "pointer"
                                 :font-size "0.8rem"}
                         :on-click #(reset! confirming? false)}
-               "Annulla"]]
+               (t :cancel)]]
              [:div
               [:button {:style {:background "transparent"
                                 :color "#ff6b6b"
@@ -519,7 +520,7 @@
                                 :cursor "pointer"
                                 :font-size "0.85rem"}
                         :on-click #(reset! confirming? true)}
-               "Elimina chunk"]
+               (t :delete-chunk)]
               (when @error-msg
                 [:span {:style {:color "#ff6b6b" :font-size "0.75rem" :margin-left "8px"}}
                  @error-msg])])])))))
@@ -551,9 +552,9 @@
                        :cursor "pointer"
                        :font-size "0.85rem"
                        :border-bottom (when (= current :edit) (str "2px solid " (:accent colors)))}
-               :title (:tab-modifica help/texts)
+               :title (t :help-tab-modifica)
                :on-click #(set-tab! :edit)}
-      "Modifica"]
+      (t :edit)]
      [:button {:style {:background (if (= current :refs) (:editor-bg colors) "transparent")
                        :color (if (= current :refs) (:accent colors) (:text-muted colors))
                        :border "none"
@@ -561,9 +562,9 @@
                        :cursor "pointer"
                        :font-size "0.85rem"
                        :border-bottom (when (= current :refs) (str "2px solid " (:accent colors)))}
-               :title (if is-aspect? (:tab-usato-da help/texts) (:tab-figli help/texts))
+               :title (if is-aspect? (t :help-tab-usato-da) (t :help-tab-figli))
                :on-click #(set-tab! :refs)}
-      (if is-aspect? "Usato da" "Figli")]
+      (if is-aspect? (t :used-by) (t :children))]
      [:button {:style {:background (if (= current :read) (:editor-bg colors) "transparent")
                        :color (if (= current :read) (:accent colors) (:text-muted colors))
                        :border "none"
@@ -571,9 +572,9 @@
                        :cursor "pointer"
                        :font-size "0.85rem"
                        :border-bottom (when (= current :read) (str "2px solid " (:accent colors)))}
-               :title (:tab-lettura help/texts)
+               :title (t :help-tab-lettura)
                :on-click #(set-tab! :read)}
-      "Lettura"]]))
+      (t :reading)]]))
 
 ;; =============================================================================
 ;; Aspects Manager (add/remove aspects from a chunk)
@@ -610,7 +611,7 @@
                                     :padding "0 2px"
                                     :font-size "0.9rem"
                                     :line-height "1"}
-                            :title "Rimuovi"
+                            :title (t :remove)
                             :on-click #(model/remove-aspect-from-chunk! (:id chunk) aspect-id)}
                    "×"]])))
 
@@ -624,7 +625,7 @@
                                :font-size "0.8rem"
                                :cursor "pointer"}
                        :on-click #(swap! dropdown-open? not)}
-              "+ Aspetto"]
+              (t :add-aspect)]
              [help/help-icon :add-aspect]
              (when @dropdown-open?
                [:div {:style {:position "absolute"
@@ -641,7 +642,7 @@
                 (let [available (remove #(contains? current-aspects (:id %)) all-aspects)]
                   (if (empty? available)
                     [:div {:style {:padding "8px" :color (:text-muted colors) :font-size "0.8rem"}}
-                     "Tutti gli aspetti già aggiunti"]
+                     (t :all-aspects-added)]
                     (doall
                      (for [aspect available]
                       ^{:key (:id aspect)}
@@ -670,10 +671,10 @@
        (let [users (model/chunks-using-aspect (:id chunk))]
          [:div
           [:h3 {:style {:color (:text-muted colors) :font-size "0.85rem" :margin-bottom "12px"}}
-           (str "Usato in " (count users) " chunk")]
+           (t :used-in-n-chunks (count users))]
           (if (empty? users)
             [:div {:style {:color (:text-muted colors) :font-style "italic"}}
-             "Nessun chunk usa questo aspetto"]
+             (t :no-chunk-uses-aspect)]
             [:div {:style {:display "flex" :flex-direction "column" :gap "8px"}}
              (doall
               (for [c users]
@@ -692,10 +693,10 @@
              display-summary (model/expand-summary-macros (:summary chunk) chunk)]
          [:div
           [:h3 {:style {:color (:text-muted colors) :font-size "0.85rem" :margin-bottom "12px"}}
-           (str (count children) " figli")]
+           (t :n-children (count children))]
           (if (empty? children)
             [:div {:style {:color (:text-muted colors) :font-style "italic"}}
-             "Nessun figlio"]
+             (t :no-children)]
             [:div {:style {:display "flex" :flex-direction "column" :gap "8px"}}
              (doall
               (for [c children]
@@ -797,10 +798,10 @@
           ;; Chunks using this aspect
           (if (empty? users)
             [:div {:style {:color (:text-muted colors) :font-style "italic"}}
-             "Nessun chunk usa questo aspetto"]
+             (t :no-chunk-uses-aspect)]
             [:div
              [:h3 {:style {:color (:text-muted colors) :font-size "0.85rem" :margin-bottom "16px"}}
-              (str "Appare in " (count users) " chunk:")]
+              (t :appears-in-n-chunks (count users))]
              (doall
               (for [user users]
                 ^{:key (:id user)}

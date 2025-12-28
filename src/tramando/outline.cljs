@@ -3,7 +3,8 @@
             [tramando.model :as model]
             [tramando.settings :as settings]
             [tramando.annotations :as annotations]
-            [tramando.help :as help]))
+            [tramando.help :as help]
+            [tramando.i18n :as i18n :refer [t]]))
 
 ;; =============================================================================
 ;; Chunk Tree Item
@@ -53,16 +54,16 @@
                             (toggle-collapsed! id))}
          (if is-collapsed? "▶" "▼")])
       [:span.chunk-summary {:style {:flex 1 :color (:text colors)}}
-       (or (when (seq display-summary) display-summary) "(senza titolo)")]
+       (or (when (seq display-summary) display-summary) (t :no-title))]
       (when selected?
         [:span {:style {:margin-left "auto" :display "flex" :gap "2px"}
                 :on-click #(.stopPropagation %)}
          [:button {:style (merge (btn-style) (when-not can-move-up? {:opacity 0.3 :cursor "default"}))
-                   :title "Sposta su"
+                   :title (t :move-up)
                    :on-click #(when can-move-up? (model/move-chunk-up! id))}
           "↑"]
          [:button {:style (merge (btn-style) (when-not can-move-down? {:opacity 0.3 :cursor "default"}))
-                   :title "Sposta giù"
+                   :title (t :move-down)
                    :on-click #(when can-move-down? (model/move-chunk-down! id))}
           "↓"]])]
      (when (and has-children? (not is-collapsed?))
@@ -118,7 +119,7 @@
                             (toggle-collapsed! id))}
          (if is-collapsed? "▶" "▼")])
       [:span.chunk-summary {:style {:flex 1 :color color}}
-       (or (when (seq display-summary) display-summary) "(senza titolo)")]
+       (or (when (seq display-summary) display-summary) (t :no-title))]
       (when (pos? usage-count)
         [:span {:style {:margin-left "4px" :color (:text-muted colors) :font-size "0.75rem"}}
          (str "(" usage-count ")")])
@@ -126,11 +127,11 @@
         [:span {:style {:margin-left "auto" :display "flex" :gap "2px"}
                 :on-click #(.stopPropagation %)}
          [:button {:style (merge (btn-style) (when-not can-move-up? {:opacity 0.3 :cursor "default"}))
-                   :title "Sposta su"
+                   :title (t :move-up)
                    :on-click #(when can-move-up? (model/move-chunk-up! id))}
           "↑"]
          [:button {:style (merge (btn-style) (when-not can-move-down? {:opacity 0.3 :cursor "default"}))
-                   :title "Sposta giù"
+                   :title (t :move-down)
                    :on-click #(when can-move-down? (model/move-chunk-down! id))}
           "↓"]])]
      (when (and has-children? (not is-collapsed?))
@@ -161,7 +162,9 @@
         children (model/build-aspect-tree id)
         colors (:colors @settings/settings)
         color (container-color id)
-        help-key (keyword id)]
+        help-key (keyword id)
+        ;; Use translated name if available
+        display-name (t (keyword id))]
     [:div {:style {:margin-bottom "8px"}}
      [:div {:style {:display "flex"
                     :align-items "center"
@@ -172,7 +175,7 @@
             :on-click #(toggle-collapsed! id)}
       [:span {:style {:margin-right "4px" :font-size "0.7rem"}}
        (if is-collapsed? "▶" "▼")]
-      summary
+      display-name
       [help/help-icon help-key {:below? true}]]
      (when-not is-collapsed?
        (if (seq children)
@@ -182,7 +185,7 @@
              ^{:key (:id child)}
              [aspect-item child]))]
          [:div {:style {:color (:text-muted colors) :font-size "0.8rem" :padding "4px 8px"}}
-          "Nessuno"]))]))
+          (t :no-aspects)]))]))
 
 ;; =============================================================================
 ;; New Aspect Dropdown
@@ -206,7 +209,7 @@
                    :justify-content "space-between"
                    :align-items "center"}
            :on-click #(swap! open? not)}
-          [:span "+ Nuovo aspetto"]
+          [:span (t :new-aspect)]
           [:span {:style {:font-size "0.7rem"}} (if @open? "▲" "▼")]]
          (when @open?
            [:div {:style {:position "absolute"
@@ -219,7 +222,7 @@
                           :margin-top "4px"
                           :z-index 100}}
             (doall
-             (for [{:keys [id summary]} model/aspect-containers]
+             (for [{:keys [id]} model/aspect-containers]
                ^{:key id}
                [:div {:style {:padding "8px 12px"
                               :cursor "pointer"
@@ -230,7 +233,7 @@
                       :on-click (fn []
                                   (model/add-aspect! id)
                                   (reset! open? false))}
-                summary]))])]))))
+                (t (keyword id))]))])]))))
 
 ;; =============================================================================
 ;; Annotations Section
@@ -310,7 +313,7 @@
        [:div {:style {:margin-left "8px"}}
         (if (empty? items)
           [:div {:style {:color (:text-muted colors) :font-size "0.75rem" :padding "4px"}}
-           "Nessuna"]
+           (t :none-fem)]
           (doall
            (for [[idx item] (map-indexed vector items)]
              ^{:key (str type "-" (:chunk-id item) "-" idx)}
@@ -332,7 +335,7 @@
       [:h2 {:style {:color (:text colors) :margin 0 :display "flex" :align-items "center" :gap "8px"}}
        [:span {:style {:font-size "0.7rem" :color (:text-muted colors)}}
         (if is-collapsed? "▶" "▼")]
-       "Annotazioni"
+       (t :annotations)
        [help/help-icon :annotazioni {:below? true}]]
       (when (pos? total)
         [:span {:style {:background (:accent colors)
@@ -351,7 +354,7 @@
           [annotation-type-section :NOTE NOTE])
         (when (zero? total)
           [:div {:style {:color (:text-muted colors) :font-size "0.8rem" :padding "8px 0"}}
-           "Nessuna annotazione"])])]))
+           (t :no-annotations)])])]))
 
 ;; =============================================================================
 ;; Outline Panel
@@ -381,7 +384,7 @@
      [:div {:style {:position "relative" :z-index 1 :height "100%" :overflow-y "auto" :padding "inherit"}}
      ;; STRUTTURA section
      [:h2 {:style {:color (:text colors) :display "flex" :align-items "center"}}
-      "Struttura"
+      (t :structure)
       [help/help-icon :struttura {:below? true}]]
      ;; Project title
      [:div {:style {:color (:accent colors)
@@ -399,7 +402,7 @@
            [chunk-item chunk]))]
        [:div.outline-empty
         {:style {:color (:text-muted colors) :font-size "0.85rem" :padding "8px 0"}}
-        "Nessun chunk."])
+        (t :no-chunk)])
 
      [:div {:style {:margin-top "12px"}}
       [:button
@@ -413,11 +416,11 @@
                 :font-size "0.9rem"}
         :on-click (fn []
                     (model/add-chunk!))}
-       "+ Nuovo Chunk"]]
+       (t :new-chunk)]]
 
      ;; ASPETTI section
      [:div {:style {:margin-top "24px" :padding-top "16px" :border-top (str "1px solid " (:border colors))}}
-      [:h2 {:style {:color (:text colors)}} "Aspetti"]
+      [:h2 {:style {:color (:text colors)}} (t :aspects)]
       (doall
        (for [container model/aspect-containers]
          ^{:key (:id container)}
@@ -439,8 +442,8 @@
                     :font-size "0.9rem"}
             :on-click (fn []
                         (model/add-chunk! :parent-id (:id selected)))}
-           (str "+ Figlio di \"" (subs (:summary selected) 0 (min 20 (count (:summary selected))))
-                (when (> (count (:summary selected)) 20) "...") "\"")]]))
+           (t :add-child (str (subs (:summary selected) 0 (min 20 (count (:summary selected))))
+                                     (when (> (count (:summary selected)) 20) "...")))]]))
 
      ;; ANNOTAZIONI section
      [annotations-section]]]))

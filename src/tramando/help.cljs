@@ -1,43 +1,58 @@
 (ns tramando.help
-  "Contextual help tooltips for the UI")
+  "Contextual help tooltips for the UI"
+  (:require [tramando.i18n :as i18n :refer [t]]))
 
 ;; =============================================================================
-;; Help Texts
+;; Help Texts - Legacy map for backwards compatibility
+;; Now all texts come from i18n translations
 ;; =============================================================================
 
 (def texts
+  "Deprecated: use i18n translations directly.
+   This map is kept for backward compatibility with components that access it directly."
   {;; Sidebar sections
-   :struttura "La narrativa vera e propria: capitoli, scene, il testo della tua storia. Organizzala come preferisci."
-   :personaggi "I personaggi della storia. Usa [@id] nel testo delle scene per collegarli."
-   :luoghi "I luoghi dove si svolge la storia. Usa [@id] per collegarli alle scene."
-   :temi "Le idee e i motivi ricorrenti. Usa [@id] per tracciare dove appaiono."
-   :sequenze "Catene di causa-effetto. I figli sono i passi ordinati della sequenza."
-   :timeline "Eventi in ordine cronologico. Metti data e ora nel titolo dei figli (es. '2024-03-15 08:00')."
+   :struttura :help-struttura
+   :personaggi :help-personaggi
+   :luoghi :help-luoghi
+   :temi :help-temi
+   :sequenze :help-sequenze
+   :timeline :help-timeline
 
    ;; Editor fields
-   :id "Identificatore unico. Usalo con [@id] nel testo per creare collegamenti."
-   :summary "Il titolo del chunk. Usa [:ORD] per numerazione automatica (es. 'Capitolo [:ORD]')."
-   :add-aspect "Collega questo chunk a personaggi, luoghi, temi, sequenze o timeline."
-   :parent "Il chunk genitore nella gerarchia. Cambialo per spostare questo elemento."
+   :id :help-id
+   :summary :help-summary
+   :add-aspect :help-add-aspect
+   :parent :help-parent
 
    ;; Editor tabs
-   :tab-modifica "Scrivi e modifica il contenuto del chunk."
-   :tab-usato-da "Le scene e i chunk che fanno riferimento a questo aspetto con [@id]."
-   :tab-figli "I chunk contenuti in questo elemento (es. le scene di un capitolo)."
-   :tab-lettura "Visualizza il testo formattato, senza markup visibile."
+   :tab-modifica :help-tab-modifica
+   :tab-usato-da :help-tab-usato-da
+   :tab-figli :help-tab-figli
+   :tab-lettura :help-tab-lettura
 
    ;; Header/Toolbar
-   :settings "Tema, colori, e preferenze dell'applicazione."
-   :metadata "Titolo, autore, lingua e altri metadati del progetto."
-   :carica "Apri un file .trmd esistente."
-   :salva "Salva il progetto corrente."
-   :esporta "Esporta il progetto in formato MD o PDF."
+   :settings :help-settings
+   :metadata :help-metadata
+   :carica :help-carica
+   :salva :help-salva
+   :esporta :help-esporta
 
    ;; Annotations
-   :annotazioni "Note, cose da fare e problemi da correggere. Non appaiono nell'export PDF."
+   :annotazioni :help-annotazioni
 
    ;; Radial map
-   :mappa-radiale "Mappa della storia: struttura al centro, aspetti intorno. Le linee mostrano i collegamenti. Clicca per selezionare, scrolla per zoomare."})
+   :mappa-radiale :help-mappa-radiale})
+
+(defn- get-help-text
+  "Get translated help text for a key"
+  [key-or-text]
+  (if (keyword? key-or-text)
+    ;; First check if it's a mapped key, then translate
+    (let [mapped-key (get texts key-or-text)]
+      (if mapped-key
+        (t mapped-key)
+        (t (keyword (str "help-" (name key-or-text))))))
+    key-or-text))
 
 ;; =============================================================================
 ;; Tooltip Component
@@ -50,9 +65,7 @@
   ([key-or-text]
    (tooltip key-or-text nil))
   ([key-or-text content]
-   (let [text (if (keyword? key-or-text)
-               (get texts key-or-text (str "Missing: " key-or-text))
-               key-or-text)]
+   (let [text (get-help-text key-or-text)]
      [:span.with-help
       content
       [:span.help-icon "?"]
@@ -64,9 +77,7 @@
   ([key-or-text]
    (help-icon key-or-text {}))
   ([key-or-text {:keys [below? left? right?] :or {below? false left? false right? false}}]
-   (let [text (if (keyword? key-or-text)
-               (get texts key-or-text (str "Missing: " key-or-text))
-               key-or-text)
+   (let [text (get-help-text key-or-text)
          classes (str "help-tooltip"
                       (when below? " below")
                       (when left? " left")

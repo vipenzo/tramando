@@ -8,7 +8,8 @@
             [tramando.radial :as radial]
             [tramando.export-pdf :as export-pdf]
             [tramando.annotations :as annotations]
-            [tramando.help :as help]))
+            [tramando.help :as help]
+            [tramando.i18n :as i18n :refer [t]]))
 
 ;; =============================================================================
 ;; View Mode State
@@ -98,7 +99,9 @@
 (defn settings-modal []
   (let [colors (:colors @settings/settings)
         current-theme (:theme @settings/settings)
-        autosave-delay (/ (:autosave-delay-ms @settings/settings) 1000)]
+        current-lang (:language @settings/settings)
+        autosave-delay (/ (:autosave-delay-ms @settings/settings) 1000)
+        _ @i18n/current-lang] ; subscribe to language changes
     [:div {:style {:position "fixed"
                    :top 0 :left 0 :right 0 :bottom 0
                    :background "rgba(0,0,0,0.7)"
@@ -125,7 +128,7 @@
        [:h2 {:style {:margin 0
                      :color (settings/get-color :text)
                      :font-size "1.3rem"}}
-        "Impostazioni"]
+        (t :settings)]
        [:button {:style {:background "transparent"
                          :border "none"
                          :color (settings/get-color :text-muted)
@@ -136,6 +139,28 @@
                  :on-click #(reset! settings/settings-open? false)}
         "×"]]
 
+      ;; Language Selector
+      [:div {:style {:margin-bottom "20px"}}
+       [:label {:style {:color (settings/get-color :text)
+                        :font-size "0.9rem"
+                        :font-weight "600"
+                        :display "block"
+                        :margin-bottom "8px"}}
+        (t :language)]
+       [:select {:value (name (or current-lang :it))
+                 :style {:width "100%"
+                         :background (settings/get-color :editor-bg)
+                         :color (settings/get-color :text)
+                         :border (str "1px solid " (settings/get-color :border))
+                         :border-radius "4px"
+                         :padding "8px 12px"
+                         :font-size "0.9rem"
+                         :cursor "pointer"}
+                 :on-change #(settings/set-language! (keyword (-> % .-target .-value)))}
+        (for [[lang-key lang-name] i18n/available-languages]
+          ^{:key lang-key}
+          [:option {:value (name lang-key)} lang-name])]]
+
       ;; Theme Selector
       [:div {:style {:margin-bottom "20px"}}
        [:label {:style {:color (settings/get-color :text)
@@ -143,7 +168,7 @@
                         :font-weight "600"
                         :display "block"
                         :margin-bottom "8px"}}
-        "Tema predefinito"]
+        (t :default-theme)]
        [:select {:value (name (if (= current-theme :custom) :tessuto current-theme))
                  :style {:width "100%"
                          :background (settings/get-color :editor-bg)
@@ -166,7 +191,7 @@
                         :font-weight "600"
                         :display "block"
                         :margin-bottom "8px"}}
-        (str "Ritardo autosave: " autosave-delay " secondi")]
+        (t :autosave-delay autosave-delay)]
        [:input {:type "range"
                 :min 1
                 :max 10
@@ -183,7 +208,7 @@
                         :font-weight "600"
                         :display "block"
                         :margin-bottom "12px"}}
-        "Colori personalizzati"]
+        (t :custom-colors)]
 
        [:div {:style {:background (settings/get-color :background)
                       :border-radius "6px"
@@ -196,14 +221,14 @@
                          :font-size "0.75rem"
                          :text-transform "uppercase"
                          :letter-spacing "0.5px"}}
-          "Interfaccia"]
-         [color-picker "Sfondo" :background]
-         [color-picker "Sidebar" :sidebar]
-         [color-picker "Editor" :editor-bg]
-         [color-picker "Bordi" :border]
-         [color-picker "Testo" :text]
-         [color-picker "Testo secondario" :text-muted]
-         [color-picker "Accento" :accent]]
+          (t :interface)]
+         [color-picker (t :color-background) :background]
+         [color-picker (t :color-sidebar) :sidebar]
+         [color-picker (t :color-editor) :editor-bg]
+         [color-picker (t :color-border) :border]
+         [color-picker (t :color-text) :text]
+         [color-picker (t :color-text-secondary) :text-muted]
+         [color-picker (t :color-accent) :accent]]
 
         ;; Category Colors
         [:div
@@ -211,13 +236,13 @@
                          :font-size "0.75rem"
                          :text-transform "uppercase"
                          :letter-spacing "0.5px"}}
-          "Categorie"]
-         [color-picker "Struttura" :structure]
-         [color-picker "Personaggi" :personaggi]
-         [color-picker "Luoghi" :luoghi]
-         [color-picker "Temi" :temi]
-         [color-picker "Sequenze" :sequenze]
-         [color-picker "Timeline" :timeline]]]]
+          (t :categories)]
+         [color-picker (t :color-structure) :structure]
+         [color-picker (t :personaggi) :personaggi]
+         [color-picker (t :luoghi) :luoghi]
+         [color-picker (t :temi) :temi]
+         [color-picker (t :sequenze) :sequenze]
+         [color-picker (t :timeline) :timeline]]]]
 
       ;; Import/Export Section
       [:div {:style {:margin-bottom "20px"
@@ -228,7 +253,7 @@
                         :font-weight "600"
                         :display "block"
                         :margin-bottom "12px"}}
-        "Import/Export"]
+        (t :import-export)]
        [:div {:style {:display "flex" :gap "8px"}}
         ;; Hidden file input for importing
         [:input {:type "file"
@@ -256,7 +281,7 @@
                           :font-size "0.85rem"}
                   :on-click #(when @settings-file-input-ref
                                (.click @settings-file-input-ref))}
-         "Importa settings.edn"]
+         (t :import-settings)]
         [:button {:style {:flex 1
                           :background "transparent"
                           :color (settings/get-color :text-muted)
@@ -266,7 +291,7 @@
                           :cursor "pointer"
                           :font-size "0.85rem"}
                   :on-click #(settings/download-settings!)}
-         "Esporta settings.edn"]]]
+         (t :export-settings)]]]
 
       ;; Help Section
       [:div {:style {:margin-bottom "20px"
@@ -277,7 +302,7 @@
                         :font-weight "600"
                         :display "block"
                         :margin-bottom "12px"}}
-        "Aiuto"]
+        (t :help)]
        [:button {:style {:background "transparent"
                          :color (settings/get-color :text)
                          :border (str "1px solid " (settings/get-color :border))
@@ -294,7 +319,7 @@
                              (reset! settings/settings-open? false)
                              (open-tutorial!))}
         [:span "📖"]
-        "Rivedi tutorial"]]
+        (t :review-tutorial)]]
 
       ;; Action Buttons
       [:div {:style {:display "flex" :gap "8px" :justify-content "flex-end"}}
@@ -306,7 +331,7 @@
                          :cursor "pointer"
                          :font-size "0.85rem"}
                  :on-click #(settings/reset-to-theme!)}
-        "Reset tema"]
+        (t :reset-theme)]
        [:button {:style {:background (settings/get-color :accent)
                          :color "white"
                          :border "none"
@@ -317,7 +342,7 @@
                  :on-click (fn []
                              (settings/save-settings!)
                              (reset! settings/settings-open? false))}
-        "Salva"]]]]))
+        (t :save)]]]]))
 
 ;; =============================================================================
 ;; Metadata Modal
@@ -325,7 +350,8 @@
 
 (defn metadata-modal []
   (let [metadata (model/get-metadata)
-        colors (:colors @settings/settings)]
+        colors (:colors @settings/settings)
+        _ @i18n/current-lang] ; subscribe to language changes
     [:div {:style {:position "fixed"
                    :top 0 :left 0 :right 0 :bottom 0
                    :background "rgba(0,0,0,0.7)"
@@ -352,7 +378,7 @@
        [:h2 {:style {:margin 0
                      :color (settings/get-color :text)
                      :font-size "1.3rem"}}
-        "Informazioni progetto"]
+        (t :project-info)]
        [:button {:style {:background "transparent"
                          :border "none"
                          :color (settings/get-color :text-muted)
@@ -370,10 +396,10 @@
                         :font-weight "600"
                         :display "block"
                         :margin-bottom "6px"}}
-        "Titolo *"]
+        (t :title-required)]
        [:input {:type "text"
                 :value (or (:title metadata) "")
-                :placeholder "Titolo del progetto"
+                :placeholder (t :project-title-placeholder)
                 :style {:width "100%"
                         :background (settings/get-color :editor-bg)
                         :border (str "1px solid " (settings/get-color :border))
@@ -390,10 +416,10 @@
                         :font-size "0.85rem"
                         :display "block"
                         :margin-bottom "6px"}}
-        "Autore"]
+        (t :author)]
        [:input {:type "text"
                 :value (or (:author metadata) "")
-                :placeholder "Nome autore"
+                :placeholder (t :author-placeholder)
                 :style {:width "100%"
                         :background (settings/get-color :editor-bg)
                         :border (str "1px solid " (settings/get-color :border))
@@ -411,7 +437,7 @@
                          :font-size "0.85rem"
                          :display "block"
                          :margin-bottom "6px"}}
-         "Lingua"]
+         (t :language)]
         [:select {:value (or (:language metadata) "it")
                   :style {:width "100%"
                           :background (settings/get-color :editor-bg)
@@ -430,7 +456,7 @@
                          :font-size "0.85rem"
                          :display "block"
                          :margin-bottom "6px"}}
-         "Anno"]
+         (t :year)]
         [:input {:type "number"
                  :value (or (:year metadata) "")
                  :placeholder "2024"
@@ -453,7 +479,7 @@
                          :font-size "0.85rem"
                          :display "block"
                          :margin-bottom "6px"}}
-         "ISBN"]
+         (t :isbn)]
         [:input {:type "text"
                  :value (or (:isbn metadata) "")
                  :placeholder "978-..."
@@ -471,10 +497,10 @@
                          :font-size "0.85rem"
                          :display "block"
                          :margin-bottom "6px"}}
-         "Editore"]
+         (t :publisher)]
         [:input {:type "text"
                  :value (or (:publisher metadata) "")
-                 :placeholder "Nome editore"
+                 :placeholder (t :publisher-placeholder)
                  :style {:width "100%"
                          :background (settings/get-color :editor-bg)
                          :border (str "1px solid " (settings/get-color :border))
@@ -494,7 +520,7 @@
                         :font-weight "600"
                         :display "block"
                         :margin-bottom "12px"}}
-        "Campi personalizzati"]
+        (t :custom-fields)]
 
        ;; Existing custom fields
        (for [[k v] (:custom metadata)]
@@ -533,7 +559,7 @@
        [:div {:style {:display "flex" :gap "8px" :align-items "center"}}
         [:input {:type "text"
                  :value @new-custom-key
-                 :placeholder "Chiave"
+                 :placeholder (t :key)
                  :style {:flex 1
                          :background (settings/get-color :editor-bg)
                          :border (str "1px solid " (settings/get-color :border))
@@ -544,7 +570,7 @@
                  :on-change #(reset! new-custom-key (-> % .-target .-value))}]
         [:input {:type "text"
                  :value @new-custom-value
-                 :placeholder "Valore"
+                 :placeholder (t :value)
                  :style {:flex 2
                          :background (settings/get-color :editor-bg)
                          :border (str "1px solid " (settings/get-color :border))
@@ -578,48 +604,40 @@
                          :cursor "pointer"
                          :font-size "0.9rem"}
                  :on-click #(reset! metadata-open? false)}
-        "Chiudi"]]]]))
+        (t :close)]]]]))
 
 ;; =============================================================================
 ;; Tutorial Modal
 ;; =============================================================================
 
-(def tutorial-slides
-  [{:title "Benvenuto in Tramando"
+(defn get-tutorial-slides []
+  [{:title (t :tutorial-welcome-title)
     :icon "logo"
-    :text "Tramando è uno strumento per scrittori che vogliono gestire storie complesse: personaggi, luoghi, temi, linee temporali.\n\nIl nome viene da \"trama\" — perché scrivere è tessere fili narrativi — e da \"tramando\", il gerundio: un'azione continua, un lavoro in divenire."}
-
-   {:title "Tutto è un Chunk"
+    :text (t :tutorial-welcome-text)}
+   {:title (t :tutorial-chunks-title)
     :icon "tree"
-    :text "In Tramando, ogni elemento è un \"chunk\": un blocco di testo con un titolo e un'identità.\n\nUn capitolo è un chunk. Una scena è un chunk. Un personaggio è un chunk. Anche una singola nota può essere un chunk.\n\nI chunk possono contenere altri chunk, creando una struttura ad albero flessibile."}
-
-   {:title "La tua storia"
+    :text (t :tutorial-chunks-text)}
+   {:title (t :tutorial-story-title)
     :icon "book"
-    :text "La sezione STRUTTURA contiene la narrativa vera e propria: capitoli, scene, passaggi.\n\nPuoi organizzarla come preferisci: alcuni usano Parte → Capitolo → Scena, altri preferiscono strutture più piatte. Tramando si adatta al tuo modo di lavorare."}
-
-   {:title "Gli Aspetti"
+    :text (t :tutorial-story-text)}
+   {:title (t :tutorial-aspects-title)
     :icon "aspects"
-    :text "Gli ASPETTI sono gli elementi che attraversano la storia:\n\n• Personaggi — Chi abita il tuo mondo\n• Luoghi — Dove accadono le cose\n• Temi — Le idee ricorrenti\n• Sequenze — Catene di causa-effetto\n• Timeline — Eventi in ordine cronologico\n\nOgni aspetto può avere sotto-elementi (es. un personaggio può avere \"Aspetto fisico\", \"Psicologia\", ecc.)"}
-
-   {:title "Tessere la trama"
+    :text (t :tutorial-aspects-text)}
+   {:title (t :tutorial-weaving-title)
     :icon "network"
-    :text "Ecco la magia: puoi collegare le scene agli aspetti.\n\nScrivi [@elena] nel testo di una scena per indicare che Elena appare lì. Oppure [@roma] per un luogo, [@vendetta] per un tema.\n\nTramando terrà traccia di tutti i collegamenti: potrai vedere in quali scene appare ogni personaggio, quali luoghi sono più usati, come si sviluppano i temi."}
-
-   {:title "Note per te stesso"
+    :text (t :tutorial-weaving-text)}
+   {:title (t :tutorial-notes-title)
     :icon "note"
-    :text "Mentre scrivi, puoi lasciare annotazioni nel testo:\n\n• TODO — Cose da fare\n• NOTE — Appunti e riflessioni\n• FIX — Problemi da correggere\n\nSeleziona del testo, click destro, e scegli il tipo. Le annotazioni appaiono nella sidebar ma non nell'export finale."}
-
-   {:title "La mappa della storia"
+    :text (t :tutorial-notes-text)}
+   {:title (t :tutorial-map-title)
     :icon "radial"
-    :text "La vista Radiale mostra la tua storia come una mappa: la struttura narrativa al centro, gli aspetti intorno, e linee colorate che mostrano i collegamenti.\n\nÈ un modo per \"vedere\" la trama nel suo insieme e scoprire connessioni che non avevi notato."}
-
-   {:title "Dal caos al libro"
+    :text (t :tutorial-map-text)}
+   {:title (t :tutorial-export-title)
     :icon "pdf"
-    :text "Quando sei pronto, esporta in PDF. Tramando formatterà la tua storia con stili professionali: titoli dei capitoli, separatori tra scene, impaginazione curata.\n\nLe annotazioni, gli aspetti e i metadati restano nel file .trmd — l'export contiene solo la narrativa pulita."}
-
-   {:title "Buona scrittura!"
+    :text (t :tutorial-export-text)}
+   {:title (t :tutorial-start-title)
     :icon "start"
-    :text "Sei pronto per iniziare.\n\nCrea un nuovo progetto, oppure carica un file esistente. Se hai bisogno di aiuto, troverai il tutorial nel menu Impostazioni.\n\nBuona scrittura!"}])
+    :text (t :tutorial-start-text)}])
 
 (defn- tutorial-icon [icon-type colors]
   (case icon-type
@@ -642,10 +660,12 @@
 (defn tutorial-modal []
   (let [colors (:colors @settings/settings)
         step @tutorial-step
-        slide (nth tutorial-slides step)
-        total (count tutorial-slides)
+        slides (get-tutorial-slides)
+        slide (nth slides step)
+        total (count slides)
         last-step? (= step (dec total))
-        first-step? (= step 0)]
+        first-step? (= step 0)
+        _ @i18n/current-lang] ; subscribe to language changes
     [:div {:style {:position "fixed"
                    :top 0 :left 0 :right 0 :bottom 0
                    :background "rgba(0,0,0,0.8)"
@@ -717,7 +737,7 @@
                              (settings/complete-tutorial!)
                              (reset! tutorial-open? false)
                              (reset! tutorial-step 0))}
-        "Salta"]
+        (t :skip)]
 
        ;; Navigation buttons (right)
        [:div {:style {:display "flex" :gap "12px"}}
@@ -731,7 +751,7 @@
                             :cursor "pointer"
                             :font-size "0.9rem"}
                     :on-click #(swap! tutorial-step dec)}
-           "Indietro"])
+           (t :back)])
 
         ;; Next / Finish button
         [:button {:style {:background (:accent colors)
@@ -749,14 +769,15 @@
                                   (reset! tutorial-open? false)
                                   (reset! tutorial-step 0))
                                 (swap! tutorial-step inc)))}
-         (if last-step? "Inizia a scrivere" "Avanti")]]]]]))
+         (if last-step? (t :start-writing) (t :next))]]]]]))
 
 ;; =============================================================================
 ;; Save Status Indicator
 ;; =============================================================================
 
 (defn save-status-indicator []
-  (let [status @model/save-status]
+  (let [status @model/save-status
+        _ @i18n/current-lang] ; subscribe to language changes
     (when (not= status :idle)
       [:span {:style {:padding "4px 8px"
                       :border-radius "4px"
@@ -769,9 +790,9 @@
                                     "transparent")
                       :color "#fff"}}
        (case status
-         :modified "Modificato"
-         :saving "Salvataggio..."
-         :saved "Salvato"
+         :modified (t :modified)
+         :saving (t :saving)
+         :saved (t :saved)
          "")])))
 
 ;; =============================================================================
@@ -779,7 +800,8 @@
 ;; =============================================================================
 
 (defn export-dropdown []
-  (let [colors (:colors @settings/settings)]
+  (let [colors (:colors @settings/settings)
+        _ @i18n/current-lang] ; subscribe to language changes
     [:<>
      ;; Click-outside overlay
      (when @export-dropdown-open?
@@ -802,7 +824,7 @@
                 :align-items "center"
                 :gap "4px"}
         :on-click #(swap! export-dropdown-open? not)}
-       "Esporta"
+       (t :export)
        [:span {:style {:font-size "0.6rem"}} "▼"]]
 
       ;; Dropdown menu
@@ -829,7 +851,7 @@
                    :on-click (fn []
                                (model/export-md!)
                                (reset! export-dropdown-open? false))}
-          "Esporta MD"]
+          (t :export-md)]
          [:div {:style {:height "1px"
                         :background (:border colors)}}]
          [:button {:style {:display "block"
@@ -844,7 +866,7 @@
                    :on-click (fn []
                                (export-pdf/export-pdf!)
                                (reset! export-dropdown-open? false))}
-          "Esporta PDF"]])]]))
+          (t :export-pdf)]])]]))
 
 ;; =============================================================================
 ;; Header
@@ -910,9 +932,9 @@
                 :border-radius "4px"
                 :cursor "pointer"
                 :font-size "0.85rem"}
-        :title (:carica help/texts)
+        :title (t :help-carica)
         :on-click #(when @file-input-ref (.click @file-input-ref))}
-       "Carica"]
+       (t :load)]
       ;; Save button
       [:button
        {:style {:background (:accent colors)
@@ -922,9 +944,9 @@
                 :border-radius "4px"
                 :cursor "pointer"
                 :font-size "0.85rem"}
-        :title (:salva help/texts)
+        :title (t :help-salva)
         :on-click #(model/save-file!)}
-       "Salva"]
+       (t :save)]
       ;; Export dropdown
       [export-dropdown]
       ;; Project info button
@@ -936,7 +958,7 @@
                 :border-radius "4px"
                 :cursor "pointer"
                 :font-size "0.9rem"}
-        :title (:metadata help/texts)
+        :title (t :help-metadata)
         :on-click #(reset! metadata-open? true)}
        "📄"]
       ;; Filename display (editable)
@@ -971,7 +993,7 @@
                 :cursor "pointer"
                 :font-size "0.85rem"}
         :on-click #(swap! view-mode (fn [m] (if (= m :editor) :radial :editor)))}
-       (if (= @view-mode :radial) "Editor" "Mappa")]
+       (if (= @view-mode :radial) (t :editor) (t :map))]
       ;; Settings button
       [:button
        {:style {:background "transparent"
@@ -981,7 +1003,7 @@
                 :border-radius "4px"
                 :cursor "pointer"
                 :font-size "1rem"}
-        :title (:settings help/texts)
+        :title (t :help-settings)
         :on-click #(reset! settings/settings-open? true)}
        "⚙"]]]))
 
@@ -993,7 +1015,8 @@
   (let [chunk (model/get-selected-chunk)
         colors (:colors @settings/settings)
         current-theme (:theme @settings/settings)
-        use-texture (= current-theme :tessuto)]
+        use-texture (= current-theme :tessuto)
+        _ @i18n/current-lang] ; subscribe to language changes
     [:div.editor-panel {:style {:background (:background colors)
                                 :position "relative"}}
      ;; Very subtle texture for visual continuity
@@ -1025,7 +1048,7 @@
                       :color (:text-muted colors)
                       :position "relative"
                       :z-index 1}}
-        "Seleziona un chunk dall'outline o creane uno nuovo"])]))
+        (t :select-chunk)])]))
 
 ;; =============================================================================
 ;; Keyboard Shortcuts
@@ -1083,7 +1106,8 @@
       (let [colors (:colors @settings/settings)
             current-theme (:theme @settings/settings)
             has-autosave (model/has-autosave?)
-            use-texture (= current-theme :tessuto)]
+            use-texture (= current-theme :tessuto)
+            _ @i18n/current-lang] ; subscribe to language changes
         [:div {:style {:position "fixed"
                        :top 0 :left 0 :right 0 :bottom 0
                        :background (:background colors)
@@ -1124,13 +1148,13 @@
                         :margin "0 0 8px 0"
                         :font-weight "300"
                         :letter-spacing "0.15em"}}
-           "Tramando"]
+           (t :app-name)]
           ;; Subtitle
           [:p {:style {:color (:text-muted colors)
                        :font-size "1.2rem"
                        :margin "0 0 40px 0"
                        :font-style "italic"}}
-           "Tessi la tua storia"]
+           (t :tagline)]
           ;; Buttons
           [:div {:style {:display "flex"
                          :flex-direction "column"
@@ -1150,7 +1174,7 @@
                        :on-mouse-over #(set! (.. % -target -style -transform) "scale(1.02)")
                        :on-mouse-out #(set! (.. % -target -style -transform) "scale(1)")
                        :on-click #(start-app! :continue)}
-              "Continua il lavoro in corso"])
+              (t :continue-work)])
            ;; New project button
            [:button {:style {:background (if has-autosave "transparent" (:accent colors))
                              :color (if has-autosave (:text colors) "white")
@@ -1164,7 +1188,7 @@
                      :on-mouse-over #(set! (.. % -target -style -transform) "scale(1.02)")
                      :on-mouse-out #(set! (.. % -target -style -transform) "scale(1)")
                      :on-click #(start-app! :new)}
-            "Nuovo progetto"]
+            (t :new-project)]
            ;; Open file button
            [:button {:style {:background "transparent"
                              :color (:text-muted colors)
@@ -1178,7 +1202,7 @@
                      :on-mouse-out #(set! (.. % -target -style -transform) "scale(1)")
                      :on-click #(when @splash-file-input-ref
                                   (.click @splash-file-input-ref))}
-            "Apri file..."]
+            (t :open-file)]
            ;; Hidden file input
            [:input {:type "file"
                     :accept ".trmd,.md,.txt"

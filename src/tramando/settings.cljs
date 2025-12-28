@@ -1,6 +1,7 @@
 (ns tramando.settings
   (:require [reagent.core :as r]
-            [clojure.edn :as edn]))
+            [clojure.edn :as edn]
+            [tramando.i18n :as i18n]))
 
 ;; =============================================================================
 ;; Default Themes
@@ -68,6 +69,7 @@
   {:theme :tessuto
    :colors (:tessuto default-themes)
    :autosave-delay-ms 3000
+   :language :it
    :tutorial-completed false})
 
 ;; =============================================================================
@@ -96,7 +98,10 @@
   (when-let [data (.getItem js/localStorage localstorage-key)]
     (try
       (let [loaded (edn/read-string data)]
-        (reset! settings (merge default-settings loaded)))
+        (reset! settings (merge default-settings loaded))
+        ;; Sync language with i18n module
+        (when-let [lang (:language @settings)]
+          (i18n/set-language! lang)))
       (catch :default e
         (js/console.warn "Failed to load settings:" e)))))
 
@@ -163,6 +168,18 @@
   (swap! settings assoc :tutorial-completed false)
   (save-settings!))
 
+(defn set-language!
+  "Set the UI language"
+  [lang]
+  (when (contains? i18n/available-languages lang)
+    (swap! settings assoc :language lang)
+    (i18n/set-language! lang)))
+
+(defn get-language
+  "Get the current language"
+  []
+  (:language @settings))
+
 ;; =============================================================================
 ;; Export/Import settings.edn
 ;; =============================================================================
@@ -170,8 +187,9 @@
 (defn export-settings-edn
   "Generate settings.edn content as string"
   []
-  (let [{:keys [theme colors autosave-delay-ms]} @settings]
+  (let [{:keys [theme colors autosave-delay-ms language]} @settings]
     (str "{:theme " theme "\n"
+         " :language " language "\n"
          " :colors {:background \"" (:background colors) "\"\n"
          "          :sidebar \"" (:sidebar colors) "\"\n"
          "          :text \"" (:text colors) "\"\n"
@@ -205,10 +223,13 @@
   (try
     (let [imported (edn/read-string edn-string)]
       (reset! settings (merge default-settings imported))
+      ;; Sync language with i18n module
+      (when-let [lang (:language @settings)]
+        (i18n/set-language! lang))
       (save-settings!)
       {:ok true})
     (catch :default e
-      {:error (str "Errore nel parsing: " (.-message e))})))
+      {:error (str (i18n/t :error-parsing) ": " (.-message e))})))
 
 ;; =============================================================================
 ;; Apply CSS Variables
