@@ -33,3 +33,7 @@ npm-debug.log
 .env
 .env.local
 .clj-kondo/.cache/
+
+# Editor/LSP caches
+.lsp/
+.clj-kondo/.cache/
