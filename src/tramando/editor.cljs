@@ -6,7 +6,7 @@
             [tramando.annotations :as annotations]
             [tramando.help :as help]
             [tramando.i18n :as i18n :refer [t]]
-            ["@codemirror/state" :refer [EditorState]]
+            ["@codemirror/state" :refer [EditorState StateField StateEffect RangeSetBuilder]]
             ["@codemirror/view" :refer [EditorView keymap lineNumbers highlightActiveLine
                                         highlightActiveLineGutter drawSelection
                                         Decoration ViewPlugin MatchDecorator]]
@@ -15,7 +15,8 @@
             ["@codemirror/language" :refer [indentOnInput bracketMatching
                                             defaultHighlightStyle syntaxHighlighting]]
             ["@codemirror/lang-markdown" :refer [markdown]]
-            ["@codemirror/search" :refer [searchKeymap highlightSelectionMatches]]))
+            ["@codemirror/search" :refer [searchKeymap highlightSelectionMatches]]
+            ["marked" :refer [marked]]))
 
 ;; =============================================================================
 ;; CodeMirror 6 Theme (uses CSS variables from settings)
@@ -54,7 +55,356 @@
                ;; Hidden parts in reading mode
                ".cm-annotation-hidden" #js {:fontSize "0"
                                             :color "transparent"
-                                            :userSelect "none"}}))
+                                            :userSelect "none"}
+               ;; Search match highlighting
+               ".cm-search-match" #js {:backgroundColor "rgba(255, 230, 0, 0.3)"
+                                       :borderRadius "2px"}
+               ".cm-search-match-current" #js {:backgroundColor "rgba(255, 165, 0, 0.5)"
+                                               :borderRadius "2px"
+                                               :boxShadow "0 0 2px rgba(255, 165, 0, 0.8)"}}))
+
+;; =============================================================================
+;; Editor Search State
+;; =============================================================================
+
+(defonce editor-search-state
+  (r/atom {:visible false
+           :text ""
+           :case-sensitive false
+           :regex false
+           :matches []           ; vector of {:from :to}
+           :current-index 0      ; 0-based index of current match
+           :invalid-regex false
+           :replace-visible false
+           :replace-text ""}))
+
+;; Toast state for replace confirmation
+(defonce toast-state (r/atom nil)) ; {:message :visible}
+
+(defonce editor-view-ref (atom nil))
+(defonce search-input-ref (atom nil))
+(defonce replace-input-ref (atom nil))
+(defonce search-debounce-timer (atom nil))
+
+;; Decoration marks
+(def search-match-mark (.mark Decoration #js {:class "cm-search-match"}))
+(def search-match-current-mark (.mark Decoration #js {:class "cm-search-match-current"}))
+
+(defn- find-matches
+  "Find all matches in text, returns vector of {:from :to}"
+  [text search-text case-sensitive? regex?]
+  (when (and (seq search-text) (seq text))
+    (try
+      (let [flags (if case-sensitive? "g" "gi")
+            ;; Escape special regex characters for literal search
+            escaped-text (-> search-text
+                             (str/replace #"\\" "\\\\")
+                             (str/replace #"\[" "\\[")
+                             (str/replace #"\]" "\\]")
+                             (str/replace #"\." "\\.")
+                             (str/replace #"\*" "\\*")
+                             (str/replace #"\+" "\\+")
+                             (str/replace #"\?" "\\?")
+                             (str/replace #"\^" "\\^")
+                             (str/replace #"\$" "\\$")
+                             (str/replace #"\{" "\\{")
+                             (str/replace #"\}" "\\}")
+                             (str/replace #"\(" "\\(")
+                             (str/replace #"\)" "\\)")
+                             (str/replace #"\|" "\\|"))
+            pattern (if regex?
+                      (js/RegExp. search-text flags)
+                      (js/RegExp. escaped-text flags))
+            matches (atom [])]
+        (loop []
+          (when-let [match (.exec pattern text)]
+            (let [start (.-index match)
+                  end (+ start (count (aget match 0)))]
+              (when (> end start) ; avoid infinite loop on zero-width matches
+                (swap! matches conj {:from start :to end})
+                (recur)))))
+        @matches)
+      (catch js/Error _
+        nil))))
+
+(def ^:private annotation-regex-for-ranges
+  "Regex to find annotations and their parts: [!TYPE:text:priority:comment]"
+  (js/RegExp. "\\[!(TODO|NOTE|FIX):([^:]*):([^:]*):([^\\]]*)\\]" "g"))
+
+(defn- get-hidden-ranges
+  "Returns vector of {:from :to} for hidden parts of annotations.
+   When show-markup is false, the prefix [!TYPE: and suffix :priority:comment] are hidden."
+  [text]
+  (let [ranges (atom [])]
+    (set! (.-lastIndex annotation-regex-for-ranges) 0)
+    (loop []
+      (when-let [match (.exec annotation-regex-for-ranges text)]
+        (let [full-match (aget match 0)
+              type-str (aget match 1)
+              selected-text (aget match 2)
+              start (.-index match)
+              end (+ start (count full-match))
+              ;; Hidden prefix: [!TYPE: (from start to after first colon)
+              prefix-end (+ start 2 (count type-str) 1)
+              ;; Hidden suffix: :priority:comment] (from after selected text to end)
+              text-end (+ prefix-end (count selected-text))]
+          ;; Add hidden prefix range
+          (swap! ranges conj {:from start :to prefix-end})
+          ;; Add hidden suffix range
+          (swap! ranges conj {:from text-end :to end})
+          (recur))))
+    @ranges))
+
+(defn- match-overlaps-hidden?
+  "Check if a match overlaps with any hidden range"
+  [{:keys [from to]} hidden-ranges]
+  (some (fn [{hfrom :from hto :to}]
+          ;; Overlap if match intersects with hidden range
+          (and (< from hto) (> to hfrom)))
+        hidden-ranges))
+
+(defn- filter-visible-matches
+  "Filter out matches that overlap with hidden annotation ranges"
+  [matches hidden-ranges]
+  (if (empty? hidden-ranges)
+    matches
+    (filterv #(not (match-overlaps-hidden? % hidden-ranges)) matches)))
+
+(defn- create-search-decorations
+  "Create decorations for search matches.
+   Matches are already sorted by position from find-matches."
+  [matches current-index]
+  (let [builder (RangeSetBuilder.)]
+    (doseq [[idx {:keys [from to]}] (map-indexed vector matches)]
+      (let [mark (if (= idx current-index)
+                   search-match-current-mark
+                   search-match-mark)]
+        (.add builder from to mark)))
+    (.finish builder)))
+
+(defn- force-editor-update!
+  "Force the editor to update decorations by dispatching an empty transaction"
+  []
+  ;; Use requestAnimationFrame to ensure state is updated before refresh
+  (js/requestAnimationFrame
+   (fn []
+     (when-let [view @editor-view-ref]
+       (.dispatch view #js {})))))
+
+(defn update-search!
+  "Update search matches based on current state"
+  []
+  (when-let [view @editor-view-ref]
+    (let [{:keys [text case-sensitive regex]} @editor-search-state
+          doc-text (.. view -state -doc (toString))
+          show-markup? @annotations/show-markup?
+          min-chars (if regex 1 2)]
+      (if (< (count text) min-chars)
+        ;; Not enough chars, clear matches
+        (do
+          (swap! editor-search-state assoc
+                 :matches []
+                 :current-index 0
+                 :invalid-regex false)
+          (force-editor-update!))
+        ;; Find matches
+        (let [all-matches (find-matches doc-text text case-sensitive regex)]
+          (if (nil? all-matches)
+            ;; Invalid regex
+            (do
+              (swap! editor-search-state assoc
+                     :matches []
+                     :current-index 0
+                     :invalid-regex true)
+              (force-editor-update!))
+            ;; Valid search - filter out hidden matches when show-markup is false
+            (let [matches (if show-markup?
+                            all-matches
+                            (let [hidden-ranges (get-hidden-ranges doc-text)]
+                              (filter-visible-matches all-matches hidden-ranges)))]
+              (swap! editor-search-state assoc
+                     :matches (vec matches)
+                     :current-index (if (empty? matches) 0 0)
+                     :invalid-regex false)
+              (force-editor-update!))))))))
+
+(defn set-search-text!
+  "Set search text with debounce"
+  [text]
+  (swap! editor-search-state assoc :text text)
+  (when @search-debounce-timer
+    (js/clearTimeout @search-debounce-timer))
+  (reset! search-debounce-timer
+          (js/setTimeout update-search! 150)))
+
+(defn toggle-search-case-sensitive! []
+  (swap! editor-search-state update :case-sensitive not)
+  (update-search!))
+
+(defn toggle-search-regex! []
+  (swap! editor-search-state update :regex not)
+  (update-search!))
+
+(defn navigate-to-match!
+  "Navigate to match at index and scroll into view"
+  [index]
+  (when-let [view @editor-view-ref]
+    (let [matches (:matches @editor-search-state)]
+      (when (and (seq matches) (<= 0 index) (< index (count matches)))
+        (let [{:keys [from]} (nth matches index)]
+          ;; Update current index first
+          (swap! editor-search-state assoc :current-index index)
+          ;; Scroll to match and force decoration update
+          (.dispatch view
+                     #js {:effects (.scrollIntoView EditorView from #js {:y "center"})}))))))
+
+(defn next-match! []
+  (let [{:keys [matches current-index]} @editor-search-state]
+    (when (seq matches)
+      (let [next-idx (mod (inc current-index) (count matches))]
+        (navigate-to-match! next-idx)))))
+
+(defn prev-match! []
+  (let [{:keys [matches current-index]} @editor-search-state]
+    (when (seq matches)
+      (let [n (count matches)
+            prev-idx (mod (+ (dec current-index) n) n)]
+        (navigate-to-match! prev-idx)))))
+
+(defn show-editor-search!
+  "Show the search bar and optionally set text and options"
+  ([]
+   (swap! editor-search-state assoc :visible true)
+   (js/setTimeout #(when @search-input-ref (.focus @search-input-ref)) 50))
+  ([{:keys [text case-sensitive regex]}]
+   (swap! editor-search-state assoc
+          :visible true
+          :text (or text "")
+          :case-sensitive (or case-sensitive false)
+          :regex (or regex false))
+   (update-search!)
+   (js/setTimeout #(when @search-input-ref (.focus @search-input-ref)) 50)))
+
+(defn hide-editor-search! []
+  (swap! editor-search-state assoc
+         :visible false
+         :matches []
+         :current-index 0
+         :replace-visible false)
+  (force-editor-update!))
+
+(defn focus-search! []
+  (when @search-input-ref
+    (.focus @search-input-ref)))
+
+(defn toggle-replace-visible! []
+  (swap! editor-search-state update :replace-visible not))
+
+(defn set-replace-text! [text]
+  (swap! editor-search-state assoc :replace-text text))
+
+(defn show-editor-search-with-replace!
+  "Show the search bar with replace expanded"
+  []
+  (swap! editor-search-state assoc :visible true :replace-visible true)
+  (js/setTimeout #(when @search-input-ref (.focus @search-input-ref)) 50))
+
+;; =============================================================================
+;; Toast Component
+;; =============================================================================
+
+(defn show-toast! [message]
+  (reset! toast-state {:message message :visible true})
+  ;; Hide after animation completes (3s)
+  (js/setTimeout #(reset! toast-state nil) 3000))
+
+(defn toast-component []
+  (when-let [{:keys [message visible]} @toast-state]
+    [:div.toast message]))
+
+;; =============================================================================
+;; Replace Functions
+;; =============================================================================
+
+(defn- apply-regex-replacement
+  "Apply regex replacement with group support ($0, $1, $2, etc.)"
+  [match-str replace-text regex-pattern case-sensitive?]
+  (let [flags (if case-sensitive? "" "i")
+        re (js/RegExp. regex-pattern flags)]
+    (.replace match-str re replace-text)))
+
+(defn replace-current-match!
+  "Replace the current match with the replace text"
+  []
+  (when-let [view @editor-view-ref]
+    (let [{:keys [matches current-index replace-text text regex case-sensitive]} @editor-search-state]
+      (when (and (seq matches) (< current-index (count matches)))
+        (let [{:keys [from to]} (nth matches current-index)
+              doc-text (.. view -state -doc (toString))
+              match-str (subs doc-text from to)
+              ;; For regex mode, apply $1, $2 replacements
+              actual-replace (if regex
+                               (apply-regex-replacement match-str replace-text text case-sensitive)
+                               replace-text)]
+          ;; Apply the replacement
+          (.dispatch view #js {:changes #js {:from from :to to :insert actual-replace}})
+          ;; Update search after replacement
+          (js/setTimeout
+           (fn []
+             (update-search!)
+             ;; Navigate to next match (or stay at same index if there are more)
+             (let [new-matches (:matches @editor-search-state)
+                   new-count (count new-matches)]
+               (when (pos? new-count)
+                 (let [new-idx (min current-index (dec new-count))]
+                   (navigate-to-match! new-idx)))))
+           50))))))
+
+(defn replace-all-matches!
+  "Replace all matches with the replace text"
+  []
+  (when-let [view @editor-view-ref]
+    (let [{:keys [matches replace-text text regex case-sensitive]} @editor-search-state
+          match-count (count matches)]
+      (when (pos? match-count)
+        ;; Process matches from back to front to preserve indices
+        (let [doc-text (.. view -state -doc (toString))
+              changes (->> matches
+                           (map-indexed (fn [idx m]
+                                          (let [match-str (subs doc-text (:from m) (:to m))
+                                                actual-replace (if regex
+                                                                 (apply-regex-replacement match-str replace-text text case-sensitive)
+                                                                 replace-text)]
+                                            #js {:from (:from m) :to (:to m) :insert actual-replace})))
+                           reverse
+                           (into-array))]
+          ;; Apply all changes in a single transaction
+          (.dispatch view #js {:changes changes})
+          ;; Show toast with count
+          (show-toast! (if (= match-count 1)
+                         (t :replaced-one-occurrence)
+                         (t :replaced-n-occurrences match-count)))
+          ;; Update search (should find 0 matches now)
+          (js/setTimeout update-search! 50))))))
+
+;; =============================================================================
+;; Search Highlight ViewPlugin
+;; =============================================================================
+
+(defn- get-current-decorations []
+  (let [{:keys [matches current-index visible]} @editor-search-state]
+    (if (and visible (seq matches))
+      (create-search-decorations matches current-index)
+      (.-none Decoration))))
+
+(def search-highlight-plugin
+  (.define ViewPlugin
+           (fn [view]
+             #js {:decorations (get-current-decorations)
+                  :update (fn [vu]
+                            (this-as this
+                              (set! (.-decorations this) (get-current-decorations))))})
+           #js {:decorations (fn [v] (.-decorations v))}))
 
 ;; =============================================================================
 ;; Annotation Highlighting Extension
@@ -145,6 +495,44 @@
 ;; Editor Creation
 ;; =============================================================================
 
+;; Custom keymap for search
+(def search-keymap
+  #js [#js {:key "Escape"
+            :run (fn [view]
+                   (let [search-visible (:visible @editor-search-state)
+                         ;; Access outline namespace dynamically to avoid circular deps
+                         outline-filter-state (aget js/tramando "outline" "filter_state")
+                         filter-active (when outline-filter-state
+                                         (seq (:text @outline-filter-state)))]
+                     (when search-visible
+                       (hide-editor-search!))
+                     (when filter-active
+                       (when-let [clear-fn (aget js/tramando "outline" "clear_filter_BANG_")]
+                         (clear-fn)))
+                     (or search-visible filter-active)))}
+       #js {:key "Mod-f"
+            :run (fn [view]
+                   (show-editor-search!)
+                   true)}
+       #js {:key "Mod-h"
+            :run (fn [view]
+                   (if (:visible @editor-search-state)
+                     ;; If already visible, toggle replace panel
+                     (toggle-replace-visible!)
+                     ;; Otherwise show with replace expanded
+                     (show-editor-search-with-replace!))
+                   true)}
+       #js {:key "F3"
+            :run (fn [view]
+                   (when (:visible @editor-search-state)
+                     (next-match!)
+                     true))}
+       #js {:key "Shift-F3"
+            :run (fn [view]
+                   (when (:visible @editor-search-state)
+                     (prev-match!)
+                     true))}])
+
 (defn create-editor-state [content chunk-id]
   (.create EditorState
            #js {:doc content
@@ -161,6 +549,8 @@
                                  (syntaxHighlighting defaultHighlightStyle)
                                  (markdown)
                                  annotation-highlight
+                                 search-highlight-plugin
+                                 (.of keymap search-keymap)  ;; Our search keymap first (higher priority)
                                  (.of keymap (.concat defaultKeymap historyKeymap searchKeymap #js [indentWithTab]))
                                  (make-update-listener chunk-id)]}))
 
@@ -235,7 +625,11 @@
                      :user-select "none"}}
      [:input {:type "checkbox"
               :checked @annotations/show-markup?
-              :on-change #(swap! annotations/show-markup? not)
+              :on-change (fn [_]
+                           (swap! annotations/show-markup? not)
+                           ;; Re-run search to update visible matches
+                           (when (:visible @editor-search-state)
+                             (update-search!)))
               :style {:cursor "pointer"}}]
      (t :show-markup)]))
 
@@ -257,6 +651,7 @@
           (let [state (create-editor-state (:content chunk) (:id chunk))
                 view (create-editor-view @editor-ref state)]
             (reset! editor-view view)
+            (reset! editor-view-ref view) ;; Store in global ref for search
             (reset! last-chunk-id (:id chunk))
             (reset! last-show-markup @annotations/show-markup?)
             ;; Add right-click handler
@@ -281,10 +676,14 @@
                     (not= show-markup? @last-show-markup))
             (when @editor-view
               (.destroy @editor-view))
+            ;; Re-run search on new content
+            (when (and chunk (not= (:id chunk) @last-chunk-id))
+              (update-search!))
             (when chunk
               (let [state (create-editor-state (:content chunk) (:id chunk))
                     view (create-editor-view @editor-ref state)]
                 (reset! editor-view view)
+                (reset! editor-view-ref view) ;; Update global ref
                 (reset! last-chunk-id (:id chunk))
                 (reset! last-show-markup show-markup?)
                 ;; Re-add right-click handler
@@ -303,7 +702,8 @@
       :component-will-unmount
       (fn [this]
         (when @editor-view
-          (.destroy @editor-view)))
+          (.destroy @editor-view))
+        (reset! editor-view-ref nil))
 
       :reagent-render
       (fn []
@@ -715,6 +1115,30 @@
                    (when (> (count (:content c)) 100) "...")])]))])]))]))
 
 ;; =============================================================================
+;; Markdown Rendering
+;; =============================================================================
+
+(defn- render-markdown
+  "Convert markdown text to HTML using marked"
+  [text]
+  (when (seq text)
+    ;; Configure marked for inline rendering (no wrapping <p> tags for single lines)
+    (marked text #js {:breaks true    ; Convert \n to <br>
+                      :gfm true})))   ; GitHub Flavored Markdown
+
+(defn markdown-content
+  "Component that renders markdown content safely"
+  [content colors]
+  (let [html (render-markdown content)]
+    (when html
+      [:div {:class "markdown-content"
+             :style {:color (:text colors)
+                     :line-height "1.6"
+                     :font-size "0.95rem"
+                     :opacity "0.85"}
+             :dangerouslySetInnerHTML {:__html html}}])))
+
+;; =============================================================================
 ;; Read View (expanded content, read-only)
 ;; =============================================================================
 
@@ -746,12 +1170,7 @@
         [:span {:style {:color (:text-muted colors) :font-size "0.75rem"}}
          (str "(" (str/join ", " (map #(str "@" %) (:aspects chunk))) ")")])]
      (when (seq content)
-       [:div {:style {:color (:text colors)
-                      :line-height "1.6"
-                      :white-space "pre-wrap"
-                      :font-size "0.95rem"
-                      :opacity "0.85"}}
-        content])]))
+       [markdown-content content colors])]))
 
 (defn- render-user-content
   "Render all content for a user chunk with proper keys"
@@ -793,8 +1212,7 @@
            [:h2 {:style {:color (:text colors) :font-size "1.4rem" :margin "0 0 8px 0"}}
             display-summary]
            (when (seq aspect-content)
-             [:div {:style {:color (:text colors) :line-height "1.6" :white-space "pre-wrap" :opacity "0.85"}}
-              aspect-content])]
+             [markdown-content aspect-content colors])]
           ;; Chunks using this aspect
           (if (empty? users)
             [:div {:style {:color (:text-muted colors) :font-style "italic"}}
@@ -815,12 +1233,209 @@
             [render-chunk-block item]))))]))
 
 ;; =============================================================================
+;; Editor Search Bar Component
+;; =============================================================================
+
+(defn search-bar []
+  (let [local-text (r/atom (:text @editor-search-state))
+        local-replace-text (r/atom (:replace-text @editor-search-state))]
+    (fn []
+      (let [{:keys [visible text case-sensitive regex matches current-index invalid-regex replace-visible replace-text]} @editor-search-state
+            colors (:colors @settings/settings)
+            has-matches? (seq matches)
+            can-replace? (and has-matches? (not invalid-regex))]
+        (when visible
+          [:div {:style {:background (:sidebar colors)
+                         :border-bottom (str "1px solid " (:border colors))}}
+           ;; Search row
+           [:div {:style {:display "flex"
+                          :align-items "center"
+                          :gap "8px"
+                          :padding "8px 12px"}}
+            ;; Search icon
+            [:span {:style {:color (:text-muted colors)
+                            :font-size "0.9rem"}}
+             "🔍"]
+            ;; Input field
+            [:input {:type "text"
+                     :ref #(reset! search-input-ref %)
+                     :value @local-text
+                     :placeholder (t :search-placeholder)
+                     :style {:flex 1
+                             :background "transparent"
+                             :border (str "1px solid " (if invalid-regex "#ff6b6b" (:border colors)))
+                             :border-radius "4px"
+                             :color (:text colors)
+                             :padding "6px 10px"
+                             :font-size "0.85rem"
+                             :outline "none"
+                             :min-width "120px"
+                             :max-width "300px"}
+                     :on-change (fn [e]
+                                  (let [v (.. e -target -value)]
+                                    (reset! local-text v)
+                                    (set-search-text! v)))
+                     :on-key-down (fn [e]
+                                    (case (.-key e)
+                                      "Escape" (hide-editor-search!)
+                                      "Enter" (if (.-shiftKey e) (prev-match!) (next-match!))
+                                      "ArrowDown" (do (.preventDefault e) (next-match!))
+                                      "ArrowUp" (do (.preventDefault e) (prev-match!))
+                                      "F3" (do (.preventDefault e)
+                                               (if (.-shiftKey e) (prev-match!) (next-match!)))
+                                      nil))}]
+            ;; Case sensitive toggle
+            [:button {:style {:background (if case-sensitive (:accent colors) "transparent")
+                              :color (if case-sensitive "white" (:text-muted colors))
+                              :border (str "1px solid " (if case-sensitive (:accent colors) (:border colors)))
+                              :border-radius "3px"
+                              :padding "4px 6px"
+                              :font-size "0.75rem"
+                              :font-weight "600"
+                              :cursor "pointer"
+                              :min-width "24px"}
+                      :title (t :case-sensitive)
+                      :on-click toggle-search-case-sensitive!}
+             "Aa"]
+            ;; Regex toggle
+            [:button {:style {:background (if regex (:accent colors) "transparent")
+                              :color (if regex "white" (:text-muted colors))
+                              :border (str "1px solid " (if regex (:accent colors) (:border colors)))
+                              :border-radius "3px"
+                              :padding "4px 6px"
+                              :font-size "0.75rem"
+                              :font-family "monospace"
+                              :cursor "pointer"
+                              :min-width "24px"}
+                      :title (t :regex)
+                      :on-click toggle-search-regex!}
+             ".*"]
+            ;; Navigation arrows
+            [:button {:style {:background "transparent"
+                              :color (:text-muted colors)
+                              :border "none"
+                              :padding "4px 8px"
+                              :font-size "1rem"
+                              :cursor (if (empty? matches) "default" "pointer")
+                              :opacity (if (empty? matches) "0.3" "1")}
+                      :disabled (empty? matches)
+                      :title "Previous (↑)"
+                      :on-click prev-match!}
+             "‹"]
+            [:button {:style {:background "transparent"
+                              :color (:text-muted colors)
+                              :border "none"
+                              :padding "4px 8px"
+                              :font-size "1rem"
+                              :cursor (if (empty? matches) "default" "pointer")
+                              :opacity (if (empty? matches) "0.3" "1")}
+                      :disabled (empty? matches)
+                      :title "Next (↓)"
+                      :on-click next-match!}
+             "›"]
+            ;; Match counter
+            [:span {:style {:color (:text-muted colors)
+                            :font-size "0.8rem"
+                            :min-width "50px"
+                            :text-align "center"}}
+             (cond
+               invalid-regex (t :search-invalid-regex)
+               (< (count text) (if regex 1 2)) ""
+               (empty? matches) (t :search-no-results)
+               :else (t :search-match-count (inc current-index) (count matches)))]
+            ;; Toggle replace button
+            [:button {:style {:background "transparent"
+                              :color (:text-muted colors)
+                              :border "none"
+                              :padding "4px 8px"
+                              :font-size "0.9rem"
+                              :cursor "pointer"}
+                      :title "Toggle replace"
+                      :on-click toggle-replace-visible!}
+             (if replace-visible "↑" "↓")]
+            ;; Close button
+            [:button {:style {:background "transparent"
+                              :color (:text-muted colors)
+                              :border "none"
+                              :padding "4px 8px"
+                              :font-size "1rem"
+                              :cursor "pointer"}
+                      :title (t :close)
+                      :on-click hide-editor-search!}
+             "✕"]
+            ;; Help icon
+            [help/help-icon :help-editor-search]]
+
+           ;; Replace row (only visible when replace-visible is true)
+           (when replace-visible
+             [:div {:style {:display "flex"
+                            :align-items "center"
+                            :gap "8px"
+                            :padding "8px 12px"
+                            :border-top (str "1px solid " (:border colors))}}
+              ;; Replace icon
+              [:span {:style {:color (:text-muted colors)
+                              :font-size "0.9rem"}}
+               "↺"]
+              ;; Replace input field
+              [:input {:type "text"
+                       :ref #(reset! replace-input-ref %)
+                       :value @local-replace-text
+                       :placeholder (t :replace-placeholder)
+                       :style {:flex 1
+                               :background "transparent"
+                               :border (str "1px solid " (:border colors))
+                               :border-radius "4px"
+                               :color (:text colors)
+                               :padding "6px 10px"
+                               :font-size "0.85rem"
+                               :outline "none"
+                               :min-width "120px"
+                               :max-width "300px"}
+                       :on-change (fn [e]
+                                    (let [v (.. e -target -value)]
+                                      (reset! local-replace-text v)
+                                      (set-replace-text! v)))
+                       :on-key-down (fn [e]
+                                      (case (.-key e)
+                                        "Escape" (hide-editor-search!)
+                                        "Enter" (when can-replace? (replace-current-match!))
+                                        nil))}]
+              ;; Replace button
+              [:button {:style {:background (if can-replace? (:accent colors) (:editor-bg colors))
+                                :color (if can-replace? "white" (:text-muted colors))
+                                :border "none"
+                                :padding "6px 12px"
+                                :border-radius "4px"
+                                :font-size "0.8rem"
+                                :cursor (if can-replace? "pointer" "default")
+                                :opacity (if can-replace? "1" "0.5")}
+                        :disabled (not can-replace?)
+                        :on-click replace-current-match!}
+               (t :replace-button)]
+              ;; Replace all button
+              [:button {:style {:background (if can-replace? "transparent" (:editor-bg colors))
+                                :color (if can-replace? (:text colors) (:text-muted colors))
+                                :border (str "1px solid " (if can-replace? (:border colors) "transparent"))
+                                :padding "6px 12px"
+                                :border-radius "4px"
+                                :font-size "0.8rem"
+                                :cursor (if can-replace? "pointer" "default")
+                                :opacity (if can-replace? "1" "0.5")}
+                        :disabled (not can-replace?)
+                        :on-click replace-all-matches!}
+               (t :replace-all-button)]
+              ;; Help icon
+              [help/help-icon :help-replace]])])))))
+
+;; =============================================================================
 ;; Tab Content
 ;; =============================================================================
 
 (defn tab-content []
   (case @active-tab
     :edit [:div {:style {:display "flex" :flex-direction "column" :flex 1 :overflow "hidden"}}
+           [search-bar]
            [editor-component]]
     :refs [refs-view]
     :read [read-view]

@@ -1,10 +1,12 @@
 (ns tramando.outline
   (:require [reagent.core :as r]
+            [clojure.string :as str]
             [tramando.model :as model]
             [tramando.settings :as settings]
             [tramando.annotations :as annotations]
             [tramando.help :as help]
-            [tramando.i18n :as i18n :refer [t]]))
+            [tramando.i18n :as i18n :refer [t]]
+            [tramando.editor :as editor]))
 
 ;; =============================================================================
 ;; Chunk Tree Item
@@ -26,6 +28,149 @@
 
 (defn- collapsed? [id]
   (contains? @collapsed-nodes id))
+
+;; =============================================================================
+;; Filter State and Logic
+;; =============================================================================
+
+(defonce filter-state (r/atom {:text ""
+                               :case-sensitive false
+                               :regex false}))
+
+(defonce filter-input-ref (atom nil))
+(defonce debounce-timer (atom nil))
+
+(defn- debounce [f delay-ms]
+  "Debounce a function call"
+  (when @debounce-timer
+    (js/clearTimeout @debounce-timer))
+  (reset! debounce-timer
+          (js/setTimeout f delay-ms)))
+
+(defn set-filter-text! [text]
+  "Set the filter text with debounce"
+  (debounce
+   #(swap! filter-state assoc :text text)
+   300))
+
+(defn toggle-case-sensitive! []
+  (swap! filter-state update :case-sensitive not))
+
+(defn toggle-regex! []
+  (swap! filter-state update :regex not))
+
+(defn clear-filter! []
+  (swap! filter-state assoc :text ""))
+
+(defn focus-filter! []
+  (when @filter-input-ref
+    (.focus @filter-input-ref)))
+
+(defn- matches-filter?
+  "Check if a chunk matches the current filter"
+  [chunk filter-text case-sensitive? regex?]
+  (let [summary (or (:summary chunk) "")
+        content (or (:content chunk) "")
+        text-to-search (str summary " " content)]
+    (if regex?
+      ;; Regex search
+      (try
+        (let [pattern (js/RegExp. filter-text (if case-sensitive? "g" "gi"))]
+          (some? (.match text-to-search pattern)))
+        (catch js/Error _
+          false)) ; Invalid regex
+      ;; Simple text search
+      (let [target (if case-sensitive? text-to-search (.toLowerCase text-to-search))
+            query (if case-sensitive? filter-text (.toLowerCase filter-text))]
+        (.includes target query)))))
+
+(defn- get-chunk-type
+  "Get the type/category of a chunk for display"
+  [chunk]
+  (cond
+    (nil? (:parent-id chunk)) :structure
+    (= (:parent-id chunk) "personaggi") :personaggi
+    (= (:parent-id chunk) "luoghi") :luoghi
+    (= (:parent-id chunk) "temi") :temi
+    (= (:parent-id chunk) "sequenze") :sequenze
+    (= (:parent-id chunk) "timeline") :timeline
+    ;; Check if parent is an aspect
+    (model/is-aspect-chunk? chunk) :aspect
+    :else :structure))
+
+(defn- get-chunk-path
+  "Get the path of parent chunks as a readable string"
+  [chunk]
+  (loop [current-id (:parent-id chunk)
+         path []]
+    (if (or (nil? current-id)
+            (model/is-aspect-container? current-id))
+      (if (seq path)
+        (str/join " > " (reverse path))
+        nil)
+      (let [parent (first (filter #(= (:id %) current-id) (model/get-chunks)))]
+        (recur (:parent-id parent)
+               (conj path (or (:summary parent) (:id parent))))))))
+
+(defn- match-location
+  "Determine where the match was found: :summary, :content, or :annotation"
+  [chunk filter-text case-sensitive? regex?]
+  (let [summary (or (:summary chunk) "")
+        content (or (:content chunk) "")
+        check-match (fn [text]
+                      (if regex?
+                        (try
+                          (let [pattern (js/RegExp. filter-text (if case-sensitive? "g" "gi"))]
+                            (some? (.match text pattern)))
+                          (catch js/Error _ false))
+                        (let [target (if case-sensitive? text (.toLowerCase text))
+                              query (if case-sensitive? filter-text (.toLowerCase filter-text))]
+                          (.includes target query))))]
+    (cond
+      (check-match summary) :summary
+      ;; Check if match is in annotation
+      (and (check-match content)
+           (re-find #"\[!(TODO|NOTE|FIX):" content)
+           (let [stripped (annotations/strip-annotations content)]
+             (not (check-match stripped)))) :annotation
+      (check-match content) :content
+      :else nil)))
+
+(defn- get-filtered-chunks
+  "Get all chunks that match the current filter"
+  []
+  (let [{:keys [text case-sensitive regex]} @filter-state
+        min-chars (if regex 1 2)]
+    (when (>= (count text) min-chars)
+      (let [all-chunks (model/get-chunks)
+            ;; Filter out aspect containers
+            searchable-chunks (remove #(model/is-aspect-container? (:id %)) all-chunks)]
+        (->> searchable-chunks
+             (filter #(matches-filter? % text case-sensitive regex))
+             (map (fn [chunk]
+                    (assoc chunk
+                           :chunk-type (get-chunk-type chunk)
+                           :chunk-path (get-chunk-path chunk)
+                           :match-location (match-location chunk text case-sensitive regex))))
+             (sort-by (fn [c]
+                        ;; Sort by type then by summary
+                        [(case (:chunk-type c)
+                           :structure 0
+                           :personaggi 1
+                           :luoghi 2
+                           :temi 3
+                           :sequenze 4
+                           :timeline 5
+                           :aspect 6
+                           7)
+                         (.toLowerCase (or (:summary c) ""))])))))))
+
+(defn filter-active?
+  "Check if the filter is active"
+  []
+  (let [{:keys [text regex]} @filter-state
+        min-chars (if regex 1 2)]
+    (>= (count text) min-chars)))
 
 (defn chunk-item
   "Render a single chunk item with its children"
@@ -357,6 +502,193 @@
            (t :no-annotations)])])]))
 
 ;; =============================================================================
+;; Filter Input Component
+;; =============================================================================
+
+(defn- type-color
+  "Get color for a chunk type"
+  [chunk-type]
+  (let [colors (:colors @settings/settings)]
+    (case chunk-type
+      :structure (:structure colors)
+      :personaggi (:personaggi colors)
+      :luoghi (:luoghi colors)
+      :temi (:temi colors)
+      :sequenze (:sequenze colors)
+      :timeline (:timeline colors)
+      :aspect (:accent colors)
+      (:text-muted colors))))
+
+(defn- type-label
+  "Get translated label for a chunk type"
+  [chunk-type]
+  (case chunk-type
+    :structure (t :structure)
+    :personaggi (t :personaggi)
+    :luoghi (t :luoghi)
+    :temi (t :temi)
+    :sequenze (t :sequenze)
+    :timeline (t :timeline)
+    :aspect (t :aspects)
+    ""))
+
+(defn filter-input []
+  (let [local-text (r/atom (:text @filter-state))]
+    (fn []
+      (let [colors (:colors @settings/settings)
+            {:keys [case-sensitive regex]} @filter-state]
+        [:div {:style {:display "flex"
+                       :align-items "center"
+                       :gap "6px"
+                       :padding "8px 0"
+                       :margin-bottom "8px"
+                       :border-bottom (str "1px solid " (:border colors))}}
+         ;; Search icon
+         [:span {:style {:color (:text-muted colors)
+                         :font-size "0.9rem"}}
+          "🔍"]
+         ;; Input field
+         [:input {:type "text"
+                  :ref #(reset! filter-input-ref %)
+                  :value @local-text
+                  :placeholder (t :filter-placeholder)
+                  :style {:flex 1
+                          :background "transparent"
+                          :border (str "1px solid " (:border colors))
+                          :border-radius "4px"
+                          :color (:text colors)
+                          :padding "6px 10px"
+                          :font-size "0.85rem"
+                          :outline "none"
+                          :min-width 0}
+                  :on-change (fn [e]
+                               (let [v (.. e -target -value)]
+                                 (reset! local-text v)
+                                 (set-filter-text! v)))
+                  :on-key-down (fn [e]
+                                 (when (= (.-key e) "Escape")
+                                   (reset! local-text "")
+                                   (clear-filter!)
+                                   (.blur (.-target e))))}]
+         ;; Case sensitive toggle
+         [:button {:style {:background (if case-sensitive (:accent colors) "transparent")
+                           :color (if case-sensitive "white" (:text-muted colors))
+                           :border (str "1px solid " (if case-sensitive (:accent colors) (:border colors)))
+                           :border-radius "3px"
+                           :padding "4px 6px"
+                           :font-size "0.75rem"
+                           :font-weight "600"
+                           :cursor "pointer"
+                           :min-width "24px"}
+                   :title (t :case-sensitive)
+                   :on-click toggle-case-sensitive!}
+          "Aa"]
+         ;; Regex toggle
+         [:button {:style {:background (if regex (:accent colors) "transparent")
+                           :color (if regex "white" (:text-muted colors))
+                           :border (str "1px solid " (if regex (:accent colors) (:border colors)))
+                           :border-radius "3px"
+                           :padding "4px 6px"
+                           :font-size "0.75rem"
+                           :font-family "monospace"
+                           :cursor "pointer"
+                           :min-width "24px"}
+                   :title (t :regex)
+                   :on-click toggle-regex!}
+         ".*"]
+         ;; Help icon (use native title tooltip to avoid clipping)
+         [:span.help-icon {:title (t :help-filter)} "?"]]))))
+
+;; =============================================================================
+;; Filtered Results View
+;; =============================================================================
+
+(defn- filter-result-item
+  "Render a single search result"
+  [{:keys [id summary chunk-type chunk-path match-location] :as chunk}]
+  (let [colors (:colors @settings/settings)
+        selected? (= id (model/get-selected-id))
+        color (type-color chunk-type)
+        display-summary (model/expand-summary-macros (or summary "") chunk)
+        {:keys [text case-sensitive regex]} @filter-state]
+    [:div {:style {:padding "8px 10px"
+                   :margin-bottom "4px"
+                   :background (if selected? (:editor-bg colors) "transparent")
+                   :border-left (str "3px solid " color)
+                   :border-radius "0 4px 4px 0"
+                   :cursor "pointer"}
+           :on-click (fn []
+                       (model/select-chunk! id)
+                       ;; Open editor search with filter settings
+                       (js/setTimeout
+                        #(editor/show-editor-search!
+                          {:text text
+                           :case-sensitive case-sensitive
+                           :regex regex})
+                        100))
+           :on-mouse-over (fn [e]
+                            (when-not selected?
+                              (set! (.. e -currentTarget -style -background) (:editor-bg colors))))
+           :on-mouse-out (fn [e]
+                           (when-not selected?
+                             (set! (.. e -currentTarget -style -background) "transparent")))}
+     ;; Title row
+     [:div {:style {:display "flex"
+                    :align-items "center"
+                    :gap "6px"}}
+      [:span {:style {:color color
+                      :font-size "0.7rem"
+                      :font-weight "600"
+                      :text-transform "uppercase"
+                      :letter-spacing "0.5px"}}
+       (type-label chunk-type)]
+      [:span {:style {:color (:text colors)
+                      :font-size "0.85rem"
+                      :flex 1
+                      :overflow "hidden"
+                      :text-overflow "ellipsis"
+                      :white-space "nowrap"}}
+       (or (when (seq display-summary) display-summary) (t :no-title))]
+      ;; Match location indicator
+      (when (= match-location :content)
+        [:span {:style {:color (:text-muted colors) :font-size "0.7rem"}}
+         (t :in-content)])
+      (when (= match-location :annotation)
+        [:span {:style {:color (:text-muted colors) :font-size "0.7rem"}}
+         (t :in-annotation)])]
+     ;; Path row
+     (when chunk-path
+       [:div {:style {:color (:text-muted colors)
+                      :font-size "0.75rem"
+                      :margin-top "2px"
+                      :overflow "hidden"
+                      :text-overflow "ellipsis"
+                      :white-space "nowrap"}}
+        chunk-path])]))
+
+(defn filtered-results-view []
+  (let [results (get-filtered-chunks)
+        colors (:colors @settings/settings)
+        count (count results)]
+    [:div {:style {:padding "8px 0"}}
+     ;; Results count
+     [:div {:style {:color (:text-muted colors)
+                    :font-size "0.8rem"
+                    :margin-bottom "12px"
+                    :font-style "italic"}}
+      (cond
+        (zero? count) (t :no-results-filter)
+        (= count 1) (t :one-result)
+        :else (t :n-results count))]
+     ;; Results list
+     (when (pos? count)
+       [:div
+        (doall
+         (for [chunk results]
+           ^{:key (:id chunk)}
+           [filter-result-item chunk]))])]))
+
+;; =============================================================================
 ;; Outline Panel
 ;; =============================================================================
 
@@ -365,88 +697,96 @@
   []
   (let [tree (model/get-structural-tree)
         _chunks @model/app-state ; subscribe to changes
+        _filter @filter-state ; subscribe to filter changes
         colors (:colors @settings/settings)
         current-theme (:theme @settings/settings)
-        use-texture (= current-theme :tessuto)]
+        use-texture (= current-theme :tessuto)
+        is-filtering (filter-active?)]
     [:div.outline-panel {:style {:position "relative"
                                  :border-right (str "1px solid " (:border colors))
-                                 :background-color (:sidebar colors)
-                                 :background-image (when use-texture "url('/images/logo_tramando.png')")
+                                 :background (if use-texture
+                                               (str "linear-gradient(" (:sidebar colors) "e6," (:sidebar colors) "e6), url('/images/logo_tramando.png')")
+                                               (:sidebar colors))
                                  :background-size "cover"
                                  :background-position "top left"}}
-     ;; Semi-transparent overlay for texture (high opacity for readability)
-     (when use-texture
-       [:div {:style {:position "absolute"
-                      :top 0 :left 0 :right 0 :bottom 0
-                      :background (str (:sidebar colors) "e2")
-                      :pointer-events "none"}}])
      ;; Content wrapper (needs position relative to sit above overlay)
-     [:div {:style {:position "relative" :z-index 1 :height "100%" :overflow-y "auto" :padding "inherit"}}
-     ;; STRUTTURA section
-     [:h2 {:style {:color (:text colors) :display "flex" :align-items "center"}}
-      (t :structure)
-      [help/help-icon :struttura {:below? true}]]
-     ;; Project title
-     [:div {:style {:color (:accent colors)
-                    :font-size "1rem"
-                    :font-weight "500"
-                    :padding "4px 0 8px 0"
-                    :margin-bottom "8px"
-                    :border-bottom (str "1px solid " (:border colors))}}
-      (model/get-title)]
-     (if (seq tree)
-       [:div.outline-tree
-        (doall
-         (for [chunk tree]
-           ^{:key (:id chunk)}
-           [chunk-item chunk]))]
-       [:div.outline-empty
-        {:style {:color (:text-muted colors) :font-size "0.85rem" :padding "8px 0"}}
-        (t :no-chunk)])
+     [:div {:style {:position "relative" :z-index 1 :height "100%" :overflow "visible" :padding "inherit"}}
 
-     [:div {:style {:margin-top "12px"}}
-      [:button
-       {:style {:background (:accent colors)
-                :color "white"
-                :border "none"
-                :padding "8px 16px"
-                :border-radius "4px"
-                :cursor "pointer"
-                :width "100%"
-                :font-size "0.9rem"}
-        :on-click (fn []
-                    (model/add-chunk!))}
-       (t :new-chunk)]]
+      ;; Filter input (always visible)
+      [filter-input]
 
-     ;; ASPETTI section
-     [:div {:style {:margin-top "24px" :padding-top "16px" :border-top (str "1px solid " (:border colors))}}
-      [:h2 {:style {:color (:text colors)}} (t :aspects)]
-      (doall
-       (for [container model/aspect-containers]
-         ^{:key (:id container)}
-         [aspect-container-section container]))
-      [new-aspect-dropdown]]
+      ;; Show filtered results OR normal tree view
+      (if is-filtering
+        ;; Filtered results view
+        [filtered-results-view]
 
-     ;; + Figlio button
-     (when-let [selected (model/get-selected-chunk)]
-       (when-not (model/is-aspect-container? (:id selected))
-         [:div {:style {:margin-top "16px" :padding-top "16px" :border-top (str "1px solid " (:border colors))}}
+        ;; Normal tree view
+        [:<>
+         ;; STRUTTURA section
+         [:h2 {:style {:color (:text colors) :display "flex" :align-items "center"}}
+          (t :structure)
+          [help/help-icon :struttura {:below? true}]]
+         ;; Project title
+         [:div {:style {:color (:accent colors)
+                        :font-size "1rem"
+                        :font-weight "500"
+                        :padding "4px 0 8px 0"
+                        :margin-bottom "8px"
+                        :border-bottom (str "1px solid " (:border colors))}}
+          (model/get-title)]
+         (if (seq tree)
+           [:div.outline-tree
+            (doall
+             (for [chunk tree]
+               ^{:key (:id chunk)}
+               [chunk-item chunk]))]
+           [:div.outline-empty
+            {:style {:color (:text-muted colors) :font-size "0.85rem" :padding "8px 0"}}
+            (t :no-chunk)])
+
+         [:div {:style {:margin-top "12px"}}
           [:button
-           {:style {:background "transparent"
-                    :color (:accent colors)
-                    :border (str "1px solid " (:accent colors))
+           {:style {:background (:accent colors)
+                    :color "white"
+                    :border "none"
                     :padding "8px 16px"
                     :border-radius "4px"
                     :cursor "pointer"
                     :width "100%"
                     :font-size "0.9rem"}
             :on-click (fn []
-                        (model/add-chunk! :parent-id (:id selected)))}
-           (t :add-child (str (subs (:summary selected) 0 (min 20 (count (:summary selected))))
-                                     (when (> (count (:summary selected)) 20) "...")))]]))
+                        (model/add-chunk!))}
+           (t :new-chunk)]]
 
-     ;; ANNOTAZIONI section
-     [annotations-section]]]))
+         ;; ASPETTI section
+         [:div {:style {:margin-top "24px" :padding-top "16px" :border-top (str "1px solid " (:border colors))}}
+          [:h2 {:style {:color (:text colors)}} (t :aspects)]
+          (doall
+           (for [container model/aspect-containers]
+             ^{:key (:id container)}
+             [aspect-container-section container]))
+          [new-aspect-dropdown]]
+
+         ;; + Figlio button
+         (when-let [selected (model/get-selected-chunk)]
+           (when-not (model/is-aspect-container? (:id selected))
+             [:div {:style {:margin-top "16px" :padding-top "16px" :border-top (str "1px solid " (:border colors))}}
+              [:button
+               {:style {:background "transparent"
+                        :color (:accent colors)
+                        :border (str "1px solid " (:accent colors))
+                        :padding "8px 16px"
+                        :border-radius "4px"
+                        :cursor "pointer"
+                        :width "100%"
+                        :font-size "0.9rem"}
+                :on-click (fn []
+                            (model/add-chunk! :parent-id (:id selected)))}
+               (t :add-child (str (subs (:summary selected) 0 (min 20 (count (:summary selected))))
+                                  (when (> (count (:summary selected)) 20) "...")))]]))
+
+         ;; ANNOTAZIONI section
+         [annotations-section]])]]))
 
 ;; =============================================================================
 ;; Outline Stats

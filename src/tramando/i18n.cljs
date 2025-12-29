@@ -123,6 +123,8 @@
     :tutorial-weaving-text "Ecco la magia: puoi collegare le scene agli aspetti.\n\nScrivi [@elena] nel testo di una scena per indicare che Elena appare lì. Oppure [@roma] per un luogo, [@vendetta] per un tema.\n\nTramando terrà traccia di tutti i collegamenti: potrai vedere in quali scene appare ogni personaggio, quali luoghi sono più usati, come si sviluppano i temi."
     :tutorial-notes-title "Note per te stesso"
     :tutorial-notes-text "Mentre scrivi, puoi lasciare annotazioni nel testo:\n\n• TODO — Cose da fare\n• NOTE — Appunti e riflessioni\n• FIX — Problemi da correggere\n\nSeleziona del testo, click destro, e scegli il tipo. Le annotazioni appaiono nella sidebar ma non nell'export finale."
+    :tutorial-search-title "Cerca e sostituisci"
+    :tutorial-search-text "Tramando offre potenti strumenti di ricerca:\n\n• Filtro globale — Il campo in cima alla sidebar filtra tutti i chunk che contengono il testo cercato.\n\n• Ricerca locale — Premi Ctrl+F nell'editor per cercare nel chunk corrente, con navigazione tra i risultati.\n\n• Sostituisci — Premi Ctrl+H per sostituire testo, singolarmente o tutti insieme.\n\nEntrambi supportano la distinzione maiuscole/minuscole e le espressioni regolari."
     :tutorial-map-title "La mappa della storia"
     :tutorial-map-text "La vista Radiale mostra la tua storia come una mappa: la struttura narrativa al centro, gli aspetti intorno, e linee colorate che mostrano i collegamenti.\n\nÈ un modo per \"vedere\" la trama nel suo insieme e scoprire connessioni che non avevi notato."
     :tutorial-export-title "Dal caos al libro"
@@ -179,9 +181,36 @@
     :help-esporta "Esporta il progetto in formato MD o PDF."
     :help-annotazioni "Note, cose da fare e problemi da correggere. Non appaiono nell'export PDF."
     :help-mappa-radiale "Mappa della storia: struttura al centro, aspetti intorno. Le linee mostrano i collegamenti. Clicca per selezionare, scrolla per zoomare."
+    :help-filter "Filtra chunk per testo. Cerca nei titoli e nel contenuto. Usa [Aa] per distinguere maiuscole/minuscole, [.*] per espressioni regolari."
+    :help-editor-search "Cerca nel chunk corrente. Usa ‹ › per navigare tra i risultati. Ctrl+F per aprire, Escape per chiudere."
+    :help-replace "Sostituisci il testo trovato. 'Sostituisci' cambia solo il match corrente, 'Sostituisci tutti' cambia tutte le occorrenze. Ctrl+H per aprire."
+    :help-language "Cambia la lingua dell'interfaccia. Il contenuto dei tuoi progetti non viene modificato."
 
     ;; Errors
-    :error-parsing "Errore nel parsing"}
+    :error-parsing "Errore nel parsing"
+
+    ;; Filter
+    :filter-placeholder "Filtra..."
+    :n-results "{0} risultati"
+    :one-result "1 risultato"
+    :no-results-filter "Nessun risultato"
+    :case-sensitive "Maiuscole/minuscole"
+    :regex "Espressione regolare"
+    :in-content "(contenuto)"
+    :in-annotation "(annotazione)"
+
+    ;; Editor search
+    :search-placeholder "Cerca..."
+    :search-no-results "Nessun risultato"
+    :search-match-count "{0}/{1}"
+    :search-invalid-regex "Regex non valida"
+
+    ;; Replace
+    :replace-placeholder "Sostituisci con..."
+    :replace-button "Sostituisci"
+    :replace-all-button "Sostituisci tutti"
+    :replaced-n-occurrences "Sostituite {0} occorrenze"
+    :replaced-one-occurrence "Sostituita 1 occorrenza"}
 
    :en
    {;; General
@@ -292,6 +321,8 @@
     :tutorial-weaving-text "Here's the magic: you can link scenes to aspects.\n\nWrite [@elena] in a scene's text to indicate Elena appears there. Or [@rome] for a place, [@revenge] for a theme.\n\nTramando will track all connections: you'll see which scenes each character appears in, which places are most used, how themes develop."
     :tutorial-notes-title "Notes to yourself"
     :tutorial-notes-text "While writing, you can leave annotations in the text:\n\n• TODO — Things to do\n• NOTE — Notes and reflections\n• FIX — Problems to fix\n\nSelect text, right-click, and choose the type. Annotations appear in the sidebar but not in the final export."
+    :tutorial-search-title "Search and replace"
+    :tutorial-search-text "Tramando offers powerful search tools:\n\n• Global filter — The field at the top of the sidebar filters all chunks containing the searched text.\n\n• Local search — Press Ctrl+F in the editor to search the current chunk, with navigation between results.\n\n• Replace — Press Ctrl+H to replace text, one at a time or all at once.\n\nBoth support case sensitivity and regular expressions."
     :tutorial-map-title "The story map"
     :tutorial-map-text "The Radial view shows your story as a map: the narrative structure in the center, aspects around it, and colored lines showing connections.\n\nIt's a way to \"see\" the plot as a whole and discover connections you hadn't noticed."
     :tutorial-export-title "From chaos to book"
@@ -348,9 +379,36 @@
     :help-esporta "Export the project to MD or PDF format."
     :help-annotazioni "Notes, todos, and issues to fix. They don't appear in PDF export."
     :help-mappa-radiale "Story map: structure in center, aspects around. Lines show connections. Click to select, scroll to zoom."
+    :help-filter "Filter chunks by text. Searches in titles and content. Use [Aa] for case sensitive, [.*] for regular expressions."
+    :help-editor-search "Search in current chunk. Use ‹ › to navigate results. Ctrl+F to open, Escape to close."
+    :help-replace "Replace found text. 'Replace' changes only current match, 'Replace all' changes all occurrences. Ctrl+H to open."
+    :help-language "Change interface language. Your project content is not affected."
 
     ;; Errors
-    :error-parsing "Parsing error"}})
+    :error-parsing "Parsing error"
+
+    ;; Filter
+    :filter-placeholder "Filter..."
+    :n-results "{0} results"
+    :one-result "1 result"
+    :no-results-filter "No results"
+    :case-sensitive "Case sensitive"
+    :regex "Regular expression"
+    :in-content "(content)"
+    :in-annotation "(annotation)"
+
+    ;; Editor search
+    :search-placeholder "Search..."
+    :search-no-results "No results"
+    :search-match-count "{0}/{1}"
+    :search-invalid-regex "Invalid regex"
+
+    ;; Replace
+    :replace-placeholder "Replace with..."
+    :replace-button "Replace"
+    :replace-all-button "Replace all"
+    :replaced-n-occurrences "Replaced {0} occurrences"
+    :replaced-one-occurrence "Replaced 1 occurrence"}})
 
 ;; =============================================================================
 ;; Translation Functions

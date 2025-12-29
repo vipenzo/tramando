@@ -144,9 +144,12 @@
        [:label {:style {:color (settings/get-color :text)
                         :font-size "0.9rem"
                         :font-weight "600"
-                        :display "block"
+                        :display "flex"
+                        :align-items "center"
+                        :gap "6px"
                         :margin-bottom "8px"}}
-        (t :language)]
+        (t :language)
+        [help/help-icon :help-language]]
        [:select {:value (name (or current-lang :it))
                  :style {:width "100%"
                          :background (settings/get-color :editor-bg)
@@ -629,6 +632,9 @@
    {:title (t :tutorial-notes-title)
     :icon "note"
     :text (t :tutorial-notes-text)}
+   {:title (t :tutorial-search-title)
+    :icon "search"
+    :text (t :tutorial-search-text)}
    {:title (t :tutorial-map-title)
     :icon "radial"
     :text (t :tutorial-map-text)}
@@ -652,6 +658,7 @@
                [:span {:style {:color (:timeline colors)}} "📅"]]
     "network" [:div {:style {:font-size "3rem" :text-align "center"}} "🕸️"]
     "note" [:div {:style {:font-size "3rem" :text-align "center"}} "📝"]
+    "search" [:div {:style {:font-size "3rem" :text-align "center"}} "🔍"]
     "radial" [:div {:style {:font-size "3rem" :text-align "center"}} "🎯"]
     "pdf" [:div {:style {:font-size "3rem" :text-align "center"}} "📄"]
     "start" [:div {:style {:font-size "3rem" :text-align "center"}} "✨"]
@@ -810,7 +817,7 @@
                       :z-index 99}
               :on-click #(reset! export-dropdown-open? false)}])
 
-     [:div {:style {:position "relative"}}
+     [:div {:style {:position "relative" :z-index 150}}
       ;; Export button
       [:button
        {:style {:background "transparent"
@@ -838,7 +845,7 @@
                        :border-radius "4px"
                        :box-shadow "0 4px 12px rgba(0,0,0,0.3)"
                        :min-width "140px"
-                       :z-index 100}}
+                       :z-index 200}}
          [:button {:style {:display "block"
                            :width "100%"
                            :text-align "left"
@@ -884,7 +891,8 @@
                           :background-position "left top"
                           :background-repeat "no-repeat"
                           :border-bottom (str "1px solid " (:border colors))
-                          :position "relative"}}
+                          :position "relative"
+                          :z-index 10}}
      ;; Logo area - only this opens splash
      [:div {:style {:width "200px"
                     :position "relative"
@@ -1059,6 +1067,26 @@
         ctrl-or-cmd (or (.-ctrlKey e) (.-metaKey e))
         shift (.-shiftKey e)]
     (cond
+      ;; Focus filter: Ctrl+Shift+F or Cmd+Shift+F
+      (and ctrl-or-cmd shift (= key "f"))
+      (do
+        (.preventDefault e)
+        (outline/focus-filter!))
+
+      ;; Editor search: Ctrl+F or Cmd+F (without shift)
+      (and ctrl-or-cmd (not shift) (= key "f"))
+      (do
+        (.preventDefault e)
+        (editor/show-editor-search!))
+
+      ;; Replace: Ctrl+H or Cmd+H
+      (and ctrl-or-cmd (= key "h"))
+      (do
+        (.preventDefault e)
+        (if (:visible @editor/editor-search-state)
+          (editor/toggle-replace-visible!)
+          (editor/show-editor-search-with-replace!)))
+
       ;; Redo: Ctrl+Shift+Z or Cmd+Shift+Z
       (and ctrl-or-cmd shift (= key "z"))
       (do
@@ -1071,13 +1099,17 @@
         (.preventDefault e)
         (model/undo!))
 
-      ;; Escape closes settings and export dropdown
+      ;; Escape closes settings, export dropdown, editor search, and global filter
       (= key "escape")
       (do
         (when @settings/settings-open?
           (reset! settings/settings-open? false))
         (when @export-dropdown-open?
-          (reset! export-dropdown-open? false))))))
+          (reset! export-dropdown-open? false))
+        (when (:visible @editor/editor-search-state)
+          (editor/hide-editor-search!))
+        ;; Clear global outline filter
+        (outline/clear-filter!)))))
 
 ;; =============================================================================
 ;; Splash Screen
@@ -1249,6 +1281,8 @@
             [editor-panel])]
          ;; Annotation context menu (for right-click on selection)
          [editor/annotation-context-menu]
+         ;; Toast notification
+         [editor/toast-component]
          ;; Settings Modal
          (when @settings/settings-open?
            [settings-modal])
