@@ -12,7 +12,8 @@
             [tramando.i18n :as i18n :refer [t]]
             [tramando.ai-panel :as ai-panel]
             [tramando.context-menu :as context-menu]
-            [tramando.ai.ui :as ai-ui]))
+            [tramando.ai.ui :as ai-ui]
+            ["@tauri-apps/plugin-dialog" :as dialog]))
 
 ;; =============================================================================
 ;; View Mode State
@@ -299,16 +300,13 @@
                           :font-size "0.85rem"
                           :white-space "nowrap"}
                   :on-click (fn []
-                              ;; Use Tauri dialog to pick folder
-                              (when-let [dialog (and js/window
-                                                     (.-__TAURI__ js/window)
-                                                     (.-dialog (.-__TAURI__ js/window)))]
-                                (-> (.open dialog #js {:directory true
-                                                       :multiple false
-                                                       :title (t :settings-default-folder)})
-                                    (.then (fn [path]
-                                             (when path
-                                               (settings/set-default-folder! path)))))))}
+                              ;; Use Tauri dialog plugin to pick folder
+                              (-> (dialog/open #js {:directory true
+                                                    :multiple false
+                                                    :title (t :settings-default-folder)})
+                                  (.then (fn [path]
+                                           (when path
+                                             (settings/set-default-folder! path))))))}
          (t :settings-browse)]
         ;; Clear button (only shown if folder is set)
         (when (not (empty? (settings/get-default-folder)))
