@@ -1,0 +1,236 @@
+---
+title: "Il treno ha fischiato"
+author: "Luigi Pirandello"
+language: "it"
+year: 1914
+isbn: ""
+publisher: ""
+custom:
+  genere: "Racconto"
+  fonte: "Pubblico dominio"
+  note: "Esempio di progetto Tramando - analisi narrativa"
+---
+
+[C:personaggi"Personaggi"]
+
+  [C:belluca"Belluca"]
+  
+  Protagonista. Computista anziano, impiegato modello da anni. Vive una vita di totale oppressione domestica e lavorativa. Il suo "impazzimento" è in realtà un risveglio.
+  
+    [C:belluca-fisico"Aspetto fisico"]
+    
+    Aspetto dimesso, spalle curve per le troppe ore chino sui registri. Occhi che improvvisamente si illuminano dopo la "crisi".
+    
+    [C:belluca-prima"Prima del risveglio"]
+    
+    Automa perfetto. Non si lamenta mai, non protesta, accetta tutto. I colleghi lo considerano una macchina da calcolo, non un uomo.
+    
+    [C:belluca-dopo"Dopo il risveglio"]
+    
+    Ride, sogna ad occhi aperti, parla di treni e luoghi lontani. Considerato pazzo, ma in realtà finalmente vivo.
+
+  [C:colleghi"I colleghi"]
+  
+  Massa indistinta di impiegati che hanno sempre ignorato Belluca come persona. Ora lo deridono o lo compiangono, senza capire.
+
+  [C:capoufficio"Il capo ufficio"]
+  
+  Figura d'autorità che rimprovera Belluca per il primo ritardo in anni di servizio. Rappresenta l'oppressione del sistema.
+
+  [C:famiglia"La famiglia"]
+  
+  Tre cieche (moglie, suocera, sorella della suocera), due figlie vedove con sette figli tra tutte. Un carico impossibile che grava tutto su Belluca.
+
+  [C:narratore"Il narratore"]
+  
+  Voce narrante che conosce Belluca e cerca di spiegare agli altri la vera natura della sua "pazzia". Unico che intuisce la verità.
+
+[C:luoghi"Luoghi"]
+
+  [C:ufficio"L'ufficio"]
+  
+  Luogo di oppressione quotidiana. Scrivanie, registri, numeri. Qui Belluca ha passato anni come un automa.
+
+  [C:casa"La casa di Belluca"]
+  
+  Inferno domestico. Sovraffollata, con le tre cieche e i nipoti. Belluca dorme in uno stanzino, un bugigattolo.
+  
+    [C:stanzino"Lo stanzino"]
+    
+    Il bugigattolo dove Belluca dorme. Un letto, una finestra. Da questa finestra, una notte, ha sentito il treno fischiare.
+
+  [C:manicomio"Il manicomio"]
+  
+  Dove Belluca viene portato dopo la "crisi". Luogo di presunta cura, ma Belluca non è malato.
+
+  [C:mondo"Il mondo fuori"]
+  
+  I luoghi evocati dal fischio del treno: la Siberia, il Congo, le foreste, le montagne. Il mondo che Belluca aveva dimenticato esistesse.
+
+[C:temi"Temi"]
+
+  [C:alienazione"Alienazione"]
+  
+  La vita di Belluca prima del risveglio: un'esistenza meccanica, privata di ogni umanità. L'uomo ridotto a funzione.
+
+  [C:risveglio"Risveglio"]
+  
+  Il tema centrale: il fischio del treno come momento epifanico che restituisce a Belluca la consapevolezza del mondo e di sé.
+
+  [C:pazzia"Pazzia apparente"]
+  
+  Ciò che la società chiama pazzia è in realtà l'unico momento di sanità di Belluca. Rovesciamento tipicamente pirandelliano.
+
+  [C:fuga"Fuga e immaginazione"]
+  
+  La possibilità di evadere mentalmente, di viaggiare con l'immaginazione quando la vita reale è una prigione.
+
+  [C:oppressione"Oppressione"]
+  
+  Familiare (le tre cieche, i nipoti) e lavorativa (il capo, i colleghi). Belluca è schiacciato da ogni lato.
+
+[C:sequenze"Sequenze"]
+
+  [C:seq-crisi"La crisi di Belluca"]
+  
+  La sequenza degli eventi che portano al ricovero e alla spiegazione finale.
+  
+    [C:seq-crisi-1"Il ritardo"]
+    
+    Per la prima volta in anni, Belluca arriva in ritardo al lavoro.
+    
+    [C:seq-crisi-2"Il rimprovero"]
+    
+    Il capo ufficio lo rimprovera. Belluca, invece di scusarsi, reagisce.
+    
+    [C:seq-crisi-3"La reazione"]
+    
+    Belluca ride, parla del treno, sembra impazzito. Viene portato via.
+    
+    [C:seq-crisi-4"Il manicomio"]
+    
+    Belluca viene ricoverato. Tutti pensano sia impazzito.
+    
+    [C:seq-crisi-5"La spiegazione"]
+    
+    Il narratore spiega la vera storia: il risveglio notturno, il fischio del treno.
+
+  [C:seq-risveglio"Il risveglio notturno"]
+  
+  Flashback: cosa è successo davvero quella notte.
+  
+    [C:seq-risveglio-1"La notte insonne"]
+    
+    Belluca non riesce a dormire nel suo bugigattolo.
+    
+    [C:seq-risveglio-2"Il fischio"]
+    
+    Sente un treno fischiare in lontananza.
+    
+    [C:seq-risveglio-3"L'epifania"]
+    
+    Improvvisamente ricorda che esiste un mondo fuori. Siberia, Congo, foreste...
+    
+    [C:seq-risveglio-4"La gioia"]
+    
+    Per la prima volta da anni, Belluca prova gioia. Ride, piange.
+
+[C:timeline"Timeline"]
+
+  [C:tl-storia"Cronologia"]
+  
+    [C:tl-passato"Anni precedenti"]
+    
+    Belluca vive come un automa. Lavoro, casa, le tre cieche. Nessuna consapevolezza.
+    
+    [C:tl-notte"La notte del risveglio"]
+    
+    Belluca sente il treno fischiare. Epifania.
+    
+    [C:tl-mattina"La mattina dopo"]
+    
+    Belluca arriva in ritardo. Reagisce al rimprovero. Viene considerato pazzo.
+    
+    [C:tl-manicomio"Il ricovero"]
+    
+    Belluca è in manicomio. Il narratore va a trovarlo e capisce.
+    
+    [C:tl-narrazione"Momento della narrazione"]
+    
+    Il narratore racconta la storia, spiegando la verità agli altri.
+
+[C:parte1"Parte prima: La notizia"]
+
+  [C:scena1"L'annuncio della pazzia"][@belluca][@colleghi][@ufficio][@alienazione]
+  
+  Farneticava. Principio d'imbecillità, dissero i medici; e lo portarono all'ospizio. Al quale ospizio chi va, per accertarsi se sia vero che Belluca è impazzito, si maraviglia che non sia impazzito prima, quando sente descrivere il genere di vita che gli è toccato condurre fino a quel giorno.
+
+  [C:scena2"La vita impossibile"][@belluca][@famiglia][@casa][@oppressione]
+  
+  Belluca ha in casa tre cieche: la moglie, la suocera e la sorella della suocera; queste ultime due, vecchissime, per cataratta; la moglie, no; giovane ancora, perdette la vista per una distrazione della retina: non ci vede più. Tutt'e tre vogliono esser servite. Gridano dalla mattina alla sera perché nessuno le serve. Le due figliuole vedove, che per carità, ospitano in casa, non possono attender loro, prese dai loro figliuoli, il cui numero non si sa. Belluca sa che sono più di sette e meno di undici.
+  
+  Liti continue, cioè: non liti; urla, perché alle tre cieche, che urlano per la mancanza d'assistenza, si mescolano le proteste delle figliuole vedove, alle quali non basta che il padre le tenga in casa; pretendono anche la serva. Hanno da badare ai figliuoli.
+
+  [C:scena3"Il bugigattolo"][@belluca][@stanzino][@oppressione]
+  
+  Belluca dorme in uno stanzino peggio d'una tana, su un lettuccio di ferro, accanto ai quali dormono — che dico? — riposano per qualche ora dal chiasso fatto durante tutta la giornata, due dei nipotini, che sempre, ogni sera, trovano il modo di non volervi restare.
+
+[C:parte2"Parte seconda: L'esplosione"]
+
+  [C:scena4"Il ritardo"][@belluca][@capoufficio][@ufficio][@seq-crisi-1][@seq-crisi-2][@tl-mattina]
+  
+  Quel giorno Belluca, com'era suo dovere e come era solito, si recò al suo posto: arrivò, in verità, molto più tardi del consueto. Cosa incredibile! Belluca, in tanti anni di servizio, mai aveva ritardato di un minuto.
+  
+  Il capo-ufficio, appena lo vide entrare, corrugò le ciglia:
+  
+  — Belluca! Che modo è questo?
+  
+  Belluca, con un sorriso da ebete, si tolse il cappello e mostrò la sua calva lustra.
+  
+  — Che mi frega? — rispose a bassa voce.
+
+  [C:scena5"La reazione incredibile"][@belluca][@capoufficio][@colleghi][@ufficio][@seq-crisi-3][@pazzia]
+  
+  — Che cosa avete detto? — esclamò quello, non credendo alle sue orecchie.
+  
+  — Ah, già, dimenticavo: il registro, il registro! — rispose Belluca, scostandolo con un gesto goffo e sedendo al suo posto. — Ma che registro! Che registro! Come volete che badi al registro, io? Pensate: il treno ha fischiato...
+  
+  — Che treno?
+  
+  — Stanotte. Il treno, signor Doroteo. Ha fischiato. L'ho sentito fischiare...
+  
+  E più che meraviglia, c'era nelle parole di Belluca, gioia, gioia infantile.
+
+  [C:scena6"Il delirio apparente"][@belluca][@mondo][@fuga][@risveglio][@seq-crisi-3]
+  
+  — Il treno ha fischiato! E io... ah, sapeste dov'ero! In Siberia... oppure, oppure nelle foreste del Congo... Si fa in un attimo, signor Doroteo! C'è stato un primo momento, stanotte, sa, nel sonno, in cui non sapevo bene... una cosa strana... come un sogno... Strano, eh? strano... Ma poi, dopo, come ha fischiato di nuovo, per la seconda volta, ho capito che non era un sogno, che avevo davvero... davvero... sentito fischiare il treno.
+
+[C:parte3"Parte terza: La spiegazione"]
+
+  [C:scena7"Il narratore comprende"][@narratore][@belluca][@manicomio][@tl-manicomio][@seq-crisi-5]
+  
+  Sono andato a trovarlo all'ospizio.
+  
+  Aveva gli occhi ancora rossi dal gran piangere ch'era stato; ma non piangeva più; rideva, ormai, d'un buon riso quieto, che gli addolciva tutta la faccia pallida e magra e ancora un po' sconvolta dalla stanchezza; ma negli occhi gli luceva una dolcezza nuova, ignota, come di bimbo che rinasce.
+
+  [C:scena8"La verità sul risveglio"][@belluca][@narratore][@stanzino][@seq-risveglio][@risveglio][@tl-notte]
+  
+  Belluca, seduto sul letto, mi ha preso una mano; e, stringendomela, ha detto piano, come in confidenza:
+  
+  — Sa com'è stato? È stato così: una notte... oh, tante notti fa... mi sono svegliato, e non mi pareva vero d'esser dove mi trovavo; mi pareva di non esserci mai stato. Non sentivo più nulla. Non vedevo nulla. E ho pensato subito: «Ecco, sono morto!» Poi, a poco a poco, come un'onda lontana, fievole fievole, ho sentito... Ma sì! ho sentito... il treno ha fischiato!
+
+  [C:scena9"Il mondo ritrovato"][@belluca][@mondo][@fuga][@risveglio][@seq-risveglio-3]
+  
+  — Ho sentito fischiare il treno... Ed è come se, dietro quel fischio, io mi fossi improvvisamente ricordato che c'è un mondo fuori di quella casa dove, da tant'anni, chiuso, chiuso, io non vivevo più! Ah, com'è grande il mondo, e bello! E io l'avevo dimenticato! E una cosa, una cosa sola volevo, quella notte: uscire, correre, andare... andare... dove il treno m'avrebbe portato... In Siberia... nel Congo... dovunque!
+
+  [C:scena10"La conclusione"][@belluca][@narratore][@pazzia][@risveglio]
+  
+  — Ma Lei non è pazzo! — gli ho detto. — Non è affatto pazzo! Lei ha semplicemente... ricordato!
+  
+  Belluca ha sorriso.
+  
+  — Già: ricordato. Nient'altro. Ricordato che c'è un mondo... Il treno, questa notte, me l'ha ricordato. Ha fischiato. E io me ne sono ricordato. Ecco tutto.
+  
+  E poi, dopo una pausa:
+  
+  — Sa che farò, quando uscirò di qui? Ogni tanto, di notte, quando tutti dormiranno, mi alzerò in punta di piedi e andrò alla finestra. E ascolterò. Se il treno fischia, saprò che c'è ancora il mondo. E sarò contento.

@@ -1,0 +1,244 @@
+---
+title: "The Paper That Remains"
+author: ""
+language: "en"
+year: 2024
+isbn: ""
+publisher: ""
+custom:
+  genre: "Mystery"
+---
+
+[C:personaggi"Characters"]
+
+  [C:elena"Elena Ferro"]
+  
+  Protagonist, 38 years old, antique book restorer. Has worked at the City Library for ten years. Precise, methodical, accustomed to handling fragile things with care. After her father's death two years ago, she withdrew into herself.
+  
+    [C:elena-aspetto"Physical appearance"]
+    
+    Brown hair pulled back, reading glasses always hanging from her neck, well-kept hands but marked by solvents.
+    
+    [C:elena-voce"Way of speaking"]
+    
+    Short, precise sentences. Rarely raises her voice. When nervous, she takes her glasses off and puts them back on.
+
+  [C:giorgio"Giorgio Mante"]
+  
+  72 years old, former antiquarian bookseller, now retired. Knew Elena's father. Carries a secret about a book that disappeared thirty years ago.
+
+  [C:padre"Riccardo Ferro"]
+  
+  Elena's father, who died two years before the story begins. He was a librarian. Giorgio reveals that he had found something important shortly before dying.
+
+[C:luoghi"Places"]
+
+  [C:biblioteca"City Library"]
+  
+  An 18th-century palace in the historic center. The restoration laboratory is in the basement: artificial light, smell of glue and old paper, metal shelves.
+
+  [C:libreria"The Catalogue Bookshop"]
+  
+  Giorgio's former shop, now closed. Dusty window, faded sign. Giorgio takes Elena there to show her something.
+
+  [C:casa"Elena's Home"]
+  
+  An orderly apartment, almost bare. Boxes of her father's belongings still unopened in one room.
+
+[C:temi"Themes"]
+
+  [C:eredita"Inheritance"]
+  
+  What we receive from those who came before us. Not just objects, but secrets, responsibilities, unanswered questions.
+
+  [C:cura"Care"]
+  
+  The act of restoration as metaphor: bringing back to life what seems lost, whether a book or a relationship.
+
+  [C:verita"Hidden Truth"]
+  
+  What the dead take with them, and what they leave behind to be discovered.
+
+[C:sequenze"Sequences"]
+
+  [C:seq-scoperta"The Discovery of the Secret"]
+  
+  How Elena comes to discover what her father had found.
+  
+    [C:seq-scoperta-1"Meeting Giorgio"]
+    
+    Giorgio shows up at the library with an excuse.
+    
+    [C:seq-scoperta-2"The Revelation"]
+    
+    Giorgio tells about the missing book and Riccardo's involvement.
+    
+    [C:seq-scoperta-3"The Search"]
+    
+    Elena searches through her father's things.
+    
+    [C:seq-scoperta-4"The Discovery"]
+    
+    Elena finds the notebook with her father's annotations.
+
+[C:timeline"Timeline"]
+
+  [C:tl-storia"Story Chronology"]
+  
+    [C:tl-1"2024-11-04 09:00"]
+    
+    Monday morning, Elena arrives at the library.
+    
+    [C:tl-2"2024-11-04 11:30"]
+    
+    Giorgio shows up at the library.
+    
+    [C:tl-3"2024-11-04 18:00"]
+    
+    Elena goes home, opens the boxes.
+    
+    [C:tl-4"2024-11-05 16:00"]
+    
+    Elena meets Giorgio at the old bookshop.
+    
+    [C:tl-5"2024-11-05 19:00"]
+    
+    Elena finds her father's notebook.
+
+[C:cap1"Chapter 1: The Visitor"]
+
+  [C:cap1-scena1"The Laboratory"][@elena][@biblioteca][@tl-1]
+  
+  Elena set down the scalpel and massaged her neck. In front of her, open on the light table, a fifteenth-century missal awaited someone to decide its fate. The parchment was crumbling at the edges, the ink faded on some pages until it became a whisper.
+  
+  She loved this moment, when an ancient book offered itself to her with all its wounds. There was something honest in fragility.
+  
+  She put her glasses back on and returned to work.
+  
+  [C:cap1-scena2"The Meeting"][@elena][@giorgio][@biblioteca][@tl-2][@seq-scoperta-1]
+  
+  "Excuse me, I'm looking for Dr. Ferro."
+  
+  Elena looked up. An elderly man stood at the laboratory door, gray coat, hat in hand. She vaguely recognized him.
+  
+  "That's me. Can I help you?"
+  
+  "My name is Giorgio Mante. I was... a friend of your father's."
+  
+  Elena's hand stopped mid-air, her glasses swinging.
+  
+  "I don't remember my father mentioning you."
+  
+  "No, I imagine not." Giorgio entered slowly, looking around. "Your father was a private man. Like you, I'd say."
+  
+  Elena didn't respond. She waited.
+  
+  "I had an antiquarian bookshop nearby. Your father came often. We talked about books, naturally. But I'm not here for memories."
+  
+  He sat down on the chair by the door, as if his legs could no longer hold him.
+  
+  "I'm here about a book that disappeared [!NOTE:thirty years ago::verify if timeline checks out]. A book that your father, I believe, had found."
+
+[C:cap2"Chapter 2: The Secret"][@verita]
+
+  [C:cap2-scena1"Giorgio's Story"][@elena][@giorgio][@biblioteca][@seq-scoperta-2]
+  
+  Elena removed her work gloves, slowly.
+  
+  "What book?"
+  
+  "An extremely rare edition. A Dante from 1502, printed in Venice. It disappeared from a nobleman's collection in the nineties. It was thought to be a theft, but it was never found."
+  
+  "And what does my father have to do with it?"
+  
+  Giorgio hesitated. He turned the hat in his hands.
+  
+  "Your father called me two weeks before he died. He said he had found it. That it had always been here, in the library, catalogued incorrectly. Hidden in plain sight, he said."
+  
+  Elena felt something move in her chest. A kind of [!FIX:cold anger:5:maybe "unease" is better], or perhaps fear.
+  
+  "Why didn't you say something before? It's been two years."
+  
+  "Because your father asked me to wait. He said he needed to verify something, that there were implications. Then he died, and I... didn't know if it was right."
+  
+  "And now?"
+  
+  "Now I'm old, and there are things I don't want to take to my grave."
+  
+  [C:cap2-scena2"The Boxes"][@elena][@casa][@padre][@tl-3][@seq-scoperta-3][@eredita]
+  
+  That evening Elena opened the door to the room she had been avoiding for two years.
+  
+  Her father's boxes were where she had left them on moving day. Six cardboard boxes, sealed with tape, labeled in his orderly handwriting: PERSONAL BOOKS, DOCUMENTS, PHOTOGRAPHS, MISCELLANEOUS.
+  
+  She sat on the floor and started with DOCUMENTS.
+  
+  Bills, receipts, the warranty for a television that no longer existed. Formal letters from the library, evaluations, reports. Nothing that spoke of a 1502 Dante.
+  
+  Then, at the bottom, an unlabeled folder.
+  
+  Inside, yellowed newspaper clippings. Articles about the book's disappearance, dated 1994. And a handwritten note: *Mante knows. Talk to him first.*
+  
+  Before what, Dad?
+
+[C:cap3"Chapter 3: The Paper That Remains"][@cura]
+
+  [C:cap3-scena1"The Old Bookshop"][@elena][@giorgio][@libreria][@tl-4]
+  
+  The Catalogue bookshop was a dusty hole between a bar and a laundry. The sign hung from a rusty hook. Giorgio fumbled with the keys, his hands trembling.
+  
+  "I haven't been in here for five years. Since I closed."
+  
+  Inside, the smell was right: paper, dust, time. Empty shelves, a few boxes, a counter covered by a sheet.
+  
+  "Your father came here every week," said Giorgio. "We talked for hours. He was the only one who understood."
+  
+  "Understood what?"
+  
+  "That books aren't objects. They're [!TODO:find better word:10:] witnesses. They carry with them the hands that touched them."
+  
+  Elena looked at the empty shelves.
+  
+  "The Dante, where would it be now?"
+  
+  "I don't know. Your father didn't tell me. But he gave me something, the last time we met."
+  
+  Giorgio went to the counter, lifted the sheet. Underneath was a wooden box. He opened it and pulled out a notebook, one of those grid notebooks they used in school.
+  
+  "This. He told me to give it to you if something happened. He said: 'Elena will know what to do.'"
+  
+  Elena took the notebook. The cover was worn, the corners rounded.
+  
+  "Why didn't you give it to me right away?"
+  
+  "Because I was afraid. Of what was written in it, of what it would mean for you. But now..."
+  
+  "Now you're old, yes, you've said that."
+  
+  Giorgio smiled, a tired smile.
+  
+  "Now I've understood that secrets are [!NOTE:heavier than books::nice phrase, keep it]."
+  
+  [C:cap3-scena2"The Notebook"][@elena][@casa][@padre][@tl-5][@seq-scoperta-4][@eredita][@verita]
+  
+  Elena read the notebook that night, sitting on the floor of the room with the boxes.
+  
+  It was a research diary. Dates, annotations, references. Her father had spent years following the trail of the missing Dante. He had discovered that it had never left the library—it had been catalogued incorrectly in 1994, during an archive move, and since then it had slept in a storage room, invisible.
+  
+  But there was more.
+  
+  Her father had discovered who had caused the cataloguing "error." Who had hidden the book in plain sight, to retrieve it later. A name that Elena knew, a name that was still at the library.
+  
+  The last page was a letter, never sent.
+  
+  *Elena, if you're reading this, it means I didn't make it in time. The book is on shelf 7B in the north storage room, behind the 1900s registers. I still don't know what to do—reporting would mean destroying a person, staying silent would mean betraying everything I believe in. I've decided to wait, to think. But you don't have to wait. You've always been braver than me. Whatever you decide, it will be the right thing. I love you, Dad.*
+  
+  Elena closed the notebook.
+  
+  Outside, dawn was beginning to lighten the sky. She had before her a choice her father hadn't been able to make. But she also had something he had left her, along with the secret.
+  
+  Trust.
+  
+  She got up, stretched her back. Went to the kitchen to make coffee.
+  
+  Then she would decide.
