@@ -6,7 +6,9 @@
             [tramando.annotations :as annotations]
             [tramando.help :as help]
             [tramando.i18n :as i18n :refer [t]]
-            [tramando.editor :as editor]))
+            [tramando.editor :as editor]
+            [tramando.context-menu :as context-menu]
+            [tramando.events :as events]))
 
 ;; =============================================================================
 ;; Chunk Tree Item
@@ -28,6 +30,25 @@
 
 (defn- collapsed? [id]
   (contains? @collapsed-nodes id))
+
+(defn- expand-node! [id]
+  "Expand a collapsed node (remove from collapsed set)"
+  (swap! collapsed-nodes disj id))
+
+(defn navigate-to-aspect!
+  "Navigate to an aspect: expand its parent hierarchy and select it.
+   aspect-id can be either the aspect ID or its summary name."
+  [aspect-id]
+  (when-let [aspect (model/get-chunk aspect-id)]
+    ;; Expand the parent container (personaggi, luoghi, temi)
+    (when-let [parent-id (:parent-id aspect)]
+      (expand-node! parent-id))
+    ;; Select the aspect
+    (model/select-chunk! aspect-id)
+    true))
+
+;; Register the navigation function with events module
+(events/set-navigate-to-aspect-fn! navigate-to-aspect!)
 
 ;; =============================================================================
 ;; Filter State and Logic
@@ -191,7 +212,9 @@
                :border-left (str "2px solid " (if selected? (:accent colors) "transparent"))}
        :on-click (fn [e]
                    (.stopPropagation e)
-                   (model/select-chunk! id))}
+                   (model/select-chunk! id))
+       :on-context-menu (fn [e]
+                          (context-menu/handle-context-menu e chunk nil))}
       (when has-children?
         [:span {:style {:cursor "pointer" :margin-right "4px" :font-size "0.7rem" :color (:text-muted colors)}
                 :on-click (fn [e]
@@ -256,7 +279,9 @@
                :border-left (str "2px solid " (if selected? color "transparent"))}
        :on-click (fn [e]
                    (.stopPropagation e)
-                   (model/select-chunk! id))}
+                   (model/select-chunk! id))
+       :on-context-menu (fn [e]
+                          (context-menu/handle-context-menu e chunk nil))}
       (when has-children?
         [:span {:style {:cursor "pointer" :margin-right "4px" :font-size "0.7rem" :color (:text-muted colors)}
                 :on-click (fn [e]
@@ -392,13 +417,16 @@
     "#888"))
 
 (defn- format-priority
-  "Format priority for display. Returns '1' or '20.5' or '--' if nil."
+  "Format priority for display. Returns '1' or '20.5' or 'AI' or 'AI-DONE' or '--' if nil."
   [priority]
-  (if priority
+  (cond
+    (= priority :AI) "AI"
+    (= priority :AI-DONE) "AI-DONE"
+    (number? priority)
     (if (= priority (js/Math.floor priority))
       (str (int priority))  ; integer: no decimals
       (str priority))       ; decimal: show as-is
-    "--"))
+    :else "--"))
 
 (defn- annotation-item [{:keys [chunk-id selected-text comment type priority]}]
   (let [colors (:colors @settings/settings)
@@ -406,37 +434,80 @@
         display-text (if (> (count selected-text) 35)
                        (str (subs selected-text 0 32) "...")
                        selected-text)
-        priority-str (format-priority priority)]
+        priority-str (format-priority priority)
+        is-ai-done? (= priority :AI-DONE)
+        is-ai-pending? (= priority :AI)
+        is-ai? (or is-ai-pending? is-ai-done?)
+        ;; For AI-DONE, show selected alternative if any
+        ai-data (when is-ai-done? (annotations/parse-ai-data comment))
+        current-selection (or (:sel ai-data) 0)
+        alternatives (or (:alts ai-data) [])
+        selected-alt (when (and (pos? current-selection) (<= current-selection (count alternatives)))
+                       (nth alternatives (dec current-selection)))]
     [:div {:style {:padding "6px 8px"
                    :margin-bottom "4px"
                    :background (:editor-bg colors)
                    :border-radius "3px"
                    :border-left (str "3px solid " (annotation-type-color type))
                    :cursor "pointer"
-                   :font-size "0.8rem"
-                   :display "flex"
-                   :gap "8px"}
-           :on-click #(model/select-chunk! chunk-id)}
-     ;; Priority column (fixed width)
-     [:span {:style {:color (if priority (:accent colors) (:text-muted colors))
-                     :font-family "monospace"
-                     :font-size "0.75rem"
-                     :min-width "24px"
-                     :text-align "right"}}
-      priority-str]
-     ;; Content column
-     [:div {:style {:flex 1 :overflow "hidden"}}
-      [:div {:style {:color (:text-muted colors)
-                     :font-size "0.7rem"
-                     :margin-bottom "2px"}}
-       path]
-      [:div {:style {:color (:text colors)
-                     :overflow "hidden"
-                     :text-overflow "ellipsis"
-                     :white-space "nowrap"}}
-       [:span {:style {:font-style "italic"}} (str "\"" display-text "\"")]
-       (when (seq comment)
-         [:span {:style {:color (:text-muted colors)}} (str " — " comment)])]]]))
+                   :font-size "0.8rem"}
+           :on-click (fn []
+                       (editor/set-tab! :edit)  ;; Switch to edit mode to see annotations
+                       (model/select-chunk! chunk-id)
+                       (editor/navigate-to-annotation! selected-text))}
+     ;; Header row with path and badge
+     [:div {:style {:display "flex"
+                    :align-items "center"
+                    :gap "8px"
+                    :margin-bottom "4px"}}
+      ;; Priority column - show AI badge for AI annotations
+      (if is-ai?
+        [:span {:style {:background (if is-ai-pending?
+                                      (:text-muted colors)
+                                      (:accent colors))
+                        :color "white"
+                        :font-size "0.65rem"
+                        :padding "1px 4px"
+                        :border-radius "2px"
+                        :font-weight "600"}}
+         (if is-ai-pending? "AI..." "AI")]
+        (when priority
+          [:span {:style {:color (:accent colors)
+                          :font-family "monospace"
+                          :font-size "0.75rem"}}
+           priority-str]))
+      ;; Path
+      [:span {:style {:color (:text-muted colors)
+                      :font-size "0.7rem"
+                      :flex 1}}
+       path]]
+     ;; Selected text
+     [:div {:style {:color (:text colors)
+                    :overflow "hidden"
+                    :text-overflow "ellipsis"
+                    :white-space "nowrap"}}
+      [:span {:style {:font-style "italic"}} (str "\"" display-text "\"")]
+      (when (and (seq comment) (not is-ai?))
+        [:span {:style {:color (:text-muted colors)}} (str " — " comment)])]
+     ;; AI pending message
+     (when is-ai-pending?
+       [:div {:style {:color (:text-muted colors)
+                      :font-size "0.7rem"
+                      :font-style "italic"
+                      :margin-top "4px"}}
+        (t :ai-processing)])
+     ;; AI-DONE: show selected alternative preview
+     (when selected-alt
+       [:div {:style {:color (:accent colors)
+                      :font-size "0.75rem"
+                      :margin-top "4px"
+                      :font-style "italic"
+                      :overflow "hidden"
+                      :text-overflow "ellipsis"
+                      :white-space "nowrap"}}
+        (str "→ " (if (> (count selected-alt) 40)
+                    (str (subs selected-alt 0 37) "...")
+                    selected-alt))])]))
 
 (defn- annotation-type-section [type items]
   (let [is-collapsed? (collapsed? (str "ann-" (name type)))
@@ -700,12 +771,12 @@
         _filter @filter-state ; subscribe to filter changes
         colors (:colors @settings/settings)
         current-theme (:theme @settings/settings)
-        use-texture (= current-theme :tessuto)
+        use-texture (or (get colors :background-texture) (= current-theme :tessuto))
         is-filtering (filter-active?)]
     [:div.outline-panel {:style {:position "relative"
                                  :border-right (str "1px solid " (:border colors))
                                  :background (if use-texture
-                                               (str "linear-gradient(" (:sidebar colors) "e6," (:sidebar colors) "e6), url('/images/logo_tramando.png')")
+                                               (str "linear-gradient(" (:sidebar colors) "e6," (:sidebar colors) "e6), url('/images/logo_tramando_transparent.png')")
                                                (:sidebar colors))
                                  :background-size "cover"
                                  :background-position "top left"}}

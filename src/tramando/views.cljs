@@ -9,7 +9,10 @@
             [tramando.export-pdf :as export-pdf]
             [tramando.annotations :as annotations]
             [tramando.help :as help]
-            [tramando.i18n :as i18n :refer [t]]))
+            [tramando.i18n :as i18n :refer [t]]
+            [tramando.ai-panel :as ai-panel]
+            [tramando.context-menu :as context-menu]
+            [tramando.ai.ui :as ai-ui]))
 
 ;; =============================================================================
 ;; View Mode State
@@ -36,6 +39,7 @@
 ;; =============================================================================
 
 (defonce settings-file-input-ref (r/atom nil))
+(defonce show-api-key? (r/atom false))
 
 ;; =============================================================================
 ;; Metadata Modal State
@@ -185,7 +189,8 @@
         [:option {:value "tessuto"} "Tessuto"]
         [:option {:value "dark"} "Dark"]
         [:option {:value "light"} "Light"]
-        [:option {:value "sepia"} "Sepia"]]]
+        [:option {:value "sepia"} "Sepia"]
+        [:option {:value "ulysses"} "Ulysses"]]]
 
       ;; Autosave Delay
       [:div {:style {:margin-bottom "20px"}}
@@ -228,6 +233,7 @@
          [color-picker (t :color-background) :background]
          [color-picker (t :color-sidebar) :sidebar]
          [color-picker (t :color-editor) :editor-bg]
+         [color-picker (t :color-ai-panel) :ai-panel]
          [color-picker (t :color-border) :border]
          [color-picker (t :color-text) :text]
          [color-picker (t :color-text-secondary) :text-muted]
@@ -246,6 +252,330 @@
          [color-picker (t :temi) :temi]
          [color-picker (t :sequenze) :sequenze]
          [color-picker (t :timeline) :timeline]]]]
+
+      ;; AI Assistant Section
+      (let [ai-settings (get @settings/settings :ai)
+            ai-enabled (:enabled ai-settings)
+            provider (:provider ai-settings)
+            ollama-status @settings/ollama-status]
+        [:div {:style {:margin-bottom "20px"
+                       :padding-top "12px"
+                       :border-top (str "1px solid " (settings/get-color :border))}}
+         [:label {:style {:color (settings/get-color :text)
+                          :font-size "0.9rem"
+                          :font-weight "600"
+                          :display "block"
+                          :margin-bottom "12px"}}
+          (t :ai-settings)]
+
+         ;; Enable checkbox
+         [:div {:style {:margin-bottom "12px"}}
+          [:label {:style {:display "flex"
+                           :align-items "center"
+                           :gap "8px"
+                           :cursor "pointer"
+                           :color (settings/get-color :text)}}
+           [:input {:type "checkbox"
+                    :checked ai-enabled
+                    :style {:cursor "pointer"}
+                    :on-change #(settings/set-ai-setting! :enabled (-> % .-target .-checked))}]
+           (t :ai-enabled)]]
+
+         ;; Provider selection (only when enabled)
+         (when ai-enabled
+           [:<>
+            ;; Provider dropdown
+            [:div {:style {:margin-bottom "12px"}}
+             [:label {:style {:color (settings/get-color :text-muted)
+                              :font-size "0.8rem"
+                              :display "flex"
+                              :align-items "center"
+                              :gap "6px"
+                              :margin-bottom "4px"}}
+              (t :ai-provider)
+              [help/help-icon :ai-help-provider]]
+             [:select {:value (name provider)
+                       :style {:width "100%"
+                               :background (settings/get-color :editor-bg)
+                               :color (settings/get-color :text)
+                               :border (str "1px solid " (settings/get-color :border))
+                               :border-radius "4px"
+                               :padding "8px 12px"
+                               :font-size "0.9rem"
+                               :cursor "pointer"}
+                       :on-change #(settings/set-ai-setting! :provider (keyword (-> % .-target .-value)))}
+              [:option {:value "anthropic"} (t :ai-provider-anthropic)]
+              [:option {:value "openai"} (t :ai-provider-openai)]
+              [:option {:value "groq"} (t :ai-provider-groq)]
+              [:option {:value "ollama"} (t :ai-provider-ollama)]]]
+
+            ;; Anthropic API Key
+            (when (= provider :anthropic)
+              [:<>
+               [:div {:style {:margin-bottom "12px"}}
+                [:label {:style {:color (settings/get-color :text-muted)
+                                 :font-size "0.8rem"
+                                 :display "flex"
+                                 :align-items "center"
+                                 :gap "6px"
+                                 :margin-bottom "4px"}}
+                 (t :ai-api-key)
+                 [help/help-icon :ai-help-api-key]]
+                [:div {:style {:display "flex" :gap "8px"}}
+                 [:input {:type (if @show-api-key? "text" "password")
+                          :value (:anthropic-key ai-settings)
+                          :placeholder (t :ai-api-key-placeholder)
+                          :style {:flex 1
+                                  :background (settings/get-color :editor-bg)
+                                  :color (settings/get-color :text)
+                                  :border (str "1px solid " (settings/get-color :border))
+                                  :border-radius "4px"
+                                  :padding "8px 12px"
+                                  :font-size "0.9rem"}
+                          :on-change #(settings/set-ai-setting! :anthropic-key (-> % .-target .-value))}]
+                 [:button {:style {:background "transparent"
+                                   :color (settings/get-color :text-muted)
+                                   :border (str "1px solid " (settings/get-color :border))
+                                   :padding "8px 12px"
+                                   :border-radius "4px"
+                                   :cursor "pointer"
+                                   :font-size "0.8rem"}
+                           :on-click #(swap! show-api-key? not)}
+                  (if @show-api-key? (t :ai-hide-key) (t :ai-show-key))]]]
+               ;; Model selection for Anthropic
+               [:div {:style {:margin-bottom "12px"}}
+                [:label {:style {:color (settings/get-color :text-muted)
+                                 :font-size "0.8rem"
+                                 :display "block"
+                                 :margin-bottom "4px"}}
+                 (t :ai-model)]
+                [:select {:value (:model ai-settings)
+                          :style {:width "100%"
+                                  :background (settings/get-color :editor-bg)
+                                  :color (settings/get-color :text)
+                                  :border (str "1px solid " (settings/get-color :border))
+                                  :border-radius "4px"
+                                  :padding "8px 12px"
+                                  :font-size "0.9rem"
+                                  :cursor "pointer"}
+                          :on-change #(settings/set-ai-setting! :model (-> % .-target .-value))}
+                 [:option {:value "claude-sonnet-4-20250514"} "Claude Sonnet 4"]
+                 [:option {:value "claude-opus-4-20250514"} "Claude Opus 4"]
+                 [:option {:value "claude-3-5-haiku-latest"} "Claude 3.5 Haiku"]]]])
+
+            ;; OpenAI API Key
+            (when (= provider :openai)
+              [:<>
+               [:div {:style {:margin-bottom "12px"}}
+                [:label {:style {:color (settings/get-color :text-muted)
+                                 :font-size "0.8rem"
+                                 :display "flex"
+                                 :align-items "center"
+                                 :gap "6px"
+                                 :margin-bottom "4px"}}
+                 (t :ai-api-key)
+                 [help/help-icon :ai-help-api-key]]
+                [:div {:style {:display "flex" :gap "8px"}}
+                 [:input {:type (if @show-api-key? "text" "password")
+                          :value (:openai-key ai-settings)
+                          :placeholder (t :ai-api-key-placeholder)
+                          :style {:flex 1
+                                  :background (settings/get-color :editor-bg)
+                                  :color (settings/get-color :text)
+                                  :border (str "1px solid " (settings/get-color :border))
+                                  :border-radius "4px"
+                                  :padding "8px 12px"
+                                  :font-size "0.9rem"}
+                          :on-change #(settings/set-ai-setting! :openai-key (-> % .-target .-value))}]
+                 [:button {:style {:background "transparent"
+                                   :color (settings/get-color :text-muted)
+                                   :border (str "1px solid " (settings/get-color :border))
+                                   :padding "8px 12px"
+                                   :border-radius "4px"
+                                   :cursor "pointer"
+                                   :font-size "0.8rem"}
+                           :on-click #(swap! show-api-key? not)}
+                  (if @show-api-key? (t :ai-hide-key) (t :ai-show-key))]]]
+               ;; Model selection for OpenAI
+               [:div {:style {:margin-bottom "12px"}}
+                [:label {:style {:color (settings/get-color :text-muted)
+                                 :font-size "0.8rem"
+                                 :display "block"
+                                 :margin-bottom "4px"}}
+                 (t :ai-model)]
+                [:select {:value (:model ai-settings)
+                          :style {:width "100%"
+                                  :background (settings/get-color :editor-bg)
+                                  :color (settings/get-color :text)
+                                  :border (str "1px solid " (settings/get-color :border))
+                                  :border-radius "4px"
+                                  :padding "8px 12px"
+                                  :font-size "0.9rem"
+                                  :cursor "pointer"}
+                          :on-change #(settings/set-ai-setting! :model (-> % .-target .-value))}
+                 [:option {:value "gpt-4o"} "GPT-4o"]
+                 [:option {:value "gpt-4o-mini"} "GPT-4o Mini"]
+                 [:option {:value "gpt-4-turbo"} "GPT-4 Turbo"]]]])
+
+            ;; Groq API Key
+            (when (= provider :groq)
+              [:<>
+               [:div {:style {:margin-bottom "12px"}}
+                [:label {:style {:color (settings/get-color :text-muted)
+                                 :font-size "0.8rem"
+                                 :display "flex"
+                                 :align-items "center"
+                                 :gap "6px"
+                                 :margin-bottom "4px"}}
+                 (t :ai-api-key)
+                 [help/help-icon :ai-groq-key-tooltip]]
+                [:div {:style {:display "flex" :gap "8px"}}
+                 [:input {:type (if @show-api-key? "text" "password")
+                          :value (:groq-key ai-settings)
+                          :placeholder (t :ai-api-key-placeholder)
+                          :style {:flex 1
+                                  :background (settings/get-color :editor-bg)
+                                  :color (settings/get-color :text)
+                                  :border (str "1px solid " (settings/get-color :border))
+                                  :border-radius "4px"
+                                  :padding "8px 12px"
+                                  :font-size "0.9rem"}
+                          :on-change #(settings/set-ai-setting! :groq-key (-> % .-target .-value))}]
+                 [:button {:style {:background "transparent"
+                                   :color (settings/get-color :text-muted)
+                                   :border (str "1px solid " (settings/get-color :border))
+                                   :padding "8px 12px"
+                                   :border-radius "4px"
+                                   :cursor "pointer"
+                                   :font-size "0.8rem"}
+                           :on-click #(swap! show-api-key? not)}
+                  (if @show-api-key? (t :ai-hide-key) (t :ai-show-key))]]]
+               ;; Model selection for Groq
+               [:div {:style {:margin-bottom "12px"}}
+                [:label {:style {:color (settings/get-color :text-muted)
+                                 :font-size "0.8rem"
+                                 :display "block"
+                                 :margin-bottom "4px"}}
+                 (t :ai-model)]
+                [:input {:type "text"
+                         :value (:groq-model ai-settings)
+                         :placeholder "llama-3.3-70b-versatile"
+                         :style {:width "100%"
+                                 :background (settings/get-color :editor-bg)
+                                 :color (settings/get-color :text)
+                                 :border (str "1px solid " (settings/get-color :border))
+                                 :border-radius "4px"
+                                 :padding "8px 12px"
+                                 :font-size "0.9rem"
+                                 :box-sizing "border-box"}
+                         :on-change #(settings/set-ai-setting! :groq-model (-> % .-target .-value))}]
+                [:div {:style {:font-size "0.75rem"
+                               :color (settings/get-color :text-muted)
+                               :margin-top "4px"}}
+                 "Es: llama-3.3-70b-versatile, llama-3.1-8b-instant"]]])
+
+            ;; Ollama settings
+            (when (= provider :ollama)
+              [:<>
+               [:div {:style {:margin-bottom "12px"}}
+                [:label {:style {:color (settings/get-color :text-muted)
+                                 :font-size "0.8rem"
+                                 :display "flex"
+                                 :align-items "center"
+                                 :gap "6px"
+                                 :margin-bottom "4px"}}
+                 (t :ai-ollama-url)
+                 [help/help-icon :ai-help-ollama]]
+                [:div {:style {:display "flex" :gap "8px"}}
+                 [:input {:type "text"
+                          :value (:ollama-url ai-settings)
+                          :style {:flex 1
+                                  :background (settings/get-color :editor-bg)
+                                  :color (settings/get-color :text)
+                                  :border (str "1px solid " (settings/get-color :border))
+                                  :border-radius "4px"
+                                  :padding "8px 12px"
+                                  :font-size "0.9rem"}
+                          :on-change #(settings/set-ai-setting! :ollama-url (-> % .-target .-value))}]
+                 [:button {:style {:background "transparent"
+                                   :color (settings/get-color :text-muted)
+                                   :border (str "1px solid " (settings/get-color :border))
+                                   :padding "8px 12px"
+                                   :border-radius "4px"
+                                   :cursor "pointer"
+                                   :font-size "0.8rem"
+                                   :white-space "nowrap"}
+                           :on-click #(settings/check-ollama-connection!)}
+                  (if (:checking ollama-status)
+                    (t :ai-ollama-checking)
+                    (t :ai-ollama-check))]]]
+               ;; Connection status
+               (when (some? (:connected ollama-status))
+                 [:div {:style {:margin-bottom "12px"
+                                :padding "8px 12px"
+                                :background (if (:connected ollama-status)
+                                              "rgba(80, 200, 120, 0.2)"
+                                              "rgba(233, 69, 96, 0.2)")
+                                :border-radius "4px"
+                                :font-size "0.85rem"
+                                :color (settings/get-color :text)}}
+                  (if (:connected ollama-status)
+                    [:<>
+                     [:span {:style {:color "#50c878"}} "✓ "]
+                     (t :ai-ollama-connected)
+                     " - "
+                     (t :ai-ollama-models-found (count (:models ollama-status)))]
+                    [:<>
+                     [:span {:style {:color "#e94560"}} "✗ "]
+                     (t :ai-ollama-not-connected)])])
+               ;; Model selection for Ollama
+               [:div {:style {:margin-bottom "12px"}}
+                [:label {:style {:color (settings/get-color :text-muted)
+                                 :font-size "0.8rem"
+                                 :display "block"
+                                 :margin-bottom "4px"}}
+                 (t :ai-ollama-model)]
+                (if (and (:connected ollama-status) (seq (:models ollama-status)))
+                  ;; Show dropdown if connected and models available
+                  [:select {:value (:ollama-model ai-settings)
+                            :style {:width "100%"
+                                    :background (settings/get-color :editor-bg)
+                                    :color (settings/get-color :text)
+                                    :border (str "1px solid " (settings/get-color :border))
+                                    :border-radius "4px"
+                                    :padding "8px 12px"
+                                    :font-size "0.9rem"
+                                    :cursor "pointer"}
+                            :on-change #(settings/set-ai-setting! :ollama-model (-> % .-target .-value))}
+                   (for [model (:models ollama-status)]
+                     ^{:key model}
+                     [:option {:value model} model])]
+                  ;; Show text input if not connected
+                  [:input {:type "text"
+                           :value (:ollama-model ai-settings)
+                           :style {:width "100%"
+                                   :background (settings/get-color :editor-bg)
+                                   :color (settings/get-color :text)
+                                   :border (str "1px solid " (settings/get-color :border))
+                                   :border-radius "4px"
+                                   :padding "8px 12px"
+                                   :font-size "0.9rem"}
+                           :on-change #(settings/set-ai-setting! :ollama-model (-> % .-target .-value))}])]])
+
+            ;; Auto-send checkbox (shown for all providers when enabled)
+            [:div {:style {:margin-top "16px"
+                           :padding-top "12px"
+                           :border-top (str "1px solid " (settings/get-color :border))}}
+             [:label {:style {:display "flex"
+                              :align-items "center"
+                              :gap "8px"
+                              :cursor "pointer"
+                              :color (settings/get-color :text)}}
+              [:input {:type "checkbox"
+                       :checked (:auto-send ai-settings)
+                       :style {:cursor "pointer"}
+                       :on-change #(settings/set-ai-setting! :auto-send (-> % .-target .-checked))}]
+              (t :ai-auto-send)]]])])
 
       ;; Import/Export Section
       [:div {:style {:margin-bottom "20px"
@@ -884,15 +1214,22 @@
 (defn header []
   (let [colors (:colors @settings/settings)
         current-theme (:theme @settings/settings)
-        use-texture (= current-theme :tessuto)]
-    [:div.header {:style {:background-color (if use-texture "#ddd0b8" (:sidebar colors))
-                          :background-image (when use-texture "url('/images/logo_tramando.png')")
-                          :background-size "auto 320%"
-                          :background-position "left top"
-                          :background-repeat "no-repeat"
+        ;; Show texture if explicitly set, or if using tessuto theme (for backwards compatibility)
+        use-texture (or (get colors :background-texture) (= current-theme :tessuto))]
+    [:div.header {:style {:background-color (:sidebar colors)
                           :border-bottom (str "1px solid " (:border colors))
                           :position "relative"
                           :z-index 10}}
+     ;; Logo with transparent background
+     (when use-texture
+       [:div {:style {:position "absolute"
+                      :top 0 :left 0 :bottom 0
+                      :width "220px"
+                      :background-image "url('/images/logo_tramando_transparent.png')"
+                      :background-size "auto 320%"
+                      :background-position "left top"
+                      :background-repeat "no-repeat"
+                      :pointer-events "none"}}])
      ;; Logo area - only this opens splash
      [:div {:style {:width "200px"
                     :position "relative"
@@ -1002,6 +1339,8 @@
                 :font-size "0.85rem"}
         :on-click #(swap! view-mode (fn [m] (if (= m :editor) :radial :editor)))}
        (if (= @view-mode :radial) (t :editor) (t :map))]
+      ;; AI Assistant button
+      [ai-panel/toolbar-button]
       ;; Settings button
       [:button
        {:style {:background "transparent"
@@ -1023,7 +1362,7 @@
   (let [chunk (model/get-selected-chunk)
         colors (:colors @settings/settings)
         current-theme (:theme @settings/settings)
-        use-texture (= current-theme :tessuto)
+        use-texture (or (get colors :background-texture) (= current-theme :tessuto))
         _ @i18n/current-lang] ; subscribe to language changes
     [:div.editor-panel {:style {:background (:background colors)
                                 :position "relative"}}
@@ -1031,7 +1370,7 @@
      (when use-texture
        [:div {:style {:position "absolute"
                       :top 0 :left 0 :right 0 :bottom 0
-                      :background-image "url('/images/logo_tramando.png')"
+                      :background-image "url('/images/logo_tramando_transparent.png')"
                       :background-size "cover"
                       :background-position "center"
                       :opacity 0.04
@@ -1138,12 +1477,12 @@
       (let [colors (:colors @settings/settings)
             current-theme (:theme @settings/settings)
             has-autosave (model/has-autosave?)
-            use-texture (= current-theme :tessuto)
+            use-texture (or (get colors :background-texture) (= current-theme :tessuto))
             _ @i18n/current-lang] ; subscribe to language changes
         [:div {:style {:position "fixed"
                        :top 0 :left 0 :right 0 :bottom 0
                        :background (:background colors)
-                       :background-image (when use-texture "url('/images/logo_tramando.png')")
+                       :background-image (when use-texture "url('/images/logo_tramando_transparent.png')")
                        :background-size "cover"
                        :background-position "center"
                        :display "flex"
@@ -1158,7 +1497,7 @@
          ;; Full-screen logo background (aligned top-left to keep "Tramando" text visible)
          [:div {:style {:position "absolute"
                         :top 0 :left 0 :right 0 :bottom 0
-                        :background-image "url('/images/logo_tramando.png')"
+                        :background-image "url('/images/logo_tramando_transparent.png')"
                         :background-size "cover"
                         :background-position "top left"
                         :opacity (if @splash-fade-in? 1 0)
@@ -1261,7 +1600,11 @@
   (r/create-class
    {:component-did-mount
     (fn [_]
-      (.addEventListener js/document "keydown" handle-keydown))
+      (.addEventListener js/document "keydown" handle-keydown)
+      ;; Set up the context menu template action handler
+      (context-menu/set-template-action-handler!
+       (fn [template-id chunk selected-text aspect-id]
+         (ai-panel/handle-template-action! template-id chunk selected-text aspect-id))))
 
     :component-will-unmount
     (fn [_]
@@ -1270,17 +1613,29 @@
     :reagent-render
     (fn []
       (let [colors (:colors @settings/settings)
-            current-view @view-mode]
+            current-view @view-mode
+            ai-visible? (and (ai-panel/panel-visible?)
+                             (settings/ai-configured?))
+            ai-height (when ai-visible? (ai-panel/get-panel-height))]
         [:div#app {:style {:background (:background colors)
-                           :color (:text colors)}}
+                           :color (:text colors)
+                           :display "flex"
+                           :flex-direction "column"}}
          [header]
-         [:div.main-container
+         ;; Main content area - adjusts height based on AI panel
+         [:div.main-container {:style {:flex 1
+                                       :display "flex"
+                                       :overflow "hidden"}}
           [outline/outline-panel]
           (case current-view
             :radial [radial/radial-view]
             [editor-panel])]
-         ;; Annotation context menu (for right-click on selection)
-         [editor/annotation-context-menu]
+         ;; AI Assistant Panel
+         [ai-panel/ai-panel]
+         ;; Context Menu (for right-click on selection and annotations)
+         [context-menu/context-menu]
+         ;; AI Aspect Update Modal
+         [ai-ui/aspect-update-modal]
          ;; Toast notification
          [editor/toast-component]
          ;; Settings Modal

@@ -436,6 +436,16 @@
 (defn get-chunks []
   (:chunks @app-state))
 
+(defn get-all-chunks
+  "Get all chunks as a map indexed by id"
+  []
+  (into {} (map (juxt :id identity) (get-chunks))))
+
+(defn get-chunk
+  "Get a chunk by id"
+  [id]
+  (first (filter #(= (:id %) id) (get-chunks))))
+
 (defn get-selected-id []
   (:selected-id @app-state))
 
@@ -461,13 +471,23 @@
   (mark-modified!))
 
 (defn add-chunk!
-  "Add a new chunk, optionally with a parent"
-  [& {:keys [parent-id] :or {parent-id nil}}]
+  "Add a new chunk, optionally with a parent, summary, and content.
+   If :id is provided, uses that ID instead of auto-generating.
+   If :select? is false, doesn't select the new chunk (default true)."
+  [& {:keys [id parent-id summary content select?]
+      :or {id nil parent-id nil summary nil content nil select? true}}]
   (push-history!)
-  (let [chunk (new-chunk :parent-id parent-id
-                         :existing-chunks (get-chunks))]
+  (let [base-chunk (new-chunk :parent-id parent-id
+                              :summary (or summary "Nuovo chunk")
+                              :content (or content "")
+                              :existing-chunks (get-chunks))
+        ;; Override ID if provided
+        chunk (if id
+                (assoc base-chunk :id id)
+                base-chunk)]
     (swap! app-state update :chunks conj chunk)
-    (select-chunk! (:id chunk))
+    (when select?
+      (select-chunk! (:id chunk)))
     (mark-modified!)
     chunk))
 

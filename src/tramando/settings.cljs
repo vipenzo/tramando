@@ -21,6 +21,7 @@
              :timeline "#4a90c2"
              :editor-bg "#f5f0e6"
              :border "#c4b49a"
+             :ai-panel "#c9b898"
              :background-texture true}
 
    :dark {:background "#1a1a2e"
@@ -35,7 +36,8 @@
           :sequenze "#9370db"
           :timeline "#ff6b6b"
           :editor-bg "#0f3460"
-          :border "#0f3460"}
+          :border "#0f3460"
+          :ai-panel "#1e2a4a"}
 
    :light {:background "#f5f5f5"
            :sidebar "#e8e8e8"
@@ -49,7 +51,8 @@
            :sequenze "#8e44ad"
            :timeline "#e74c3c"
            :editor-bg "#ffffff"
-           :border "#cccccc"}
+           :border "#cccccc"
+           :ai-panel "#d8d8d8"}
 
    :sepia {:background "#f4ecd8"
            :sidebar "#ebe3d0"
@@ -63,14 +66,40 @@
            :sequenze "#6b4423"
            :timeline "#cd5c5c"
            :editor-bg "#faf6eb"
-           :border "#d4c4a8"}})
+           :border "#d4c4a8"
+           :ai-panel "#e0d5c0"}
+
+   :ulysses {:background "#1e1e2e"
+             :sidebar "#252535"
+             :text "#e0e0e0"
+             :text-muted "#7a7a8c"
+             :accent "#7c7cff"
+             :structure "#7c7cff"
+             :personaggi "#ff7c7c"
+             :luoghi "#7cffb4"
+             :temi "#ffd97c"
+             :sequenze "#c77cff"
+             :timeline "#7cc4ff"
+             :editor-bg "#2a2a3e"
+             :border "#3a3a4e"
+             :ai-panel "#2e2e42"}})
 
 (def default-settings
   {:theme :tessuto
    :colors (:tessuto default-themes)
    :autosave-delay-ms 3000
    :language :it
-   :tutorial-completed false})
+   :tutorial-completed false
+   :ai {:enabled false
+        :provider :anthropic  ; :anthropic | :openai | :groq | :ollama
+        :anthropic-key ""
+        :openai-key ""
+        :groq-key ""
+        :ollama-url "http://localhost:11434"
+        :ollama-model "llama3"
+        :model "claude-sonnet-4-20250514"
+        :groq-model "llama-3.3-70b-versatile"
+        :auto-send false}})
 
 ;; =============================================================================
 ;; Settings State
@@ -97,8 +126,14 @@
   []
   (when-let [data (.getItem js/localStorage localstorage-key)]
     (try
-      (let [loaded (edn/read-string data)]
-        (reset! settings (merge default-settings loaded))
+      (let [loaded (edn/read-string data)
+            ;; Deep merge for nested maps (colors, ai) to preserve new defaults
+            theme-key (or (:theme loaded) :tessuto)
+            default-colors (get default-themes theme-key (:tessuto default-themes))
+            merged (-> (merge default-settings loaded)
+                       (assoc :colors (merge default-colors (:colors loaded)))
+                       (assoc :ai (merge (:ai default-settings) (:ai loaded))))]
+        (reset! settings merged)
         ;; Sync language with i18n module
         (when-let [lang (:language @settings)]
           (i18n/set-language! lang)))
@@ -123,16 +158,24 @@
   "Set the theme to a predefined theme"
   [theme-key]
   (when-let [theme-colors (get default-themes theme-key)]
-    (swap! settings assoc
-           :theme theme-key
-           :colors theme-colors)))
+    (let [;; Preserve background-texture setting if it was enabled
+          had-texture (or (get-in @settings [:colors :background-texture])
+                          (= (:theme @settings) :tessuto))]
+      (swap! settings assoc
+             :theme theme-key
+             :colors (assoc theme-colors :background-texture had-texture)))))
 
 (defn set-color!
   "Set a specific color"
   [color-key color-value]
-  (swap! settings assoc-in [:colors color-key] color-value)
-  ;; When manually changing colors, set theme to :custom
-  (swap! settings assoc :theme :custom))
+  (let [current-theme (:theme @settings)
+        ;; Preserve background-texture when switching to custom theme
+        has-texture (or (get-in @settings [:colors :background-texture])
+                        (= current-theme :tessuto))]
+    (swap! settings assoc-in [:colors color-key] color-value)
+    ;; When manually changing colors, set theme to :custom but preserve texture setting
+    (swap! settings assoc :theme :custom)
+    (swap! settings assoc-in [:colors :background-texture] has-texture)))
 
 (defn set-autosave-delay!
   "Set autosave delay in milliseconds"
@@ -179,6 +222,82 @@
   "Get the current language"
   []
   (:language @settings))
+
+;; =============================================================================
+;; AI Settings Operations
+;; =============================================================================
+
+(defn get-ai-setting
+  "Get a specific AI setting"
+  [key]
+  (get-in @settings [:ai key]))
+
+(defn set-ai-setting!
+  "Set a specific AI setting"
+  [key value]
+  (swap! settings assoc-in [:ai key] value))
+
+(defn ai-enabled?
+  "Check if AI assistant is enabled"
+  []
+  (get-in @settings [:ai :enabled]))
+
+(defn ai-configured?
+  "Check if AI assistant is properly configured based on provider"
+  []
+  (let [ai (:ai @settings)]
+    (and (:enabled ai)
+         (case (:provider ai)
+           :anthropic (not (empty? (:anthropic-key ai)))
+           :openai (not (empty? (:openai-key ai)))
+           :groq (not (empty? (:groq-key ai)))
+           :ollama (not (empty? (:ollama-url ai)))
+           false))))
+
+(defn ai-auto-send?
+  "Check if AI requests should be sent automatically"
+  []
+  (get-in @settings [:ai :auto-send] false))
+
+(defn get-ai-api-key
+  "Get the API key for the current provider"
+  []
+  (let [ai (:ai @settings)]
+    (case (:provider ai)
+      :anthropic (:anthropic-key ai)
+      :openai (:openai-key ai)
+      :groq (:groq-key ai)
+      :ollama nil
+      nil)))
+
+(defn get-ai-model
+  "Get the model for the current provider"
+  []
+  (let [ai (:ai @settings)]
+    (case (:provider ai)
+      :anthropic (:model ai)
+      :openai (:model ai)
+      :groq (:groq-model ai)
+      :ollama (:ollama-model ai)
+      nil)))
+
+(defonce ollama-status (r/atom {:checking false :connected nil :models []}))
+
+(defn check-ollama-connection!
+  "Check if Ollama is running and get available models"
+  []
+  (let [url (get-ai-setting :ollama-url)]
+    (reset! ollama-status {:checking true :connected nil :models []})
+    (-> (js/fetch (str url "/api/tags"))
+        (.then (fn [response]
+                 (if (.-ok response)
+                   (.json response)
+                   (throw (js/Error. "Not OK")))))
+        (.then (fn [data]
+                 (let [models (mapv #(.-name %) (.-models data))]
+                   (reset! ollama-status {:checking false :connected true :models models}))))
+        (.catch (fn [_]
+                  (reset! ollama-status {:checking false :connected false :models []}))))))
 
 ;; =============================================================================
 ;; Export/Import settings.edn

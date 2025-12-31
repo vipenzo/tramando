@@ -1,5 +1,6 @@
 (ns tramando.annotations
   (:require [clojure.string :as str]
+            [cljs.reader :as reader]
             [reagent.core :as r]
             [tramando.model :as model]))
 
@@ -20,13 +21,20 @@
 ;; Regex: \[!(TODO|NOTE|FIX):([^:]*):([^:]*):([^\]]*)\]
 (def annotation-pattern #"\[!(TODO|NOTE|FIX):([^:]*):([^:]*):([^\]]*)\]")
 
-(defn- parse-priority
-  "Parse priority string to number. Returns nil if empty or invalid."
+(defn parse-priority
+  "Parse priority string. Returns:
+   - number if it's a numeric priority
+   - :AI or :AI-DONE for AI annotations
+   - the string itself for text priorities (e.g., 'bassa', 'media', 'alta')
+   - nil if empty."
   [s]
   (when (and s (seq (str/trim s)))
     (let [trimmed (str/trim s)]
-      (when (re-matches #"-?\d+\.?\d*" trimmed)
-        (js/parseFloat trimmed)))))
+      (cond
+        (= trimmed "AI") :AI
+        (= trimmed "AI-DONE") :AI-DONE
+        (re-matches #"-?\d+\.?\d*" trimmed) (js/parseFloat trimmed)
+        :else trimmed))))
 
 (defn parse-annotations
   "Parse annotations from text content.
@@ -59,13 +67,68 @@
 
 (defn- sort-by-priority
   "Sort annotations by priority. Items with priority come first (ascending),
-   items without priority go to the end."
+   AI annotations come after numeric priorities, items without priority go to the end."
   [annotations]
   (sort-by (fn [a]
-             (if-let [p (:priority a)]
-               [0 p]  ; has priority: sort first, by priority value
-               [1 0])) ; no priority: sort last
+             (let [p (:priority a)]
+               (cond
+                 (number? p) [0 p]      ; numeric priority: sort first
+                 (= p :AI) [1 0]        ; AI pending: after numeric
+                 (= p :AI-DONE) [1 1]   ; AI done: after AI pending
+                 :else [2 0])))         ; no priority: sort last
            annotations))
+
+(defn is-ai-annotation?
+  "Check if an annotation is an AI annotation"
+  [annotation]
+  (let [p (:priority annotation)]
+    (or (= p :AI) (= p :AI-DONE))))
+
+(defn is-ai-done?
+  "Check if an annotation is a completed AI annotation with alternatives"
+  [annotation]
+  (= (:priority annotation) :AI-DONE))
+
+(defn parse-ai-data
+  "Parse Base64-encoded EDN data from an AI-DONE annotation comment.
+   Returns {:alts [...] :sel n} or nil."
+  [encoded-string]
+  (when (and encoded-string (not (str/blank? encoded-string)))
+    (try
+      (let [edn-str (-> encoded-string
+                        js/atob
+                        js/decodeURIComponent)
+            data (reader/read-string edn-str)]
+        (when (and (map? data) (:alts data))
+          data))
+      (catch :default _e
+        nil))))
+
+(defn get-ai-alternatives
+  "Get alternatives from an AI-DONE annotation.
+   Returns vector of alternative strings or []."
+  [annotation]
+  (when (is-ai-done? annotation)
+    (let [data (parse-ai-data (:comment annotation))]
+      (or (:alts data) []))))
+
+(defn get-ai-selection
+  "Get the selected alternative index from an AI-DONE annotation.
+   Returns 0 if no selection."
+  [annotation]
+  (when (is-ai-done? annotation)
+    (let [data (parse-ai-data (:comment annotation))]
+      (or (:sel data) 0))))
+
+(defn get-selected-alternative-text
+  "Get the text of the selected alternative, or nil if no selection."
+  [annotation]
+  (when (is-ai-done? annotation)
+    (let [data (parse-ai-data (:comment annotation))
+          sel (or (:sel data) 0)
+          alts (or (:alts data) [])]
+      (when (and (pos? sel) (<= sel (count alts)))
+        (nth alts (dec sel))))))
 
 (defn get-all-annotations
   "Get all annotations from all chunks, grouped by type and sorted by priority"
@@ -98,13 +161,25 @@
       (:id chunk))))
 
 ;; =============================================================================
-;; Annotation Stripping (for export)
+;; Annotation Stripping (for export/reading mode)
 ;; =============================================================================
 
 (defn strip-annotations
   "Remove annotation markup, keeping only the selected text.
-   [!TODO:testo:1:commento] becomes just 'testo'"
+   [!TODO:testo:1:commento] becomes just 'testo'
+   For AI-DONE annotations with selection, shows the selected alternative."
   [content]
   (if content
-    (str/replace content annotation-pattern "$2")
+    ;; First pass: handle AI-DONE with selected alternative (Base64 encoded EDN)
+    (let [ai-done-pattern #"\[!NOTE:([^:]*):AI-DONE:([A-Za-z0-9+/=]+)\]"
+          content-with-ai (str/replace content ai-done-pattern
+                                       (fn [[_ selected-text b64-str]]
+                                         (let [data (parse-ai-data b64-str)
+                                               sel (or (:sel data) 0)
+                                               alts (or (:alts data) [])]
+                                           (if (and (pos? sel) (<= sel (count alts)))
+                                             (nth alts (dec sel))
+                                             selected-text))))]
+      ;; Second pass: strip remaining annotations normally
+      (str/replace content-with-ai annotation-pattern "$2"))
     ""))

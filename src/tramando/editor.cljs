@@ -6,10 +6,12 @@
             [tramando.annotations :as annotations]
             [tramando.help :as help]
             [tramando.i18n :as i18n :refer [t]]
+            [tramando.context-menu :as context-menu]
+            [tramando.events :as events]
             ["@codemirror/state" :refer [EditorState StateField StateEffect RangeSetBuilder]]
             ["@codemirror/view" :refer [EditorView keymap lineNumbers highlightActiveLine
                                         highlightActiveLineGutter drawSelection
-                                        Decoration ViewPlugin MatchDecorator]]
+                                        Decoration ViewPlugin MatchDecorator WidgetType]]
             ["@codemirror/commands" :refer [defaultKeymap history historyKeymap
                                             indentWithTab]]
             ["@codemirror/language" :refer [indentOnInput bracketMatching
@@ -56,12 +58,27 @@
                ".cm-annotation-hidden" #js {:fontSize "0"
                                             :color "transparent"
                                             :userSelect "none"}
+               ;; AI alternative widget container
+               ".cm-ai-alternative-container" #js {:display "inline"}
+               ;; Original text (striked through)
+               ".cm-ai-original-striked" #js {:textDecoration "line-through"
+                                              :textDecorationColor "rgba(150, 150, 150, 0.7)"
+                                              :opacity "0.6"
+                                              :marginRight "4px"}
+               ;; Alternative text (normal)
+               ".cm-ai-alternative-text" #js {:borderBottom "2px dotted var(--color-accent)"}
+               ;; AI selected annotation in markup mode
+               ".cm-ai-selected" #js {:backgroundColor "rgba(76, 175, 80, 0.25)"
+                                      :borderRadius "3px"}
                ;; Search match highlighting
                ".cm-search-match" #js {:backgroundColor "rgba(255, 230, 0, 0.3)"
                                        :borderRadius "2px"}
                ".cm-search-match-current" #js {:backgroundColor "rgba(255, 165, 0, 0.5)"
                                                :borderRadius "2px"
-                                               :boxShadow "0 0 2px rgba(255, 165, 0, 0.8)"}}))
+                                               :boxShadow "0 0 2px rgba(255, 165, 0, 0.8)"}
+               ;; Flash highlight for navigation
+               ".cm-annotation-flash" #js {:animation "annotation-flash 2.5s ease-out"
+                                           :borderRadius "3px"}}))
 
 ;; =============================================================================
 ;; Editor Search State
@@ -78,13 +95,34 @@
            :replace-visible false
            :replace-text ""}))
 
-;; Toast state for replace confirmation
-(defonce toast-state (r/atom nil)) ; {:message :visible}
+;; Toast state is defined in events namespace
 
 (defonce editor-view-ref (atom nil))
 (defonce search-input-ref (atom nil))
 (defonce replace-input-ref (atom nil))
 (defonce search-debounce-timer (atom nil))
+
+;; =============================================================================
+;; Editor Text Replacement (for proper undo support)
+;; =============================================================================
+
+(defn- replace-text-in-view!
+  "Replace text in the CodeMirror view through a transaction (supports undo).
+   Returns true if replacement was made, false otherwise."
+  [search-text replacement-text]
+  (when-let [view @editor-view-ref]
+    (let [doc-text (.. view -state -doc (toString))
+          idx (.indexOf doc-text search-text)]
+      (when (>= idx 0)
+        (let [from idx
+              to (+ idx (count search-text))]
+          (.dispatch view #js {:changes #js {:from from
+                                             :to to
+                                             :insert replacement-text}})
+          true)))))
+
+;; Register the replace function with events module
+(events/set-editor-replace-fn! replace-text-in-view!)
 
 ;; Decoration marks
 (def search-match-mark (.mark Decoration #js {:class "cm-search-match"}))
@@ -310,16 +348,72 @@
   (js/setTimeout #(when @search-input-ref (.focus @search-input-ref)) 50))
 
 ;; =============================================================================
-;; Toast Component
+;; Toast Component (delegates to events namespace)
 ;; =============================================================================
 
-(defn show-toast! [message]
-  (reset! toast-state {:message message :visible true})
-  ;; Hide after animation completes (3s)
-  (js/setTimeout #(reset! toast-state nil) 3000))
+(def show-toast! events/show-toast!)
+
+(def refresh-editor! events/refresh-editor!)
+
+;; =============================================================================
+;; Navigation Flash Effect
+;; =============================================================================
+
+(defonce flash-decoration-atom (atom nil))
+(def flash-mark (.mark Decoration #js {:class "cm-annotation-flash"}))
+
+(defn- create-flash-decorations [from to]
+  (let [builder (RangeSetBuilder.)]
+    (.add builder from to flash-mark)
+    (.finish builder)))
+
+(def flash-highlight-plugin
+  (.define ViewPlugin
+           (fn [view]
+             #js {:decorations (.-none Decoration)
+                  :update (fn [vu]
+                            (this-as this
+                              (if-let [range @flash-decoration-atom]
+                                (set! (.-decorations this)
+                                      (create-flash-decorations (:from range) (:to range)))
+                                (set! (.-decorations this) (.-none Decoration)))))})
+           #js {:decorations (fn [v] (.-decorations v))}))
+
+(defn navigate-to-annotation!
+  "Navigate to a specific annotation in the editor by selecting its text.
+   Call after model/select-chunk! to scroll to and highlight the annotation.
+   Shows a flash animation to indicate the annotation location."
+  [selected-text]
+  (js/setTimeout
+   (fn []
+     (when-let [view @editor-view-ref]
+       (let [doc-text (.. view -state -doc (toString))
+             ;; Find the annotation pattern containing this selected-text using JS regex for position
+             escaped-text (str/replace selected-text #"[.*+?^${}()|\\[\\]\\\\]" "\\\\$&")
+             js-pattern (js/RegExp. (str "\\[!(TODO|NOTE|FIX):" escaped-text ":[^\\]]*\\]") "g")
+             match (.exec js-pattern doc-text)]
+         (when match
+           (let [idx (.-index match)
+                 end-idx (+ idx (count (aget match 0)))]
+             (when (>= idx 0)
+               ;; Set flash decoration range and trigger update
+               (reset! flash-decoration-atom {:from idx :to end-idx})
+               ;; Scroll into view and set cursor at start
+               (.dispatch view #js {:selection #js {:anchor idx :head idx}
+                                    :scrollIntoView true})
+               ;; Force decoration update
+               (.dispatch view #js {})
+               (.focus view)
+               ;; Clear flash after animation (2.5s)
+               (js/setTimeout
+                (fn []
+                  (reset! flash-decoration-atom nil)
+                  (when @editor-view-ref
+                    (.dispatch @editor-view-ref #js {})))
+                2600))))))) 300))
 
 (defn toast-component []
-  (when-let [{:keys [message visible]} @toast-state]
+  (when-let [{:keys [message visible]} @events/toast-state]
     [:div.toast message]))
 
 ;; =============================================================================
@@ -413,6 +507,85 @@
 ;; Syntax: [!TYPE:selected text:priority:comment]
 (def ^:private annotation-regex (js/RegExp. "\\[!(TODO|NOTE|FIX):([^:]*):([^:]*):([^\\]]*)\\]" "g"))
 
+;; Create a widget class that properly extends WidgetType
+;; Using JavaScript class syntax via eval for proper inheritance
+(def TextWidget
+  (js/eval "
+    (function(WidgetType) {
+      class TextWidget extends WidgetType {
+        constructor(text, cssClass) {
+          super();
+          this.text = text;
+          this.cssClass = cssClass;
+        }
+        toDOM() {
+          let span = document.createElement('span');
+          span.className = this.cssClass;
+          // Handle newlines by creating text nodes and br elements
+          let parts = this.text.split('\\n');
+          for (let i = 0; i < parts.length; i++) {
+            span.appendChild(document.createTextNode(parts[i]));
+            if (i < parts.length - 1) {
+              span.appendChild(document.createElement('br'));
+            }
+          }
+          return span;
+        }
+        eq(other) {
+          return other.text === this.text && other.cssClass === this.cssClass;
+        }
+        ignoreEvent() { return false; }
+      }
+      return TextWidget;
+    })
+  "))
+
+(def TextWidgetClass (TextWidget WidgetType))
+
+(defn- create-text-widget [text css-class]
+  (TextWidgetClass. text css-class))
+
+;; Widget for AI alternative: shows original (striked) + alternative (normal)
+(def AiAlternativeWidget
+  (js/eval "
+    (function(WidgetType) {
+      class AiAlternativeWidget extends WidgetType {
+        constructor(originalText, alternativeText) {
+          super();
+          this.originalText = originalText;
+          this.alternativeText = alternativeText;
+        }
+        toDOM() {
+          let container = document.createElement('span');
+          container.className = 'cm-ai-alternative-container';
+
+          let original = document.createElement('span');
+          original.className = 'cm-ai-original-striked';
+          original.textContent = this.originalText;
+
+          let alternative = document.createElement('span');
+          alternative.className = 'cm-ai-alternative-text';
+          alternative.textContent = this.alternativeText;
+
+          container.appendChild(original);
+          container.appendChild(alternative);
+          return container;
+        }
+        eq(other) {
+          return other.originalText === this.originalText &&
+                 other.alternativeText === this.alternativeText;
+        }
+        ignoreEvent() { return false; }
+      }
+      return AiAlternativeWidget;
+    })
+  "))
+
+(def AiAlternativeWidgetClass (AiAlternativeWidget WidgetType))
+
+(defn- create-ai-alternative-widget [original-text alternative-text]
+  (AiAlternativeWidgetClass. original-text alternative-text))
+
 (defn- create-annotation-decorations [view show-markup?]
   (let [builder #js []
         doc (.. view -state -doc)
@@ -429,14 +602,26 @@
               comment-text (aget match 4)
               start (.-index match)
               end (+ start (count full-match))
+              ;; Check if this is an AI-DONE annotation with a selection
+              is-ai-done? (= priority-str "AI-DONE")
+              ai-data (when is-ai-done?
+                        (annotations/parse-ai-data comment-text))
+              ai-sel (when ai-data (or (:sel ai-data) 0))
+              ai-alts (when ai-data (or (:alts ai-data) []))
+              has-ai-selection? (and is-ai-done? (pos? ai-sel) (<= ai-sel (count ai-alts)))
+              ;; Get alternative text if selected
+              alt-text (when has-ai-selection?
+                         (nth ai-alts (dec ai-sel)))
               ;; Calculate positions of parts: [!TYPE:text:priority:comment]
               prefix-end (+ start 2 (count type-str) 1) ; after [!TYPE:
               text-start prefix-end
               text-end (+ text-start (count selected-text))
               suffix-start text-end ; from :priority:comment] to end
               type-lower (str/lower-case type-str)
-              ;; Build tooltip from priority and comment
+              ;; Build tooltip
               tooltip (cond
+                        has-ai-selection?
+                        (str "AI alternative #" ai-sel " selected")
                         (and (seq priority-str) (seq comment-text))
                         (str "[" priority-str "] " comment-text)
                         (seq comment-text) comment-text
@@ -444,21 +629,51 @@
                         :else (str type-str " annotation"))]
           (if show-markup?
             ;; Markup mode: highlight entire annotation
-            (.push builder (.range (.mark Decoration #js {:class (str "cm-annotation-" type-lower)})
-                                   start end))
-            ;; Reading mode: hide prefix/suffix, highlight text
-            (do
-              ;; Hide prefix [!TYPE:
-              (.push builder (.range (.mark Decoration #js {:class "cm-annotation-hidden"})
-                                     start text-start))
-              ;; Highlight selected text
-              (.push builder (.range (.mark Decoration #js {:class (str "cm-annotation-text-" type-lower)
-                                                            :attributes #js {:title tooltip}})
-                                     text-start text-end))
-              ;; Hide suffix :priority:comment]
-              (.push builder (.range (.mark Decoration #js {:class "cm-annotation-hidden"})
-                                     suffix-start end)))))
-        (recur)))
+            (let [css-class (cond
+                              has-ai-selection? "cm-ai-selected"
+                              is-ai-done? "cm-annotation-note"
+                              :else (str "cm-annotation-" type-lower))]
+              (.push builder (.range (.mark Decoration #js {:class css-class})
+                                     start end)))
+            ;; Reading mode
+            (let [;; Check if annotation spans multiple lines (contains newline)
+                  annotation-text (subs text start end)
+                  spans-lines? (str/includes? annotation-text "\n")
+                  ;; Also check if alt-text contains newlines
+                  alt-spans-lines? (and alt-text (str/includes? alt-text "\n"))]
+              (cond
+                ;; AI-DONE with selection (single line annotation AND alternative): use widget with strikethrough
+                (and has-ai-selection? (not spans-lines?) (not alt-spans-lines?))
+                (.push builder (.range (.replace Decoration
+                                                 #js {:widget (create-ai-alternative-widget selected-text alt-text)})
+                                       start end))
+
+                ;; AI-DONE with selection but multiline: hide annotation, show alternative as plain text
+                (and has-ai-selection? (or spans-lines? alt-spans-lines?))
+                (do
+                  ;; Hide the entire annotation
+                  (.push builder (.range (.mark Decoration #js {:class "cm-annotation-hidden"})
+                                         start end))
+                  ;; Insert widget with alternative text at start position
+                  (.push builder (.range (.widget Decoration
+                                                  #js {:widget (create-text-widget alt-text "cm-ai-alternative-text")
+                                                       :side 1})
+                                         start)))
+
+                ;; Normal annotation: hide prefix/suffix, highlight text
+                :else
+                (do
+                  ;; Hide prefix [!TYPE:
+                  (.push builder (.range (.mark Decoration #js {:class "cm-annotation-hidden"})
+                                         start text-start))
+                  ;; Highlight selected text
+                  (.push builder (.range (.mark Decoration #js {:class (str "cm-annotation-text-" type-lower)
+                                                                :attributes #js {:title tooltip}})
+                                         text-start text-end))
+                  ;; Hide suffix :priority:comment]
+                  (.push builder (.range (.mark Decoration #js {:class "cm-annotation-hidden"})
+                                         suffix-start end))))))
+        (recur))))
     ;; Sort by position and create DecorationSet
     (.sort builder (fn [a b] (- (.-from a) (.-from b))))
     (.set Decoration builder true)))
@@ -550,6 +765,7 @@
                                  (markdown)
                                  annotation-highlight
                                  search-highlight-plugin
+                                 flash-highlight-plugin
                                  (.of keymap search-keymap)  ;; Our search keymap first (higher priority)
                                  (.of keymap (.concat defaultKeymap historyKeymap searchKeymap #js [indentWithTab]))
                                  (make-update-listener chunk-id)]}))
@@ -562,53 +778,159 @@
 ;; Context Menu for Annotations
 ;; =============================================================================
 
-(defonce context-menu-state (r/atom nil)) ; {:x :y :selection :view}
+(defonce local-editor-view (atom nil))
 
-(defn- wrap-selection-with-annotation! [view selection annotation-type]
-  "Wrap the selected text with annotation syntax [!TYPE:text:priority:comment]"
-  (let [from (.-from selection)
-        to (.-to selection)
-        selected-text (.. view -state -doc (sliceString from to))
-        wrapped-text (str "[!" annotation-type ":" selected-text "::]")
-        ;; Position cursor after the second : (where priority goes)
-        cursor-pos (+ from 2 (count annotation-type) 1 (count selected-text) 1)]
-    (.dispatch view #js {:changes #js {:from from :to to :insert wrapped-text}
-                         :selection #js {:anchor cursor-pos}})
-    (.focus view)))
+(defn- contains-annotation?
+  "Check if text contains any annotation markers"
+  [text]
+  (boolean (re-find #"\[!(TODO|NOTE|FIX):" text)))
 
-(defn- close-context-menu! []
-  (reset! context-menu-state nil))
+(defn- wrap-selection-with-annotation!
+  "Wrap selected text with annotation syntax [!TYPE:text:priority:comment]"
+  [annotation-type chunk selected-text]
+  ;; Prevent nested annotations
+  (if (contains-annotation? selected-text)
+    (events/show-toast! (t :error-nested-annotation))
+    (when-let [view @local-editor-view]
+      (let [doc-text (.. view -state -doc (toString))
+            ;; Find the position of selected text
+            idx (str/index-of doc-text selected-text)]
+        (when (and idx (>= idx 0))
+          (let [from idx
+                to (+ from (count selected-text))
+                wrapped-text (str "[!" annotation-type ":" selected-text "::]")
+                ;; Position cursor after the second : (where priority goes)
+                cursor-pos (+ from 2 (count annotation-type) 1 (count selected-text) 1)]
+            (.dispatch view #js {:changes #js {:from from :to to :insert wrapped-text}
+                                 :selection #js {:anchor cursor-pos}})
+            (.focus view)))))))
 
-(defn annotation-context-menu []
-  (let [{:keys [x y selection view]} @context-menu-state
-        colors (:colors @settings/settings)]
-    (when (and x y selection view)
-      [:div {:style {:position "fixed"
-                     :left (str x "px")
-                     :top (str y "px")
-                     :background (:sidebar colors)
-                     :border (str "1px solid " (:border colors))
-                     :border-radius "6px"
-                     :box-shadow "0 4px 12px rgba(0,0,0,0.3)"
-                     :z-index 1000
-                     :min-width "120px"}
-             :on-mouse-leave close-context-menu!}
-       (for [[type-str color] [["TODO" "#f5a623"] ["NOTE" "#2196f3"] ["FIX" "#f44336"]]]
-         ^{:key type-str}
-         [:div {:style {:padding "8px 14px"
-                        :cursor "pointer"
-                        :font-size "0.9rem"
-                        :color (:text colors)
-                        :display "flex"
-                        :align-items "center"
-                        :gap "8px"}
-                :on-mouse-over #(set! (.. % -target -style -background) (:editor-bg colors))
-                :on-mouse-out #(set! (.. % -target -style -background) "transparent")
-                :on-click (fn []
-                            (wrap-selection-with-annotation! view selection type-str)
-                            (close-context-menu!))}
-          [:span {:style {:color color}} "●"]
-          type-str])])))
+;; Set up handler for wrap annotation from context menu
+(context-menu/set-wrap-annotation-handler! wrap-selection-with-annotation!)
+
+(defn- delete-annotation!
+  "Delete an annotation from a chunk, keeping original text"
+  [annotation]
+  (let [{:keys [type selected-text chunk-id]} annotation]
+    (when-let [chunk (model/get-chunk chunk-id)]
+      (let [content (:content chunk)
+            ;; Pattern to match this annotation
+            pattern (re-pattern (str "\\[!" (name type) ":"
+                                     (str/replace selected-text #"[.*+?^${}()|\\[\\]\\\\]" "\\\\$&")
+                                     ":[^:]*:[^\\]]*\\]"))
+            new-content (str/replace content pattern selected-text)]
+        (when (not= content new-content)
+          (model/update-chunk! chunk-id {:content new-content})
+          (refresh-editor!))))))
+
+;; Set up handler for delete annotation from context menu
+(context-menu/set-delete-annotation-handler! delete-annotation!)
+
+;; Store reference to contextmenu handler for cleanup
+(defonce contextmenu-handler (atom nil))
+
+;; Forward declaration
+(declare find-annotation-at-position)
+
+(defn- parse-annotation-from-text
+  "Try to parse an annotation from text that might be a complete annotation.
+   Returns annotation map or nil."
+  [text chunk-id]
+  (when (and text (str/starts-with? text "[!"))
+    (let [pattern (js/RegExp. "^\\[!(TODO|NOTE|FIX):([^:]*):([^:]*):([^\\]]*)\\]$")]
+      (when-let [match (.exec pattern text)]
+        {:type (keyword (aget match 1))
+         :selected-text (str/trim (aget match 2))
+         :priority (annotations/parse-priority (aget match 3))
+         :comment (str/trim (or (aget match 4) ""))
+         :chunk-id chunk-id}))))
+
+(defn- create-contextmenu-handler
+  "Create the right-click context menu handler function"
+  [editor-view-atom]
+  (fn [e]
+    ;; Always prevent browser default menu first
+    (.preventDefault e)
+    (when-let [view @editor-view-atom]
+      (let [current-chunk (model/get-selected-chunk)
+            chunk-id (:id current-chunk)
+            doc-text (.. view -state -doc (toString))
+            ;; Get selection info
+            sel (.. view -state -selection -main)
+            sel-from (.-from sel)
+            sel-to (.-to sel)
+            has-selection? (not= sel-from sel-to)
+            selected-text (when has-selection?
+                            (.. view -state (sliceDoc sel-from sel-to)))
+            ;; Try multiple ways to detect annotation:
+            ;; 1. Check if cursor/selection start is within an annotation
+            annotation-at-cursor (find-annotation-at-position doc-text sel-from chunk-id)
+            ;; 2. If selection, also check if selection end is within an annotation
+            annotation-at-sel-end (when (and has-selection? (not annotation-at-cursor))
+                                    (find-annotation-at-position doc-text sel-to chunk-id))
+            ;; 3. Check if selected text IS a complete annotation
+            annotation-from-selection (when (and has-selection?
+                                                  (not annotation-at-cursor)
+                                                  (not annotation-at-sel-end))
+                                        (parse-annotation-from-text selected-text chunk-id))
+            ;; 4. Check at click position (important for widgets where selection may snap elsewhere)
+            click-pos (try
+                        (.. view (posAtCoords #js {:x (.-clientX e) :y (.-clientY e)}))
+                        (catch :default _ nil))
+            annotation-at-click (when (and click-pos (not annotation-at-cursor) (not annotation-at-sel-end))
+                                  (find-annotation-at-position doc-text click-pos chunk-id))
+            annotation (or annotation-at-cursor annotation-at-sel-end annotation-from-selection annotation-at-click)]
+        (cond
+          ;; Cursor/selection is on annotation - show annotation-specific menu
+          annotation
+          (context-menu/handle-annotation-context-menu e annotation)
+
+          ;; Has meaningful selection - show selection menu
+          (and has-selection? (seq (str/trim (or selected-text ""))))
+          (context-menu/handle-context-menu e current-chunk selected-text)
+
+          ;; Default: no menu shown (browser menu already prevented)
+          :else nil)))))
+
+(defn- setup-contextmenu-listener!
+  "Set up the context menu listener, removing any previous listener"
+  [editor-ref-atom editor-view-atom]
+  (when-let [ref @editor-ref-atom]
+    ;; Remove old listener if exists
+    (when-let [old-handler @contextmenu-handler]
+      (.removeEventListener ref "contextmenu" old-handler))
+    ;; Create and store new handler
+    (let [new-handler (create-contextmenu-handler editor-view-atom)]
+      (reset! contextmenu-handler new-handler)
+      (.addEventListener ref "contextmenu" new-handler))))
+
+(defn- find-annotation-at-position
+  "Find if there's an annotation at the given character position in the text.
+   Uses JavaScript RegExp with lastIndex to accurately find match positions."
+  [text pos chunk-id]
+  ;; Use JavaScript RegExp with global flag to get match positions
+  (let [pattern (js/RegExp. "\\[!(TODO|NOTE|FIX):([^:]*):([^:]*):([^\\]]*)\\]" "g")]
+    (loop []
+      (let [match (.exec pattern text)]
+        (when match
+          (let [full-match (aget match 0)
+                type-str (aget match 1)
+                selected-text (aget match 2)
+                priority-str (aget match 3)
+                comment-text (aget match 4)
+                start (.-index match)
+                end (+ start (count full-match))]
+            (if (and (>= pos start) (< pos end))
+              ;; Found annotation at position
+              {:type (keyword type-str)
+               :selected-text (str/trim selected-text)
+               :priority (annotations/parse-priority priority-str)
+               :comment (str/trim (or comment-text ""))
+               :start start
+               :end end
+               :chunk-id chunk-id}
+              ;; Keep looking
+              (recur))))))))
 
 ;; =============================================================================
 ;; Markup Toggle Checkbox
@@ -641,7 +963,8 @@
   (let [editor-view (r/atom nil)
         editor-ref (r/atom nil)
         last-chunk-id (r/atom nil)
-        last-show-markup (r/atom nil)]
+        last-show-markup (r/atom nil)
+        last-refresh-counter (r/atom 0)]
     (r/create-class
      {:display-name "tramando-editor"
 
@@ -654,26 +977,20 @@
             (reset! editor-view-ref view) ;; Store in global ref for search
             (reset! last-chunk-id (:id chunk))
             (reset! last-show-markup @annotations/show-markup?)
-            ;; Add right-click handler
-            (when @editor-ref
-              (.addEventListener @editor-ref "contextmenu"
-                                 (fn [e]
-                                   (when-let [view @editor-view]
-                                     (let [sel (.. view -state -selection -main)]
-                                       (when (not= (.-from sel) (.-to sel))
-                                         (.preventDefault e)
-                                         (reset! context-menu-state {:x (.-clientX e)
-                                                                     :y (.-clientY e)
-                                                                     :selection sel
-                                                                     :view view}))))))))))
+            ;; Store view in local-editor-view for annotation handler
+            (reset! local-editor-view view)
+            ;; Set up right-click handler
+            (setup-contextmenu-listener! editor-ref editor-view))))
 
       :component-did-update
       (fn [this old-argv]
         (let [chunk (model/get-selected-chunk)
-              show-markup? @annotations/show-markup?]
-          ;; Recreate editor if chunk changed or show-markup changed
+              show-markup? @annotations/show-markup?
+              refresh-counter @events/editor-refresh-counter]
+          ;; Recreate editor if chunk changed, show-markup changed, or refresh triggered
           (when (or (and chunk (not= (:id chunk) @last-chunk-id))
-                    (not= show-markup? @last-show-markup))
+                    (not= show-markup? @last-show-markup)
+                    (not= refresh-counter @last-refresh-counter))
             (when @editor-view
               (.destroy @editor-view))
             ;; Re-run search on new content
@@ -686,21 +1003,19 @@
                 (reset! editor-view-ref view) ;; Update global ref
                 (reset! last-chunk-id (:id chunk))
                 (reset! last-show-markup show-markup?)
-                ;; Re-add right-click handler
-                (when @editor-ref
-                  (.addEventListener @editor-ref "contextmenu"
-                                     (fn [e]
-                                       (when-let [view @editor-view]
-                                         (let [sel (.. view -state -selection -main)]
-                                           (when (not= (.-from sel) (.-to sel))
-                                             (.preventDefault e)
-                                             (reset! context-menu-state {:x (.-clientX e)
-                                                                         :y (.-clientY e)
-                                                                         :selection sel
-                                                                         :view view}))))))))))))
+                (reset! last-refresh-counter refresh-counter)
+                ;; Store view in local-editor-view for annotation handler
+                (reset! local-editor-view view)
+                ;; Set up right-click handler (removes old listener if present)
+                (setup-contextmenu-listener! editor-ref editor-view))))))
 
       :component-will-unmount
       (fn [this]
+        ;; Clean up contextmenu listener
+        (when-let [ref @editor-ref]
+          (when-let [handler @contextmenu-handler]
+            (.removeEventListener ref "contextmenu" handler)
+            (reset! contextmenu-handler nil)))
         (when @editor-view
           (.destroy @editor-view))
         (reset! editor-view-ref nil))
@@ -708,7 +1023,8 @@
       :reagent-render
       (fn []
         (let [_selected (model/get-selected-id) ; trigger re-render on selection change
-              _show-markup @annotations/show-markup?] ; trigger re-render on toggle
+              _show-markup @annotations/show-markup? ; trigger re-render on toggle
+              _refresh @events/editor-refresh-counter] ; trigger re-render on external content change
           [:div.editor-container
            {:ref #(reset! editor-ref %)}]))})))
 
@@ -822,13 +1138,18 @@
       [:div.aspects-list
        (doall
         (for [aspect-id (:aspects chunk)]
-          ^{:key aspect-id}
-          [:span.aspect-tag {:style {:background (:editor-bg colors)
-                                     :color (:accent colors)
-                                     :padding "2px 8px"
-                                     :border-radius "3px"
-                                     :font-size "0.8rem"}}
-           (str "@" aspect-id)]))])))
+          (let [aspect (model/get-chunk aspect-id)
+                display-name (or (:summary aspect) aspect-id)]
+            ^{:key aspect-id}
+            [:span.aspect-tag {:style {:background (:editor-bg colors)
+                                       :color (:accent colors)
+                                       :padding "2px 8px"
+                                       :border-radius "3px"
+                                       :font-size "0.8rem"
+                                       :cursor "pointer"}
+                               :title (t :click-to-navigate)
+                               :on-click #(events/navigate-to-aspect! aspect-id)}
+             (str "@" display-name)])))])))
 
 ;; =============================================================================
 ;; Parent Selector
@@ -1003,7 +1324,10 @@
                                  :display "flex"
                                  :align-items "center"
                                  :gap "4px"}}
-                  (str "@" (or (:summary aspect) aspect-id))
+                  [:span {:style {:cursor "pointer"}
+                          :title (t :click-to-navigate)
+                          :on-click #(events/navigate-to-aspect! aspect-id)}
+                   (str "@" (or (:summary aspect) aspect-id))]
                   [:button {:style {:background "none"
                                     :border "none"
                                     :color (:text-muted colors)
