@@ -301,6 +301,7 @@ IT = {
         '12. Impostazioni',
         '13. Il formato file .trmd',
         '14. Scorciatoie da tastiera',
+        '15. Assistente AI (opzionale)',
         'Appendice: Riferimento rapido',
     ],
 
@@ -845,6 +846,109 @@ Contenuto del chunk qui...
     },
 
     # =========================================================================
+    # CAPITOLO 15: ASSISTENTE AI
+    # =========================================================================
+    'ch15': {
+        'title': '15. Assistente AI (opzionale)',
+
+        # Introduzione
+        's1_title': 'Introduzione',
+        's1_p1': 'L\'Assistente AI e una funzionalita completamente opzionale. Tramando funziona perfettamente senza, e molti scrittori preferiscono lavorare senza supporto AI. Se non ti interessa, puoi semplicemente ignorare questo capitolo.',
+        's1_p2': 'Se decidi di provarlo, sappi che l\'approccio di Tramando e non invasivo: l\'AI propone, tu decidi sempre. Nessuna modifica automatica al tuo testo. Ogni suggerimento passa attraverso la tua approvazione. Puoi disabilitarlo in qualsiasi momento.',
+        's1_items': [
+            'Superare blocchi creativi',
+            'Esplorare varianti di una frase',
+            'Generare bozze di schede personaggio',
+            'Verificare coerenza narrativa',
+        ],
+        's1_note': '<i>Ricorda: l\'AI e uno strumento, non un co-autore. La storia resta tua.</i>',
+
+        # Configurazione
+        's2_title': 'Configurazione',
+        's2_p1': 'Per abilitare l\'Assistente AI, vai in Impostazioni (icona ingranaggio) e trova la sezione "Assistente AI". Spunta "Abilita assistente AI" per attivare la funzionalita.',
+        's2_sub1': 'Scegliere un provider',
+        's2_table': [
+            ['Provider', 'Costo', 'Pro', 'Contro'],
+            ['Ollama', 'Gratuito', 'Locale, privato', 'Richiede installazione'],
+            ['Groq', 'Gratuito', 'Veloce, modelli buoni', 'Limiti di utilizzo'],
+            ['Anthropic', 'A pagamento', 'Modelli eccellenti', '~$3/milione token'],
+            ['OpenAI', 'A pagamento', 'Modelli eccellenti', '~$2.50/milione token'],
+        ],
+        's2_sub2': 'Ollama (gratuito, locale)',
+        's2_ollama': 'Ollama esegue modelli AI sul tuo computer. Nessun dato esce dalla tua macchina. Installa Ollama da ollama.ai, avvialo, seleziona "Ollama (locale)" in Tramando, e scarica un modello con: ollama pull llama3.2',
+        's2_sub3': 'Groq (gratuito, cloud)',
+        's2_groq': 'Groq offre API gratuite con modelli Llama veloci. Registrati su console.groq.com, crea una API Key, e incollala in Tramando selezionando "Groq (Llama, veloce)".',
+        's2_sub4': 'Anthropic e OpenAI (a pagamento)',
+        's2_paid': 'Per Anthropic (Claude) registrati su console.anthropic.com, per OpenAI su platform.openai.com. Aggiungi credito ($5 minimo), crea una API key e incollala in Tramando. Per un uso normale spenderai pochi centesimi al giorno.',
+
+        # Usare AI senza API
+        's3_title': 'Usare l\'AI senza API',
+        's3_p1': 'Se non vuoi configurare API, puoi usare Tramando con la chat di Claude (claude.ai) o ChatGPT (chat.openai.com) usando un workflow manuale.',
+        's3_items': [
+            '<b>Passo 1</b>: Seleziona testo, apri il pannello AI, scrivi la richiesta',
+            '<b>Passo 2</b>: Clicca "Copia per chat" - il prompt viene copiato negli appunti',
+            '<b>Passo 3</b>: Incolla nella chat esterna, aspetta la risposta, copiala',
+            '<b>Passo 4</b>: Torna in Tramando, clicca "Inietta risposta", incolla e conferma',
+        ],
+        's3_note': 'Tramando processera la risposta come se fosse arrivata via API.',
+
+        # Il pannello
+        's4_title': 'Il pannello Assistente AI',
+        's4_p1': 'Il pannello si apre con il pulsante AI nella barra superiore o la scorciatoia Ctrl+Shift+A (Cmd+Shift+A su Mac).',
+        's4_items': [
+            '<b>Area chat</b>: mostra la conversazione con l\'AI',
+            '<b>Campo input</b>: scrivi la tua richiesta',
+            '<b>Selettore contesto</b>: scegli quali informazioni inviare all\'AI',
+            '<b>Indicatore parole</b>: mostra la dimensione del contesto (verde/giallo/rosso)',
+        ],
+        's4_sub1': 'Il selettore contesto',
+        's4_context': 'L\'AI lavora meglio con contesto sulla tua storia. Preset rapidi: <b>Minimo</b> (solo chunk corrente), <b>Scena</b> (+ personaggi/luoghi collegati), <b>Narrativo</b> (+ sequenze/timeline), <b>Completo</b> (tutto). Puoi anche personalizzare le singole opzioni.',
+
+        # Azioni AI
+        's5_title': 'Azioni AI disponibili',
+        's5_p1': 'Seleziona del testo nell\'editor, fai click destro, e scegli "Assistente AI":',
+        's5_sub1': 'Azioni che propongono alternative',
+        's5_items1': [
+            '<b>Espandi/sviluppa</b>: arricchisce il testo con dettagli',
+            '<b>Riformula</b>: propone versioni alternative',
+            '<b>Rendi piu...</b>: cambia il tono (cupo, leggero, formale, colloquiale, poetico)',
+        ],
+        's5_sub2': 'Azioni che rispondono in chat',
+        's5_items2': [
+            '<b>Suggerisci conflitto</b>: propone tensioni narrative',
+            '<b>Analizza coerenza</b>: cerca incongruenze',
+        ],
+        's5_sub3': 'Azioni su aspetti',
+        's5_items3': [
+            '<b>Crea scheda personaggio/luogo</b>: genera una scheda dal testo',
+            '<b>Estrai info per...</b>: arricchisce una scheda esistente con nuove informazioni',
+        ],
+
+        # Annotazioni AI
+        's6_title': 'Le annotazioni AI',
+        's6_p1': 'Quando chiedi all\'AI di riformulare o espandere del testo, Tramando crea un\'annotazione speciale.',
+        's6_flow': [
+            'Selezioni testo e chiedi "Riformula"',
+            'Appare un\'annotazione [!NOTE:testo:AI:] nel testo',
+            'La richiesta viene inviata (o la copi per chat esterna)',
+            'Quando arriva la risposta, l\'annotazione diventa [!NOTE:testo:AI-DONE:...]',
+            'Le alternative proposte sono memorizzate nell\'annotazione',
+        ],
+        's6_sub1': 'Scegliere un\'alternativa',
+        's6_choose': 'Fai click destro sull\'annotazione. Appare un menu con le alternative (radio button). Seleziona quella che preferisci, poi "Applica selezione" per sostituire il testo, o "Annulla modifiche" per tornare all\'originale.',
+        's6_note': 'Puoi cambiare idea quante volte vuoi prima di confermare.',
+
+        # Consigli
+        's7_title': 'Consigli per risultati migliori',
+        's7_items': [
+            '<b>Contesto giusto</b>: Minimo per riformulare, Scena per sviluppare, Completo per coerenza',
+            '<b>Modello giusto</b>: modelli grandi (70B, Claude, GPT-4) per task complessi',
+            '<b>L\'AI come assistente</b>: usa l\'AI per esplorare possibilita, non per scrivere al posto tuo',
+            '<b>Prompt migliori</b>: sii specifico, dai contesto, chiedi alternative',
+        ],
+    },
+
+    # =========================================================================
     # APPENDICE
     # =========================================================================
     'appendix': {
@@ -890,7 +994,7 @@ Contenuto del chunk qui...
         's4_items': [
             'Cronologia Undo: 100 stati',
             'Numeri romani: 1-3999',
-            'Storage locale: ~5-10 MB (dipende dal browser)',
+            'I progetti .trmd sono file di testo salvati su disco. Non c\'e limite pratico alla dimensione: un romanzo completo con tutti gli aspetti occupa tipicamente meno di 1 MB.',
         ],
 
         'footer': 'Tramando - Tessi la tua storia',
@@ -923,6 +1027,7 @@ EN = {
         '12. Settings',
         '13. The .trmd File Format',
         '14. Keyboard Shortcuts',
+        '15. AI Assistant (optional)',
         'Appendix: Quick Reference',
     ],
 
@@ -1467,6 +1572,109 @@ Chunk content here...
     },
 
     # =========================================================================
+    # CHAPTER 15: AI ASSISTANT
+    # =========================================================================
+    'ch15': {
+        'title': '15. AI Assistant (optional)',
+
+        # Introduction
+        's1_title': 'Introduction',
+        's1_p1': 'The AI Assistant is a completely optional feature. Tramando works perfectly without it, and many writers prefer to work without AI support. If you\'re not interested, you can simply skip this chapter.',
+        's1_p2': 'If you decide to try it, know that Tramando\'s approach is non-invasive: the AI proposes, you always decide. No automatic changes to your text. Every suggestion goes through your approval. You can disable it at any time.',
+        's1_items': [
+            'Overcome creative blocks',
+            'Explore phrase variations',
+            'Generate character sheet drafts',
+            'Verify narrative consistency',
+        ],
+        's1_note': '<i>Remember: AI is a tool, not a co-author. The story remains yours.</i>',
+
+        # Configuration
+        's2_title': 'Configuration',
+        's2_p1': 'To enable the AI Assistant, go to Settings (gear icon) and find the "AI Assistant" section. Check "Enable AI assistant" to activate the feature.',
+        's2_sub1': 'Choosing a provider',
+        's2_table': [
+            ['Provider', 'Cost', 'Pros', 'Cons'],
+            ['Ollama', 'Free', 'Local, private', 'Requires installation'],
+            ['Groq', 'Free', 'Fast, good models', 'Usage limits'],
+            ['Anthropic', 'Paid', 'Excellent models', '~$3/million tokens'],
+            ['OpenAI', 'Paid', 'Excellent models', '~$2.50/million tokens'],
+        ],
+        's2_sub2': 'Ollama (free, local)',
+        's2_ollama': 'Ollama runs AI models on your computer. No data leaves your machine. Install Ollama from ollama.ai, start it, select "Ollama (local)" in Tramando, and download a model with: ollama pull llama3.2',
+        's2_sub3': 'Groq (free, cloud)',
+        's2_groq': 'Groq offers free APIs with fast Llama models. Register at console.groq.com, create an API Key, and paste it in Tramando selecting "Groq (Llama, fast)".',
+        's2_sub4': 'Anthropic and OpenAI (paid)',
+        's2_paid': 'For Anthropic (Claude) register at console.anthropic.com, for OpenAI at platform.openai.com. Add credit ($5 minimum), create an API key and paste it in Tramando. For normal use you\'ll spend a few cents per day.',
+
+        # Using AI without API
+        's3_title': 'Using AI without API',
+        's3_p1': 'If you don\'t want to configure APIs, you can use Tramando with Claude chat (claude.ai) or ChatGPT (chat.openai.com) using a manual workflow.',
+        's3_items': [
+            '<b>Step 1</b>: Select text, open the AI panel, write your request',
+            '<b>Step 2</b>: Click "Copy for chat" - the prompt is copied to clipboard',
+            '<b>Step 3</b>: Paste in external chat, wait for response, copy it',
+            '<b>Step 4</b>: Return to Tramando, click "Inject response", paste and confirm',
+        ],
+        's3_note': 'Tramando will process the response as if it arrived via API.',
+
+        # The panel
+        's4_title': 'The AI Assistant panel',
+        's4_p1': 'The panel opens with the AI button in the top bar or the shortcut Ctrl+Shift+A (Cmd+Shift+A on Mac).',
+        's4_items': [
+            '<b>Chat area</b>: shows the conversation with the AI',
+            '<b>Input field</b>: write your request',
+            '<b>Context selector</b>: choose what information to send to the AI',
+            '<b>Word indicator</b>: shows context size (green/yellow/red)',
+        ],
+        's4_sub1': 'The context selector',
+        's4_context': 'AI works better with context about your story. Quick presets: <b>Minimal</b> (current chunk only), <b>Scene</b> (+ linked characters/places), <b>Narrative</b> (+ sequences/timeline), <b>Complete</b> (everything). You can also customize individual options.',
+
+        # AI Actions
+        's5_title': 'Available AI actions',
+        's5_p1': 'Select text in the editor, right-click, and choose "AI Assistant":',
+        's5_sub1': 'Actions that propose alternatives',
+        's5_items1': [
+            '<b>Expand/develop</b>: enriches text with details',
+            '<b>Rephrase</b>: proposes alternative versions',
+            '<b>Make more...</b>: changes tone (dark, light, formal, casual, poetic)',
+        ],
+        's5_sub2': 'Actions that respond in chat',
+        's5_items2': [
+            '<b>Suggest conflict</b>: proposes narrative tensions',
+            '<b>Analyze consistency</b>: looks for inconsistencies',
+        ],
+        's5_sub3': 'Actions on aspects',
+        's5_items3': [
+            '<b>Create character/place sheet</b>: generates a sheet from text',
+            '<b>Extract info for...</b>: enriches an existing sheet with new information',
+        ],
+
+        # AI Annotations
+        's6_title': 'AI annotations',
+        's6_p1': 'When you ask the AI to rephrase or expand text, Tramando creates a special annotation.',
+        's6_flow': [
+            'Select text and ask "Rephrase"',
+            'An annotation [!NOTE:text:AI:] appears in the text',
+            'The request is sent (or you copy it for external chat)',
+            'When the response arrives, the annotation becomes [!NOTE:text:AI-DONE:...]',
+            'The proposed alternatives are stored in the annotation',
+        ],
+        's6_sub1': 'Choosing an alternative',
+        's6_choose': 'Right-click on the annotation. A menu appears with alternatives (radio buttons). Select the one you prefer, then "Apply selection" to replace the text, or "Cancel changes" to return to the original.',
+        's6_note': 'You can change your mind as many times as you want before confirming.',
+
+        # Tips
+        's7_title': 'Tips for better results',
+        's7_items': [
+            '<b>Right context</b>: Minimal for rephrasing, Scene for developing, Complete for consistency',
+            '<b>Right model</b>: large models (70B, Claude, GPT-4) for complex tasks',
+            '<b>AI as assistant</b>: use AI to explore possibilities, not to write for you',
+            '<b>Better prompts</b>: be specific, give context, ask for alternatives',
+        ],
+    },
+
+    # =========================================================================
     # APPENDIX
     # =========================================================================
     'appendix': {
@@ -1512,7 +1720,7 @@ Chunk content here...
         's4_items': [
             'Undo history: 100 states',
             'Roman numerals: 1-3999',
-            'Local storage: ~5-10 MB (depends on browser)',
+            '.trmd projects are text files saved to disk. There is no practical size limit: a complete novel with all aspects typically takes less than 1 MB.',
         ],
 
         'footer': 'Tramando - Weave your story',
@@ -1960,6 +2168,69 @@ def build_chapter_14(story, T, styles, lang):
     story.append(PageBreak())
 
 
+def build_chapter_15(story, T, styles, lang):
+    """Capitolo 15: Assistente AI"""
+    ch = T['ch15']
+    story.append(Paragraph(ch['title'], styles['ChapterTitle']))
+
+    # Introduzione
+    story.append(Paragraph(ch['s1_title'], styles['SectionTitle']))
+    story.append(Paragraph(ch['s1_p1'], styles['Body']))
+    story.append(Paragraph(ch['s1_p2'], styles['Body']))
+    add_bullet_list(story, ch['s1_items'], styles)
+    story.append(Paragraph(ch['s1_note'], styles['Note']))
+
+    # Configurazione
+    story.append(Paragraph(ch['s2_title'], styles['SectionTitle']))
+    story.append(Paragraph(ch['s2_p1'], styles['Body']))
+    story.append(Paragraph(ch['s2_sub1'], styles['SubsectionTitle']))
+    story.append(make_table(ch['s2_table'], col_widths=[3*cm, 3*cm, 4*cm, 4*cm]))
+    story.append(Spacer(1, 0.3*cm))
+    story.append(Paragraph(ch['s2_sub2'], styles['SubsectionTitle']))
+    story.append(Paragraph(ch['s2_ollama'], styles['Body']))
+    story.append(Paragraph(ch['s2_sub3'], styles['SubsectionTitle']))
+    story.append(Paragraph(ch['s2_groq'], styles['Body']))
+    story.append(Paragraph(ch['s2_sub4'], styles['SubsectionTitle']))
+    story.append(Paragraph(ch['s2_paid'], styles['Body']))
+
+    # Usare AI senza API
+    story.append(Paragraph(ch['s3_title'], styles['SectionTitle']))
+    story.append(Paragraph(ch['s3_p1'], styles['Body']))
+    add_bullet_list(story, ch['s3_items'], styles)
+    story.append(Paragraph(ch['s3_note'], styles['Note']))
+
+    # Il pannello
+    story.append(Paragraph(ch['s4_title'], styles['SectionTitle']))
+    story.append(Paragraph(ch['s4_p1'], styles['Body']))
+    add_bullet_list(story, ch['s4_items'], styles)
+    story.append(Paragraph(ch['s4_sub1'], styles['SubsectionTitle']))
+    story.append(Paragraph(ch['s4_context'], styles['Body']))
+
+    # Azioni AI
+    story.append(Paragraph(ch['s5_title'], styles['SectionTitle']))
+    story.append(Paragraph(ch['s5_p1'], styles['Body']))
+    story.append(Paragraph(ch['s5_sub1'], styles['SubsectionTitle']))
+    add_bullet_list(story, ch['s5_items1'], styles)
+    story.append(Paragraph(ch['s5_sub2'], styles['SubsectionTitle']))
+    add_bullet_list(story, ch['s5_items2'], styles)
+    story.append(Paragraph(ch['s5_sub3'], styles['SubsectionTitle']))
+    add_bullet_list(story, ch['s5_items3'], styles)
+
+    # Annotazioni AI
+    story.append(Paragraph(ch['s6_title'], styles['SectionTitle']))
+    story.append(Paragraph(ch['s6_p1'], styles['Body']))
+    add_bullet_list(story, ch['s6_flow'], styles)
+    story.append(Paragraph(ch['s6_sub1'], styles['SubsectionTitle']))
+    story.append(Paragraph(ch['s6_choose'], styles['Body']))
+    story.append(Paragraph(ch['s6_note'], styles['Note']))
+
+    # Consigli
+    story.append(Paragraph(ch['s7_title'], styles['SectionTitle']))
+    add_bullet_list(story, ch['s7_items'], styles)
+
+    story.append(PageBreak())
+
+
 def build_appendix(story, T, styles, lang):
     """Appendice: Riferimento rapido"""
     ch = T['appendix']
@@ -2042,6 +2313,7 @@ def build_manual(lang):
     build_chapter_12(story, T, styles, lang)
     build_chapter_13(story, T, styles, lang)
     build_chapter_14(story, T, styles, lang)
+    build_chapter_15(story, T, styles, lang)
     build_appendix(story, T, styles, lang)
 
     # BUILD
