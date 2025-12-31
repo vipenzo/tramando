@@ -99,7 +99,9 @@
         :ollama-model "llama3"
         :model "claude-sonnet-4-20250514"
         :groq-model "llama-3.3-70b-versatile"
-        :auto-send false}})
+        :auto-send false}
+   :projects {:default-folder ""
+              :always-use-folder false}})
 
 ;; =============================================================================
 ;; Settings State
@@ -127,12 +129,13 @@
   (when-let [data (.getItem js/localStorage localstorage-key)]
     (try
       (let [loaded (edn/read-string data)
-            ;; Deep merge for nested maps (colors, ai) to preserve new defaults
+            ;; Deep merge for nested maps (colors, ai, projects) to preserve new defaults
             theme-key (or (:theme loaded) :tessuto)
             default-colors (get default-themes theme-key (:tessuto default-themes))
             merged (-> (merge default-settings loaded)
                        (assoc :colors (merge default-colors (:colors loaded)))
-                       (assoc :ai (merge (:ai default-settings) (:ai loaded))))]
+                       (assoc :ai (merge (:ai default-settings) (:ai loaded)))
+                       (assoc :projects (merge (:projects default-settings) (:projects loaded))))]
         (reset! settings merged)
         ;; Sync language with i18n module
         (when-let [lang (:language @settings)]
@@ -222,6 +225,41 @@
   "Get the current language"
   []
   (:language @settings))
+
+;; =============================================================================
+;; Projects Settings Operations
+;; =============================================================================
+
+(defn get-projects-setting
+  "Get a specific projects setting"
+  [key]
+  (get-in @settings [:projects key]))
+
+(defn set-projects-setting!
+  "Set a specific projects setting"
+  [key value]
+  (swap! settings assoc-in [:projects key] value))
+
+(defn get-default-folder
+  "Get the default projects folder path"
+  []
+  (get-in @settings [:projects :default-folder]))
+
+(defn set-default-folder!
+  "Set the default projects folder path"
+  [path]
+  (swap! settings assoc-in [:projects :default-folder] (or path "")))
+
+(defn always-use-folder?
+  "Check if should always use default folder for open/save"
+  []
+  (and (not (empty? (get-default-folder)))
+       (get-in @settings [:projects :always-use-folder])))
+
+(defn set-always-use-folder!
+  "Set whether to always use default folder"
+  [value]
+  (swap! settings assoc-in [:projects :always-use-folder] value))
 
 ;; =============================================================================
 ;; AI Settings Operations

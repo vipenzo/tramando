@@ -33,15 +33,26 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
+
+      # Install Rust targets for Universal Binary
+      - name: Install Rust targets
+        run: |
+          rustup target add aarch64-apple-darwin
+          rustup target add x86_64-apple-darwin
+
       - run: npm ci
       - run: npm run build
-      - run: npm run tauri:build
+
+      # Build Universal Binary (Apple Silicon + Intel)
+      - name: Build Universal Binary
+        run: npm run tauri:build -- --target universal-apple-darwin
+
       - uses: actions/upload-artifact@v4
         with:
           name: macos-build
           path: |
-            src-tauri/target/release/bundle/dmg/*.dmg
-            src-tauri/target/release/bundle/macos/*.app
+            src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app
 
   build-linux:
     runs-on: ubuntu-22.04  # Use 22.04 for glibc 2.35 compatibility
@@ -95,10 +106,10 @@ jobs:
           cp artifacts/windows-build/nsis/*.exe release-files/ 2>/dev/null || true
           cp artifacts/windows-build/msi/*.msi release-files/ 2>/dev/null || true
 
-          # macOS - zip the .app bundle
+          # macOS Universal Binary - zip the .app bundle
           if [ -d "artifacts/macos-build/macos" ]; then
             cd artifacts/macos-build/macos
-            zip -r ../../../release-files/Tramando-macos.app.zip *.app
+            zip -r ../../../release-files/Tramando-macos-universal.app.zip *.app
             cd ../../..
           fi
           cp artifacts/macos-build/dmg/*.dmg release-files/ 2>/dev/null || true

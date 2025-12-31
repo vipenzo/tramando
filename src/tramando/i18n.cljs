@@ -83,6 +83,14 @@
     :review-tutorial "Rivedi tutorial"
     :language "Lingua"
 
+    ;; Projects settings
+    :settings-projects "Progetti"
+    :settings-default-folder "Cartella progetti predefinita"
+    :settings-default-folder-tooltip "I progetti verranno salvati e aperti da questa cartella. Usa una cartella sincronizzata (iCloud, Google Drive, Dropbox) per backup automatico e accesso da più dispositivi."
+    :settings-browse "Sfoglia..."
+    :settings-always-use-folder "Apri sempre da questa cartella"
+    :settings-no-folder "(nessuna cartella selezionata)"
+
     ;; Color labels
     :color-background "Sfondo"
     :color-sidebar "Sidebar"
@@ -189,6 +197,7 @@
     :help-editor-search "Cerca nel chunk corrente. Usa ‹ › per navigare tra i risultati. Ctrl+F per aprire, Escape per chiudere."
     :help-replace "Sostituisci il testo trovato. 'Sostituisci' cambia solo il match corrente, 'Sostituisci tutti' cambia tutte le occorrenze. Ctrl+H per aprire."
     :help-language "Cambia la lingua dell'interfaccia. Il contenuto dei tuoi progetti non viene modificato."
+    :help-settings-folder-tooltip "I progetti verranno salvati e aperti da questa cartella. Usa una cartella sincronizzata (iCloud, Google Drive, Dropbox) per backup automatico e accesso da più dispositivi."
 
     ;; Errors
     :error-parsing "Errore nel parsing"
@@ -462,6 +471,14 @@
     :review-tutorial "Review tutorial"
     :language "Language"
 
+    ;; Projects settings
+    :settings-projects "Projects"
+    :settings-default-folder "Default projects folder"
+    :settings-default-folder-tooltip "Projects will be saved and opened from this folder. Use a synced folder (iCloud, Google Drive, Dropbox) for automatic backup and multi-device access."
+    :settings-browse "Browse..."
+    :settings-always-use-folder "Always use this folder"
+    :settings-no-folder "(no folder selected)"
+
     ;; Color labels
     :color-background "Background"
     :color-sidebar "Sidebar"
@@ -568,6 +585,7 @@
     :help-editor-search "Search in current chunk. Use ‹ › to navigate results. Ctrl+F to open, Escape to close."
     :help-replace "Replace found text. 'Replace' changes only current match, 'Replace all' changes all occurrences. Ctrl+H to open."
     :help-language "Change interface language. Your project content is not affected."
+    :help-settings-folder-tooltip "Projects will be saved and opened from this folder. Use a synced folder (iCloud, Google Drive, Dropbox) for automatic backup and multi-device access."
 
     ;; Errors
     :error-parsing "Parsing error"

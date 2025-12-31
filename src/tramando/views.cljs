@@ -253,6 +253,92 @@
          [color-picker (t :sequenze) :sequenze]
          [color-picker (t :timeline) :timeline]]]]
 
+      ;; Projects Section
+      [:div {:style {:margin-bottom "20px"
+                     :padding-top "12px"
+                     :border-top (str "1px solid " (settings/get-color :border))}}
+       [:label {:style {:color (settings/get-color :text)
+                        :font-size "0.9rem"
+                        :font-weight "600"
+                        :display "block"
+                        :margin-bottom "12px"}}
+        (t :settings-projects)]
+
+       ;; Default folder label
+       [:div {:style {:margin-bottom "8px"}}
+        [:label {:style {:color (settings/get-color :text-muted)
+                         :font-size "0.8rem"
+                         :display "flex"
+                         :align-items "center"
+                         :gap "6px"
+                         :margin-bottom "4px"}}
+         (t :settings-default-folder)
+         [help/help-icon :settings-folder-tooltip]]]
+
+       ;; Folder path + Browse button
+       [:div {:style {:display "flex" :gap "8px" :margin-bottom "12px"}}
+        [:input {:type "text"
+                 :value (or (settings/get-default-folder) "")
+                 :placeholder (t :settings-no-folder)
+                 :read-only true
+                 :style {:flex 1
+                         :background (settings/get-color :editor-bg)
+                         :color (if (empty? (settings/get-default-folder))
+                                  (settings/get-color :text-muted)
+                                  (settings/get-color :text))
+                         :border (str "1px solid " (settings/get-color :border))
+                         :border-radius "4px"
+                         :padding "8px 12px"
+                         :font-size "0.85rem"}}]
+        [:button {:style {:background "transparent"
+                          :color (settings/get-color :text)
+                          :border (str "1px solid " (settings/get-color :border))
+                          :padding "8px 16px"
+                          :border-radius "4px"
+                          :cursor "pointer"
+                          :font-size "0.85rem"
+                          :white-space "nowrap"}
+                  :on-click (fn []
+                              ;; Use Tauri dialog to pick folder
+                              (when-let [dialog (and js/window
+                                                     (.-__TAURI__ js/window)
+                                                     (.-dialog (.-__TAURI__ js/window)))]
+                                (-> (.open dialog #js {:directory true
+                                                       :multiple false
+                                                       :title (t :settings-default-folder)})
+                                    (.then (fn [path]
+                                             (when path
+                                               (settings/set-default-folder! path)))))))}
+         (t :settings-browse)]
+        ;; Clear button (only shown if folder is set)
+        (when (not (empty? (settings/get-default-folder)))
+          [:button {:style {:background "transparent"
+                            :color (settings/get-color :text-muted)
+                            :border (str "1px solid " (settings/get-color :border))
+                            :padding "8px 12px"
+                            :border-radius "4px"
+                            :cursor "pointer"
+                            :font-size "0.85rem"}
+                    :on-click #(settings/set-default-folder! "")}
+           "×"])]
+
+       ;; Always use folder checkbox
+       [:div {:style {:margin-bottom "8px"}}
+        [:label {:style {:display "flex"
+                         :align-items "center"
+                         :gap "8px"
+                         :cursor (if (empty? (settings/get-default-folder)) "not-allowed" "pointer")
+                         :color (if (empty? (settings/get-default-folder))
+                                  (settings/get-color :text-muted)
+                                  (settings/get-color :text))
+                         :opacity (if (empty? (settings/get-default-folder)) 0.5 1)}}
+         [:input {:type "checkbox"
+                  :checked (settings/get-projects-setting :always-use-folder)
+                  :disabled (empty? (settings/get-default-folder))
+                  :style {:cursor (if (empty? (settings/get-default-folder)) "not-allowed" "pointer")}
+                  :on-change #(settings/set-always-use-folder! (-> % .-target .-checked))}]
+         (t :settings-always-use-folder)]]]
+
       ;; AI Assistant Section
       (let [ai-settings (get @settings/settings :ai)
             ai-enabled (:enabled ai-settings)
