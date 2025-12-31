@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tramando — Tessi la tua storia</title>
+    <meta name="description" content="Tramando è uno strumento gratuito e open source per scrittori che gestiscono storie complesse con personaggi, luoghi, temi e timeline interconnessi.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --color-primary: #c44a4a;
+            --color-text: #3d3225;
+            --color-muted: #7a6f5d;
+            --color-bg: #f5f0e6;
+            --color-card: #ffffff;
+            --color-accent-light: #f9f5f5;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--color-bg);
+            color: var(--color-text);
+            line-height: 1.6;
+        }
+
+        /* Header */
+        header {
+            background: linear-gradient(135deg, var(--color-primary) 0%, #a33a3a 100%);
+            color: white;
+            padding: 3rem 1.5rem 4rem;
+            text-align: center;
+        }
+
+        .logo {
+            font-family: 'Crimson Text', Georgia, serif;
+            font-size: 3.5rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            letter-spacing: -0.02em;
+        }
+
+        .tagline {
+            font-family: 'Crimson Text', Georgia, serif;
+            font-size: 1.4rem;
+            font-style: italic;
+            opacity: 0.95;
+            margin-bottom: 2rem;
+        }
+
+        .header-buttons {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.85rem 1.75rem;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 500;
+            text-decoration: none;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        .btn-primary {
+            background: white;
+            color: var(--color-primary);
+        }
+
+        .btn-secondary {
+            background: rgba(255,255,255,0.15);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.3);
+        }
+
+        /* Main content */
+        main {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 3rem 1.5rem;
+        }
+
+        section {
+            margin-bottom: 3rem;
+        }
+
+        h2 {
+            font-family: 'Crimson Text', Georgia, serif;
+            font-size: 1.8rem;
+            color: var(--color-primary);
+            margin-bottom: 1rem;
+        }
+
+        p {
+            margin-bottom: 1rem;
+            color: var(--color-text);
+        }
+
+        .lead {
+            font-size: 1.15rem;
+            color: var(--color-muted);
+            margin-bottom: 2rem;
+        }
+
+        /* Features grid */
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+
+        .feature-card {
+            background: var(--color-card);
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+
+        .feature-card h3 {
+            font-size: 1.1rem;
+            margin-bottom: 0.5rem;
+            color: var(--color-text);
+        }
+
+        .feature-card p {
+            font-size: 0.95rem;
+            color: var(--color-muted);
+            margin-bottom: 0;
+        }
+
+        .feature-icon {
+            font-size: 1.5rem;
+            margin-bottom: 0.75rem;
+        }
+
+        /* Screenshot */
+        .screenshot-container {
+            background: var(--color-card);
+            padding: 1rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            margin: 2rem 0;
+        }
+
+        .screenshot-container img {
+            width: 100%;
+            height: auto;
+            border-radius: 8px;
+        }
+
+        /* Downloads */
+        .downloads {
+            background: var(--color-card);
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+
+        .download-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }
+
+        .download-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 1rem;
+            background: var(--color-accent-light);
+            border-radius: 8px;
+            text-decoration: none;
+            color: var(--color-text);
+            transition: background 0.2s;
+        }
+
+        .download-item:hover {
+            background: #f0e8e8;
+        }
+
+        .download-item .icon {
+            font-size: 1.5rem;
+        }
+
+        .download-item .label {
+            font-weight: 500;
+        }
+
+        .download-item .sublabel {
+            font-size: 0.85rem;
+            color: var(--color-muted);
+        }
+
+        /* AI section */
+        .ai-note {
+            background: var(--color-accent-light);
+            border-left: 4px solid var(--color-primary);
+            padding: 1.25rem 1.5rem;
+            border-radius: 0 8px 8px 0;
+            margin: 1.5rem 0;
+        }
+
+        .ai-note p {
+            margin-bottom: 0;
+            font-size: 0.95rem;
+        }
+
+        /* Footer */
+        footer {
+            text-align: center;
+            padding: 2rem 1.5rem;
+            color: var(--color-muted);
+            font-size: 0.9rem;
+        }
+
+        footer a {
+            color: var(--color-primary);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        /* Language switcher */
+        .lang-switch {
+            position: absolute;
+            top: 1rem;
+            right: 1.5rem;
+        }
+
+        .lang-switch a {
+            color: rgba(255,255,255,0.8);
+            text-decoration: none;
+            padding: 0.25rem 0.5rem;
+            font-size: 0.9rem;
+        }
+
+        .lang-switch a:hover,
+        .lang-switch a.active {
+            color: white;
+        }
+
+        header {
+            position: relative;
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .logo {
+                font-size: 2.5rem;
+            }
+            .tagline {
+                font-size: 1.1rem;
+            }
+            h2 {
+                font-size: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="lang-switch">
+        <a href="index.html" class="active">IT</a> |
+        <a href="index_en.html">EN</a>
+    </div>
+    <div class="logo">Tramando</div>
+    <div class="tagline">Tessi la tua storia</div>
+    <div class="header-buttons">
+        <a href="https://github.com/vipenzo/tramando/releases" class="btn btn-primary">
+            ⬇️ Scarica
+        </a>
+        <a href="https://github.com/vipenzo/tramando" class="btn btn-secondary">
+            GitHub
+        </a>
+    </div>
+</header>
+
+<main>
+    <section>
+        <p class="lead">
+            Tramando è uno strumento gratuito e open source per scrittori che gestiscono storie complesse. 
+            Personaggi, luoghi, temi, timeline — tutto connesso, tutto sotto controllo.
+        </p>
+    </section>
+
+    <section>
+        <div class="screenshot-container">
+            <img src="images/it/main.png" alt="Interfaccia di Tramando">
+        </div>
+    </section>
+
+    <section>
+        <h2>Perché Tramando</h2>
+        <p>
+            Quando scrivi un romanzo, non hai solo il testo da gestire. Hai personaggi con le loro 
+            caratteristiche, luoghi con le loro atmosfere, temi che si intrecciano, una timeline 
+            che non deve contraddirsi. Tramando ti permette di collegare tutto.
+        </p>
+        <p>
+            Scrivi una scena e la colleghi ai personaggi che vi compaiono. Poi, con un click, 
+            vedi tutte le scene dove appare Elena, o come si sviluppa un tema nel corso della storia.
+        </p>
+    </section>
+
+    <section>
+        <h2>Funzionalità</h2>
+        <div class="features">
+            <div class="feature-card">
+                <div class="feature-icon">📝</div>
+                <h3>Tutto è un chunk</h3>
+                <p>Capitoli, scene, personaggi, luoghi: blocchi di testo che si collegano tra loro in modo flessibile.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🔗</div>
+                <h3>Collegamenti</h3>
+                <p>Collega scene ad aspetti con un click. Vedi dove appare ogni personaggio, luogo o tema.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🗺️</div>
+                <h3>Mappa radiale</h3>
+                <p>Visualizza la struttura della storia e le connessioni. Trova i buchi, bilancia la narrazione.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">📋</div>
+                <h3>Annotazioni</h3>
+                <p>Segna TODO, NOTE e FIX direttamente nel testo. Non perdere mai un'idea o un problema da risolvere.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">📄</div>
+                <h3>Export PDF</h3>
+                <p>Esporta il tuo romanzo in PDF pulito, pronto per la lettura o la stampa.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">📂</div>
+                <h3>File aperti</h3>
+                <p>Il formato .trmd è testo semplice. Leggibile, portabile, tuo per sempre.</p>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <h2>Assistente AI (opzionale)</h2>
+        <p>
+            Tramando include un'integrazione con l'intelligenza artificiale per aiutarti a superare 
+            blocchi creativi, esplorare varianti di una frase, o generare bozze di schede personaggio.
+        </p>
+        <div class="ai-note">
+            <p>
+                <strong>Completamente opzionale e non invasivo.</strong> 
+                L'AI propone, tu decidi sempre. Nessuna modifica automatica al tuo testo. 
+                Se non ti interessa, la disabiliti e non ne senti più parlare.
+            </p>
+        </div>
+    </section>
+
+    <section>
+        <h2>Download e documentazione</h2>
+        <div class="downloads">
+            <p>Tramando è gratuito e open source, con licenza MIT.</p>
+            <div class="download-grid">
+                <a href="https://github.com/vipenzo/tramando/releases" class="download-item">
+                    <span class="icon">⬇️</span>
+                    <div>
+                        <div class="label">Scarica Tramando</div>
+                        <div class="sublabel">Mac, Windows, Linux</div>
+                    </div>
+                </a>
+                <a href="Tramando_Manuale_Italiano.pdf" class="download-item">
+                    <span class="icon">📖</span>
+                    <div>
+                        <div class="label">Manuale italiano</div>
+                        <div class="sublabel">PDF</div>
+                    </div>
+                </a>
+                <a href="Tramando_Manual_English.pdf" class="download-item">
+                    <span class="icon">📖</span>
+                    <div>
+                        <div class="label">English manual</div>
+                        <div class="sublabel">PDF</div>
+                    </div>
+                </a>
+                <a href="https://github.com/vipenzo/tramando" class="download-item">
+                    <span class="icon">💻</span>
+                    <div>
+                        <div class="label">Codice sorgente</div>
+                        <div class="sublabel">GitHub</div>
+                    </div>
+                </a>
+            </div>
+        </div>
+    </section>
+</main>
+
+<footer>
+    <p>
+        Creato con ❤️ da <a href="https://github.com/vipenzo">Vincenzo</a><br>
+        <a href="https://github.com/vipenzo/tramando">GitHub</a> · 
+        Licenza MIT
+    </p>
+</footer>
+
+</body>
+</html>
