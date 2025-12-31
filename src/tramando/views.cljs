@@ -301,12 +301,17 @@
                           :white-space "nowrap"}
                   :on-click (fn []
                               ;; Use Tauri dialog plugin to pick folder
-                              (-> (dialog/open #js {:directory true
-                                                    :multiple false
-                                                    :title (t :settings-default-folder)})
-                                  (.then (fn [path]
-                                           (when path
-                                             (settings/set-default-folder! path))))))}
+                              (try
+                                (-> (dialog/open #js {:directory true
+                                                      :multiple false
+                                                      :title (t :settings-default-folder)})
+                                    (.then (fn [path]
+                                             (when path
+                                               (settings/set-default-folder! path))))
+                                    (.catch (fn [err]
+                                              (js/console.error "Dialog error:" err))))
+                                (catch :default e
+                                  (js/console.error "Tauri dialog not available:" e))))}
          (t :settings-browse)]
         ;; Clear button (only shown if folder is set)
         (when (not (empty? (settings/get-default-folder)))
@@ -1352,7 +1357,7 @@
                                 (.readAsText reader file))
                               ;; Reset input so same file can be loaded again
                               (set! (-> e .-target .-value) "")))}]
-      ;; Load button
+      ;; Load button (uses native Tauri dialog)
       [:button
        {:style {:background "transparent"
                 :color (:text-muted colors)
@@ -1362,7 +1367,7 @@
                 :cursor "pointer"
                 :font-size "0.85rem"}
         :title (t :help-carica)
-        :on-click #(when @file-input-ref (.click @file-input-ref))}
+        :on-click #(model/open-file!)}
        (t :load)]
       ;; Save button
       [:button
@@ -1376,6 +1381,17 @@
         :title (t :help-salva)
         :on-click #(model/save-file!)}
        (t :save)]
+      ;; Save As button
+      [:button
+       {:style {:background "transparent"
+                :color (:text-muted colors)
+                :border (str "1px solid " (:border colors))
+                :padding "6px 12px"
+                :border-radius "4px"
+                :cursor "pointer"
+                :font-size "0.85rem"}
+        :on-click #(model/save-file-as!)}
+       (t :save-as)]
       ;; Export dropdown
       [export-dropdown]
       ;; Project info button

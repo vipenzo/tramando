@@ -2,7 +2,9 @@
   (:require [clojure.string :as str]
             [reagent.core :as r]
             [tramando.settings :as settings]
-            ["js-yaml" :as yaml]))
+            ["js-yaml" :as yaml]
+            ["@tauri-apps/plugin-dialog" :as dialog]
+            ["@tauri-apps/plugin-fs" :as fs]))
 
 ;; =============================================================================
 ;; Chunk Model
@@ -131,6 +133,16 @@
       {:id id
        :summary summary
        :aspects aspects})))
+
+;; Default metadata (defined here for use in parse-yaml-frontmatter)
+(def default-metadata
+  {:title ""
+   :author ""
+   :language "it"
+   :year nil
+   :isbn ""
+   :publisher ""
+   :custom {}})
 
 (defn- parse-yaml-frontmatter
   "Extract YAML frontmatter from text. Returns {:metadata map :content remaining-text}"
@@ -268,17 +280,8 @@
     (str frontmatter content)))
 
 ;; =============================================================================
-;; Metadata Defaults
+;; Available Languages
 ;; =============================================================================
-
-(def default-metadata
-  {:title ""
-   :author ""
-   :language "it"
-   :year nil
-   :isbn ""
-   :publisher ""
-   :custom {}})
 
 (def available-languages
   [["it" "Italiano"]
@@ -296,6 +299,7 @@
   (r/atom {:chunks []
            :selected-id nil
            :filename "untitled.trmd"
+           :filepath nil  ;; Full path to current file (nil if never saved)
            :metadata default-metadata}))
 
 ;; =============================================================================
@@ -664,28 +668,56 @@
 (defn get-filename []
   (:filename @app-state))
 
-(defn save-file!
-  "Download the current state as a .trmd file"
+(defn- do-save-to-path!
+  "Internal: save content to a specific path"
+  [filepath]
+  (let [content (get-file-content)]
+    (-> (fs/writeTextFile filepath content)
+        (.then (fn []
+                 ;; Update filepath and filename in state
+                 (swap! app-state assoc :filepath filepath)
+                 (let [filename (last (str/split filepath #"/"))]
+                   (swap! app-state assoc :filename filename))
+                 ;; Show "Salvato" then fade
+                 (reset! save-status :saved)
+                 (when @saved-fade-timer
+                   (js/clearTimeout @saved-fade-timer))
+                 (reset! saved-fade-timer
+                         (js/setTimeout #(reset! save-status :idle) saved-fade-delay-ms))))
+        (.catch (fn [err]
+                  (js/console.error "Save error:" err))))))
+
+(defn save-file-as!
+  "Show save dialog and save file"
   []
   ;; Cancel any pending autosave
   (when @autosave-timer
     (js/clearTimeout @autosave-timer)
     (reset! autosave-timer nil))
-  (let [content (get-file-content)
-        filename (get-filename)
-        blob (js/Blob. #js [content] #js {:type "text/plain"})
-        url (js/URL.createObjectURL blob)
-        a (js/document.createElement "a")]
-    (set! (.-href a) url)
-    (set! (.-download a) filename)
-    (.click a)
-    (js/URL.revokeObjectURL url))
-  ;; Show "Salvato" then fade
-  (reset! save-status :saved)
-  (when @saved-fade-timer
-    (js/clearTimeout @saved-fade-timer))
-  (reset! saved-fade-timer
-          (js/setTimeout #(reset! save-status :idle) saved-fade-delay-ms)))
+  (let [default-folder (settings/get-default-folder)
+        filename (get-filename)]
+    (-> (dialog/save #js {:defaultPath (if (empty? default-folder)
+                                         filename
+                                         (str default-folder "/" filename))
+                          :filters #js [#js {:name "Tramando" :extensions #js ["trmd"]}]})
+        (.then (fn [path]
+                 (when path
+                   (do-save-to-path! path))))
+        (.catch (fn [err]
+                  (js/console.error "Save dialog error:" err))))))
+
+(defn save-file!
+  "Save the current file. If filepath is known, save directly. Otherwise show save dialog."
+  []
+  ;; Cancel any pending autosave
+  (when @autosave-timer
+    (js/clearTimeout @autosave-timer)
+    (reset! autosave-timer nil))
+  (if-let [filepath (:filepath @app-state)]
+    ;; File has been saved before, save directly
+    (do-save-to-path! filepath)
+    ;; New file, show save dialog
+    (save-file-as!)))
 
 (defn export-md!
   "Export as .md file (without frontmatter)"
@@ -701,32 +733,53 @@
     (js/URL.revokeObjectURL url)))
 
 (defn load-file-content!
-  "Load content from a string (called after file is read)"
-  [content filename]
-  ;; Clear current state and load new content
-  (swap! app-state assoc :chunks [] :selected-id nil :metadata default-metadata)
-  ;; Reset history
-  (reset! history {:states [] :current -1 :checkpoints []})
-  ;; Ensure aspect containers exist
-  (ensure-aspect-containers!)
-  ;; Parse and load the file (now returns {:metadata ... :chunks ...})
-  (let [{:keys [metadata chunks]} (parse-file content)
-        existing-ids (set (map :id (get-chunks)))]
-    ;; Set metadata
-    (swap! app-state assoc :metadata metadata)
-    ;; Add parsed chunks (skip if already exists - e.g. aspect containers)
-    (doseq [chunk chunks]
-      (when-not (contains? existing-ids (:id chunk))
-        (swap! app-state update :chunks conj chunk))))
-  ;; Set filename
-  (set-filename! filename)
-  ;; Select first non-container chunk
-  (let [structural (filter #(not (contains? aspect-container-ids (:id %))) (get-chunks))]
-    (when (seq structural)
-      (select-chunk! (:id (first structural)))))
-  ;; Push initial state to history
-  (push-history!)
-  (reset! save-status :idle))
+  "Load content from a string (called after file is read).
+   filepath is optional - if provided, enables direct Save without dialog."
+  ([content filename]
+   (load-file-content! content filename nil))
+  ([content filename filepath]
+   ;; Clear current state and load new content
+   (swap! app-state assoc :chunks [] :selected-id nil :metadata default-metadata :filepath filepath)
+   ;; Reset history
+   (reset! history {:states [] :current -1 :checkpoints []})
+   ;; Ensure aspect containers exist
+   (ensure-aspect-containers!)
+   ;; Parse and load the file (now returns {:metadata ... :chunks ...})
+   (let [{:keys [metadata chunks]} (parse-file content)
+         existing-ids (set (map :id (get-chunks)))]
+     ;; Set metadata
+     (swap! app-state assoc :metadata metadata)
+     ;; Add parsed chunks (skip if already exists - e.g. aspect containers)
+     (doseq [chunk chunks]
+       (when-not (contains? existing-ids (:id chunk))
+         (swap! app-state update :chunks conj chunk))))
+   ;; Set filename
+   (set-filename! filename)
+   ;; Select first non-container chunk
+   (let [structural (filter #(not (contains? aspect-container-ids (:id %))) (get-chunks))]
+     (when (seq structural)
+       (select-chunk! (:id (first structural)))))
+   ;; Push initial state to history
+   (push-history!)
+   (reset! save-status :idle)))
+
+(defn open-file!
+  "Show open dialog and load selected file"
+  []
+  (let [default-folder (settings/get-default-folder)]
+    (-> (dialog/open #js {:defaultPath (when (not (empty? default-folder)) default-folder)
+                          :filters #js [#js {:name "Tramando" :extensions #js ["trmd" "md" "txt"]}]
+                          :multiple false})
+        (.then (fn [path]
+                 (when path
+                   (-> (fs/readTextFile path)
+                       (.then (fn [content]
+                                (let [filename (last (str/split path #"/"))]
+                                  (load-file-content! content filename path))))
+                       (.catch (fn [err]
+                                 (js/console.error "Read file error:" err)))))))
+        (.catch (fn [err]
+                  (js/console.error "Open dialog error:" err))))))
 
 ;; =============================================================================
 ;; Tree helpers

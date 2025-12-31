@@ -15,10 +15,6 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
-[features]
-# Use webkit2gtk-4.0 for older Linux distros (glibc 2.31+)
-webkit2gtk-4.0 = ["tauri/webkit2gtk-4.0"]
-
 [dependencies]
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
@@ -26,3 +22,4 @@ serde_json = "1"
 log = "0.4"
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"

@@ -23,6 +23,7 @@
     "@codemirror/state": "^6.4.1",
     "@codemirror/view": "^6.32.0",
     "@tauri-apps/plugin-dialog": "^2.4.2",
+    "@tauri-apps/plugin-fs": "^2.4.4",
     "codemirror": "^6.0.1",
     "js-yaml": "^4.1.1",
     "marked": "^17.0.1",

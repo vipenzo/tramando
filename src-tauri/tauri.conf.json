@@ -10,7 +10,7 @@
     "frontendDist": "../public"
   },
   "app": {
-    "withGlobalTauri": false,
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "Tramando",
