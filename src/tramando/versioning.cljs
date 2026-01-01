@@ -5,6 +5,7 @@
             [tramando.settings :as settings]
             [tramando.i18n :refer [t]]
             ["@tauri-apps/plugin-fs" :as fs]
+            ["@tauri-apps/api/path" :as path]
             ["@tauri-apps/api/window" :refer [getCurrentWindow]]))
 
 ;; =============================================================================
@@ -225,12 +226,22 @@
 ;; Version Management
 ;; =============================================================================
 
+(defn path-to-folder-name
+  "Convert a file path to a safe folder name"
+  [file-path]
+  ;; Use base64 encoding truncated to create a unique folder name
+  (let [encoded (js/btoa file-path)]
+    (-> encoded
+        (str/replace #"[/+=]" "-")
+        (subs 0 (min 40 (count encoded))))))
+
 (defn get-versions-dir
-  "Get versions directory for a file"
-  [path]
-  (let [dir (get-parent-dir path)
-        filename (get-filename-without-ext path)]
-    (str dir "/.tramando-versions/" filename "/")))
+  "Get versions directory for a file (in app data directory). Returns a promise."
+  [file-path]
+  (-> (path/appDataDir)
+      (.then (fn [app-dir]
+               (let [folder-name (path-to-folder-name file-path)]
+                 (str app-dir "versions/" folder-name "/"))))))
 
 (defn slugify
   "Convert text to URL-safe slug"
@@ -287,57 +298,62 @@
 (defn list-versions
   "List all saved versions. Returns a promise."
   [path]
-  (let [versions-dir (get-versions-dir path)]
-    (-> (file-exists? versions-dir)
-        (.then (fn [exists?]
-                 (if exists?
-                   (-> (list-dir versions-dir)
-                       (.then (fn [entries]
-                                (->> entries
-                                     (filter #(str/ends-with? (.-name %) ".trmd"))
-                                     (map #(parse-version-filename (.-name %)))
-                                     (sort-by :sort-key >)))))
-                   []))))))
+  (-> (get-versions-dir path)
+      (.then (fn [versions-dir]
+               (-> (file-exists? versions-dir)
+                   (.then (fn [exists?]
+                            (if exists?
+                              (-> (list-dir versions-dir)
+                                  (.then (fn [entries]
+                                           (->> entries
+                                                (filter #(str/ends-with? (.-name %) ".trmd"))
+                                                (map #(parse-version-filename (.-name %)))
+                                                (sort-by :sort-key >)))))
+                              []))))))))
 
 (defn save-version!
   "Save current file as a version. Returns a promise."
   [path description]
-  (let [versions-dir (get-versions-dir path)
-        timestamp (format-timestamp)
+  (let [timestamp (format-timestamp)
         slug (slugify description)
         version-filename (if slug
                            (str timestamp "_" slug ".trmd")
-                           (str timestamp ".trmd"))
-        version-path (str versions-dir version-filename)]
-    (-> (ensure-dir versions-dir)
-        (.then #(copy-file path version-path))
-        (.then #(show-toast! (t :version-saved))))))
+                           (str timestamp ".trmd"))]
+    (-> (get-versions-dir path)
+        (.then (fn [versions-dir]
+                 (let [version-path (str versions-dir version-filename)]
+                   (-> (ensure-dir versions-dir)
+                       (.then #(copy-file path version-path))
+                       (.then #(show-toast! (t :version-saved))))))))))
 
 (defn restore-version!
   "Restore a specific version. Returns a promise."
   [path version-filename on-reload!]
-  (let [versions-dir (get-versions-dir path)
-        version-path (str versions-dir version-filename)]
-    (-> (create-backup! path)
-        (.then #(copy-file version-path path))
-        (.then (fn []
-                 (when on-reload!
-                   (on-reload!))
-                 (show-toast! (t :version-restored)))))))
+  (-> (get-versions-dir path)
+      (.then (fn [versions-dir]
+               (let [version-path (str versions-dir version-filename)]
+                 (-> (create-backup! path)
+                     (.then #(copy-file version-path path))
+                     (.then (fn []
+                              (when on-reload!
+                                (on-reload!))
+                              (show-toast! (t :version-restored))))))))))
 
 (defn delete-version!
   "Delete a specific version. Returns a promise."
   [path version-filename]
-  (let [versions-dir (get-versions-dir path)
-        version-path (str versions-dir version-filename)]
-    (remove-file version-path)))
+  (-> (get-versions-dir path)
+      (.then (fn [versions-dir]
+               (let [version-path (str versions-dir version-filename)]
+                 (remove-file version-path))))))
 
 (defn open-version-copy!
   "Open a version as a new unsaved document. Returns promise with content."
   [path version-filename]
-  (let [versions-dir (get-versions-dir path)
-        version-path (str versions-dir version-filename)]
-    (read-file version-path)))
+  (-> (get-versions-dir path)
+      (.then (fn [versions-dir]
+               (let [version-path (str versions-dir version-filename)]
+                 (read-file version-path))))))
 
 ;; =============================================================================
 ;; Window Focus Handler

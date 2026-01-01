@@ -283,7 +283,7 @@ IT = {
     'filename': 'Tramando_Manuale_Italiano.pdf',
     'tagline': 'Tessi la tua storia',
     'manual_title': 'Manuale Utente',
-    'version': 'Versione 1.1',
+    'version': 'Versione 1.2',
     'toc_title': 'Indice',
 
     'chapters': [
@@ -363,6 +363,16 @@ IT = {
         's3_p1': 'Tramando salva automaticamente il tuo lavoro ogni pochi secondi. Puoi configurare l\'intervallo di autosalvataggio nelle impostazioni, scegliendo un valore tra 1 e 10 secondi. Questo significa che non perderai mai piu di qualche secondo di lavoro anche in caso di crash o chiusura accidentale.',
         's3_p2': 'Oltre all\'autosalvataggio, puoi salvare manualmente su file cliccando il pulsante <b>Salva</b> nella barra superiore. Il file avra estensione <b>.trmd</b> e sara un file di testo leggibile, che potrai aprire anche con un normale editor di testo se necessario.',
         's3_tip': '<i>Consiglio: anche se l\'autosalvataggio e attivo, e buona pratica salvare regolarmente su file. Cosi avrai sempre un backup esterno che potrai copiare su cloud o chiavetta USB.</i>',
+
+        's4_title': 'Versioni e backup',
+        's4_p1': 'Tramando include un sistema completo di gestione versioni. Accanto ai pulsanti Salva trovi un menu a tendina <b>Versione</b> con tre opzioni:',
+        's4_items': [
+            '<b>Salva versione</b> - Crea uno snapshot del tuo lavoro con data/ora e una descrizione opzionale. Utile prima di modifiche importanti o per segnare tappe significative.',
+            '<b>Lista versioni</b> - Mostra tutte le versioni salvate. Per ogni versione puoi: <b>Apri copia</b> (apre la versione come nuovo documento non salvato, senza toccare il file corrente) oppure <b>Ripristina</b> (sostituisce il file corrente con la versione selezionata, creando prima un backup automatico).',
+            '<b>Ripristina backup</b> - Recupera l\'ultimo backup automatico. Tramando crea un file .backup ogni volta che salvi, permettendoti di tornare allo stato precedente.',
+        ],
+        's4_p2': 'Quando il documento ha modifiche non salvate, appare un <b>pallino</b> accanto al nome del file nella barra superiore. Questo indicatore ti ricorda che ci sono cambiamenti da salvare.',
+        's4_note': '<i>Nota: le versioni vengono salvate nella cartella dati dell\'applicazione, non accanto al file originale. Questo garantisce compatibilita con cartelle cloud come iCloud.</i>',
     },
 
     # =========================================================================
@@ -430,6 +440,7 @@ IT = {
             '<b>Titolo progetto</b> - Mostra il nome del progetto corrente; cliccandolo puoi modificare i metadati (titolo, autore, anno...)',
             '<b>Carica</b> - Apre un file .trmd dal tuo computer',
             '<b>Salva</b> - Scarica il progetto corrente come file .trmd',
+            '<b>Versione</b> - Menu per salvare versioni, vedere la lista versioni, o ripristinare un backup',
             '<b>Esporta</b> - Menu a tendina per esportare in PDF o Markdown',
             '<b>Badge Annotazioni</b> - Mostra il numero totale di annotazioni; cliccandolo apri il pannello annotazioni',
             '<b>Toggle Mappa/Editor</b> - Alterna tra la vista mappa radiale e l\'editor di testo',
@@ -1009,7 +1020,7 @@ EN = {
     'filename': 'Tramando_Manual_English.pdf',
     'tagline': 'Weave your story',
     'manual_title': 'User Manual',
-    'version': 'Version 1.1',
+    'version': 'Version 1.2',
     'toc_title': 'Contents',
 
     'chapters': [
@@ -1089,6 +1100,16 @@ EN = {
         's3_p1': 'Tramando automatically saves your work every few seconds. You can configure the autosave interval in settings, choosing a value between 1 and 10 seconds. This means you\'ll never lose more than a few seconds of work even in case of a crash or accidental closure.',
         's3_p2': 'In addition to autosave, you can manually save to a file by clicking the <b>Save</b> button in the top bar. The file will have a <b>.trmd</b> extension and will be a readable text file, which you can also open with a regular text editor if needed.',
         's3_tip': '<i>Tip: even with autosave active, it\'s good practice to save to file regularly. This way you\'ll always have an external backup you can copy to cloud or USB drive.</i>',
+
+        's4_title': 'Versions and Backup',
+        's4_p1': 'Tramando includes a complete version management system. Next to the Save buttons you\'ll find a <b>Version</b> dropdown menu with three options:',
+        's4_items': [
+            '<b>Save version</b> - Creates a snapshot of your work with date/time and an optional description. Useful before major changes or to mark significant milestones.',
+            '<b>Version list</b> - Shows all saved versions. For each version you can: <b>Open copy</b> (opens the version as a new unsaved document, without touching the current file) or <b>Restore</b> (replaces the current file with the selected version, first creating an automatic backup).',
+            '<b>Restore backup</b> - Recovers the last automatic backup. Tramando creates a .backup file every time you save, allowing you to return to the previous state.',
+        ],
+        's4_p2': 'When the document has unsaved changes, a <b>dot</b> appears next to the filename in the top bar. This indicator reminds you that there are changes to save.',
+        's4_note': '<i>Note: versions are saved in the application data folder, not next to the original file. This ensures compatibility with cloud folders like iCloud.</i>',
     },
 
     # =========================================================================
@@ -1156,6 +1177,7 @@ EN = {
             '<b>Project Title</b> - Shows the current project name; clicking it lets you edit metadata (title, author, year...)',
             '<b>Load</b> - Opens a .trmd file from your computer',
             '<b>Save</b> - Downloads the current project as a .trmd file',
+            '<b>Version</b> - Menu to save versions, view version list, or restore a backup',
             '<b>Export</b> - Dropdown menu for exporting to PDF or Markdown',
             '<b>Annotations Badge</b> - Shows the total number of annotations; clicking it opens the annotations panel',
             '<b>Map/Editor Toggle</b> - Switches between the radial map view and text editor',
@@ -1780,6 +1802,13 @@ def build_chapter_2(story, T, styles, lang):
     story.append(Paragraph(ch['s3_p1'], styles['Body']))
     story.append(Paragraph(ch['s3_p2'], styles['Body']))
     story.append(Paragraph(ch['s3_tip'], styles['Note']))
+
+    # Versioni e backup
+    story.append(Paragraph(ch['s4_title'], styles['SectionTitle']))
+    story.append(Paragraph(ch['s4_p1'], styles['Body']))
+    add_bullet_list(story, ch['s4_items'], styles)
+    story.append(Paragraph(ch['s4_p2'], styles['Body']))
+    story.append(Paragraph(ch['s4_note'], styles['Note']))
 
     story.append(PageBreak())
 
