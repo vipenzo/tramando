@@ -804,93 +804,103 @@
 (defn version-dropdown
   "Dropdown menu for version operations"
   [{:keys [on-save-version on-list-versions on-restore-backup]}]
-  (let [open? (r/atom false)
-        colors {:bg (settings/get-color :background)
-                :text (settings/get-color :text)
-                :muted (settings/get-color :text-muted)
-                :border (settings/get-color :border)
-                :accent (settings/get-color :accent)
-                :sidebar (settings/get-color :sidebar)}]
+  (let [open? (r/atom false)]
     (fn [{:keys [on-save-version on-list-versions on-restore-backup]}]
-      [:div {:style {:position "relative"}}
-       [:button {:style {:background "transparent"
-                         :color (:muted colors)
-                         :border (str "1px solid " (:border colors))
-                         :padding "6px 12px"
-                         :border-radius "4px"
-                         :cursor "pointer"
-                         :font-size "0.85rem"
-                         :display "flex"
-                         :align-items "center"
-                         :gap "4px"}
-                 :on-click #(swap! open? not)}
-        [:span "📸"]
-        [:span (t :version)]
-        [:span {:style {:font-size "0.7rem"}} "▼"]]
-       (when @open?
-         [:<>
-          ;; Backdrop to close dropdown
-          [:div {:style {:position "fixed"
-                         :inset 0
-                         :z-index 99}
-                 :on-click #(reset! open? false)}]
-          ;; Dropdown menu
-          [:div {:style {:position "absolute"
-                         :top "100%"
-                         :left 0
-                         :margin-top "4px"
-                         :background (:bg colors)
-                         :border (str "1px solid " (:border colors))
-                         :border-radius "6px"
-                         :box-shadow "0 4px 12px rgba(0,0,0,0.15)"
-                         :z-index 100
-                         :min-width "180px"}}
-           [:div {:style {:padding "4px"}}
-            [:button {:style {:display "block"
-                              :width "100%"
-                              :text-align "left"
-                              :background "transparent"
-                              :border "none"
-                              :padding "8px 12px"
-                              :color (:text colors)
-                              :cursor "pointer"
-                              :border-radius "4px"
-                              :font-size "0.9rem"}
-                      :on-click (fn []
-                                  (reset! open? false)
-                                  (on-save-version))}
-             (t :save-version)]
-            [:button {:style {:display "block"
-                              :width "100%"
-                              :text-align "left"
-                              :background "transparent"
-                              :border "none"
-                              :padding "8px 12px"
-                              :color (:text colors)
-                              :cursor "pointer"
-                              :border-radius "4px"
-                              :font-size "0.9rem"}
-                      :on-click (fn []
-                                  (reset! open? false)
-                                  (on-list-versions))}
-             (t :version-list)]
-            [:div {:style {:height "1px"
-                           :background (:border colors)
-                           :margin "4px 0"}}]
-            [:button {:style {:display "block"
-                              :width "100%"
-                              :text-align "left"
-                              :background "transparent"
-                              :border "none"
-                              :padding "8px 12px"
-                              :color (:text colors)
-                              :cursor "pointer"
-                              :border-radius "4px"
-                              :font-size "0.9rem"}
-                      :on-click (fn []
-                                  (reset! open? false)
-                                  (on-restore-backup))}
-             (t :restore-backup)]]]])])))
+      (let [colors {:bg (settings/get-color :background)
+                    :text (settings/get-color :text)
+                    :muted (settings/get-color :text-muted)
+                    :border (settings/get-color :border)
+                    :accent (settings/get-color :accent)
+                    :sidebar (settings/get-color :sidebar)}
+            has-file? (some? (:path @file-info))]
+        [:div {:style {:position "relative"}}
+         [:button {:style {:background "transparent"
+                           :color (:muted colors)
+                           :border (str "1px solid " (:border colors))
+                           :padding "6px 12px"
+                           :border-radius "4px"
+                           :cursor "pointer"
+                           :font-size "0.85rem"
+                           :display "flex"
+                           :align-items "center"
+                           :gap "4px"}
+                   :on-click #(swap! open? not)}
+          [:span "📸"]
+          [:span (t :version)]
+          [:span {:style {:font-size "0.7rem"}} "▼"]]
+         (when @open?
+           [:<>
+            ;; Backdrop to close dropdown
+            [:div {:style {:position "fixed"
+                           :inset 0
+                           :z-index 99}
+                   :on-click #(reset! open? false)}]
+            ;; Dropdown menu
+            [:div {:style {:position "absolute"
+                           :top "100%"
+                           :left 0
+                           :margin-top "4px"
+                           :background (:bg colors)
+                           :border (str "1px solid " (:border colors))
+                           :border-radius "6px"
+                           :box-shadow "0 4px 12px rgba(0,0,0,0.15)"
+                           :z-index 100
+                           :min-width "180px"}}
+             [:div {:style {:padding "4px"}}
+              [:button {:style {:display "block"
+                                :width "100%"
+                                :text-align "left"
+                                :background "transparent"
+                                :border "none"
+                                :padding "8px 12px"
+                                :color (if has-file? (:text colors) (:muted colors))
+                                :cursor (if has-file? "pointer" "not-allowed")
+                                :border-radius "4px"
+                                :font-size "0.9rem"
+                                :opacity (if has-file? 1 0.5)}
+                        :on-click (fn []
+                                    (reset! open? false)
+                                    (if has-file?
+                                      (on-save-version)
+                                      (show-toast! (t :save-first))))}
+               (t :save-version)]
+              [:button {:style {:display "block"
+                                :width "100%"
+                                :text-align "left"
+                                :background "transparent"
+                                :border "none"
+                                :padding "8px 12px"
+                                :color (if has-file? (:text colors) (:muted colors))
+                                :cursor (if has-file? "pointer" "not-allowed")
+                                :border-radius "4px"
+                                :font-size "0.9rem"
+                                :opacity (if has-file? 1 0.5)}
+                        :on-click (fn []
+                                    (reset! open? false)
+                                    (if has-file?
+                                      (on-list-versions)
+                                      (show-toast! (t :save-first))))}
+               (t :version-list)]
+              [:div {:style {:height "1px"
+                             :background (:border colors)
+                             :margin "4px 0"}}]
+              [:button {:style {:display "block"
+                                :width "100%"
+                                :text-align "left"
+                                :background "transparent"
+                                :border "none"
+                                :padding "8px 12px"
+                                :color (if has-file? (:text colors) (:muted colors))
+                                :cursor (if has-file? "pointer" "not-allowed")
+                                :border-radius "4px"
+                                :font-size "0.9rem"
+                                :opacity (if has-file? 1 0.5)}
+                        :on-click (fn []
+                                    (reset! open? false)
+                                    (if has-file?
+                                      (on-restore-backup)
+                                      (show-toast! (t :save-first))))}
+               (t :restore-backup)]]]])]))))
 
 ;; =============================================================================
 ;; Main Dialog Container
@@ -924,9 +934,16 @@
    (when @save-version-dialog
      [save-version-dialog-component
       {:on-save (fn [desc]
-                  (when-let [path (:path @file-info)]
+                  (if-let [path (:path @file-info)]
                     (-> (save-version! path desc)
-                        (.then #(reset! save-version-dialog nil)))))
+                        (.then #(reset! save-version-dialog nil))
+                        (.catch (fn [err]
+                                  (js/console.error "Save version error:" err)
+                                  (show-toast! "Errore nel salvare la versione")
+                                  (reset! save-version-dialog nil))))
+                    (do
+                      (show-toast! (t :save-first))
+                      (reset! save-version-dialog nil))))
        :on-cancel #(reset! save-version-dialog nil)}])
 
    ;; Version list dialog

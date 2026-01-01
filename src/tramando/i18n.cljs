@@ -428,6 +428,7 @@
     :no-versions "Nessuna versione salvata"
     :no-description "(nessuna descrizione)"
     :backup-will-be-created "Un backup verrà creato automaticamente"
+    :save-first "Salva prima il file per creare versioni"
 
     ;; Conflict detection
     :file-modified-conflict "File modificato"
@@ -856,6 +857,7 @@
     :no-versions "No saved versions"
     :no-description "(no description)"
     :backup-will-be-created "A backup will be created automatically"
+    :save-first "Save the file first to create versions"
 
     ;; Conflict detection
     :file-modified-conflict "File modified"
