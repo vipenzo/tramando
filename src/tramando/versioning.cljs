@@ -362,14 +362,16 @@
 (defn setup-focus-listener!
   "Setup window focus listener to detect external file changes"
   [on-file-changed!]
-  (let [window (getCurrentWindow)]
-    (.listen window "tauri://focus"
-             (fn [_]
-               (when @file-info
-                 (-> (check-conflict)
-                     (.then (fn [{:keys [conflict? file-deleted?]}]
-                              (when (and conflict? (not file-deleted?))
-                                (on-file-changed!))))))))))
+  ;; Only set up listener if running in Tauri (not in browser dev mode)
+  (when (exists? js/window.__TAURI__)
+    (let [window (getCurrentWindow)]
+      (.listen window "tauri://focus"
+               (fn [_]
+                 (when @file-info
+                   (-> (check-conflict)
+                       (.then (fn [{:keys [conflict? file-deleted?]}]
+                                (when (and conflict? (not file-deleted?))
+                                  (on-file-changed!)))))))))))
 
 ;; =============================================================================
 ;; UI Components - Dialogs
