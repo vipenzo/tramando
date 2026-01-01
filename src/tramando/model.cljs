@@ -2,6 +2,7 @@
   (:require [clojure.string :as str]
             [reagent.core :as r]
             [tramando.settings :as settings]
+            [tramando.versioning :as versioning]
             ["js-yaml" :as yaml]
             ["@tauri-apps/plugin-dialog" :as dialog]
             ["@tauri-apps/plugin-fs" :as fs]))
@@ -435,6 +436,7 @@
 (defn mark-modified!
   "Mark the document as modified and schedule autosave"
   []
+  (versioning/mark-dirty!)
   (schedule-autosave!))
 
 (defn get-chunks []
@@ -669,15 +671,21 @@
   (:filename @app-state))
 
 (defn- do-save-to-path!
-  "Internal: save content to a specific path"
+  "Internal: save content to a specific path (with backup)"
   [filepath]
   (let [content (get-file-content)]
-    (-> (fs/writeTextFile filepath content)
+    ;; Create backup first, then save
+    (-> (versioning/create-backup! filepath)
+        (.then #(fs/writeTextFile filepath content))
         (.then (fn []
                  ;; Update filepath and filename in state
                  (swap! app-state assoc :filepath filepath)
                  (let [filename (last (str/split filepath #"/"))]
                    (swap! app-state assoc :filename filename))
+                 ;; Update file-info for conflict detection
+                 (versioning/update-file-info! filepath content)
+                 ;; Mark as clean (no unsaved changes)
+                 (versioning/mark-clean!)
                  ;; Show "Salvato" then fade
                  (reset! save-status :saved)
                  (when @saved-fade-timer
@@ -707,15 +715,24 @@
                   (js/console.error "Save dialog error:" err))))))
 
 (defn save-file!
-  "Save the current file. If filepath is known, save directly. Otherwise show save dialog."
+  "Save the current file. If filepath is known, check conflicts and save. Otherwise show save dialog."
   []
   ;; Cancel any pending autosave
   (when @autosave-timer
     (js/clearTimeout @autosave-timer)
     (reset! autosave-timer nil))
   (if-let [filepath (:filepath @app-state)]
-    ;; File has been saved before, save directly
-    (do-save-to-path! filepath)
+    ;; File has been saved before, check for conflicts
+    (-> (versioning/check-conflict)
+        (.then (fn [{:keys [conflict?]}]
+                 (if conflict?
+                   ;; Show conflict dialog
+                   (versioning/show-conflict-dialog!
+                    {:on-overwrite (fn []
+                                     (versioning/show-conflict-dialog! nil)
+                                     (do-save-to-path! filepath))})
+                   ;; No conflict, save directly
+                   (do-save-to-path! filepath)))))
     ;; New file, show save dialog
     (save-file-as!)))
 
@@ -761,7 +778,13 @@
        (select-chunk! (:id (first structural)))))
    ;; Push initial state to history
    (push-history!)
-   (reset! save-status :idle)))
+   (reset! save-status :idle)
+   ;; Update file-info for conflict detection
+   (if filepath
+     (versioning/update-file-info! filepath content)
+     (versioning/clear-file-info!))
+   ;; Mark as clean (no unsaved changes)
+   (versioning/mark-clean!)))
 
 (defn open-file!
   "Show open dialog and load selected file"
@@ -780,6 +803,23 @@
                                  (js/console.error "Read file error:" err)))))))
         (.catch (fn [err]
                   (js/console.error "Open dialog error:" err))))))
+
+(defn reload-file!
+  "Reload the current file from disk"
+  []
+  (when-let [filepath (:filepath @app-state)]
+    (-> (fs/readTextFile filepath)
+        (.then (fn [content]
+                 (let [filename (last (str/split filepath #"/"))]
+                   (load-file-content! content filename filepath))))
+        (.catch (fn [err]
+                  (js/console.error "Reload file error:" err))))))
+
+(defn load-version-copy!
+  "Load content as a new unsaved document (for 'Open copy' from versions)"
+  [content original-filename]
+  (let [new-filename (str "copia-" original-filename)]
+    (load-file-content! content new-filename nil)))
 
 ;; =============================================================================
 ;; Tree helpers

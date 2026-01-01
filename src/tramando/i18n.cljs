@@ -407,7 +407,40 @@
     :priority-medium "Media"
     :priority-high "Alta"
     :comment-placeholder "Aggiungi un commento..."
-    :annotation-updated "Annotazione aggiornata"}
+    :annotation-updated "Annotazione aggiornata"
+
+    ;; Versioning
+    :version "Versione"
+    :save-version "Salva versione..."
+    :version-list "Lista versioni"
+    :restore-backup "Ripristina backup"
+    :version-description "Descrizione (opzionale)"
+    :version-saved "Versione salvata"
+    :saved-versions "Versioni salvate"
+    :open-copy "Apri copia"
+    :restore "Ripristina"
+    :delete-version "Elimina versione"
+    :restore-version-confirm "Vuoi ripristinare questa versione? Il contenuto attuale verrà sostituito."
+    :delete-version-confirm "Vuoi eliminare questa versione?"
+    :version-restored "Versione ripristinata"
+    :backup-restored "Backup ripristinato"
+    :no-backup-available "Nessun backup disponibile"
+    :no-versions "Nessuna versione salvata"
+    :no-description "(nessuna descrizione)"
+    :backup-will-be-created "Un backup verrà creato automaticamente"
+
+    ;; Conflict detection
+    :file-modified-conflict "File modificato"
+    :file-modified-message "Il file è stato modificato da un'altra applicazione o dispositivo."
+    :overwrite "Sovrascrivi"
+    :reload-from-disk "Ricarica da disco"
+    :file-changed-on-disk "Il file è stato modificato su disco. Vuoi ricaricare?"
+    :reload "Ricarica"
+    :ignore "Ignora"
+    :unsaved-changes "Modifiche non salvate"
+    :overwrite-description "le modifiche fatte altrove andranno perse"
+    :save-as-description "salva con nuovo nome, mantieni entrambi"
+    :reload-description "perdi le modifiche locali, carica da disco"}
 
    :en
    {;; General
@@ -802,7 +835,40 @@
     :priority-medium "Medium"
     :priority-high "High"
     :comment-placeholder "Add a comment..."
-    :annotation-updated "Annotation updated"}})
+    :annotation-updated "Annotation updated"
+
+    ;; Versioning
+    :version "Version"
+    :save-version "Save version..."
+    :version-list "Version list"
+    :restore-backup "Restore backup"
+    :version-description "Description (optional)"
+    :version-saved "Version saved"
+    :saved-versions "Saved versions"
+    :open-copy "Open copy"
+    :restore "Restore"
+    :delete-version "Delete version"
+    :restore-version-confirm "Do you want to restore this version? Current content will be replaced."
+    :delete-version-confirm "Do you want to delete this version?"
+    :version-restored "Version restored"
+    :backup-restored "Backup restored"
+    :no-backup-available "No backup available"
+    :no-versions "No saved versions"
+    :no-description "(no description)"
+    :backup-will-be-created "A backup will be created automatically"
+
+    ;; Conflict detection
+    :file-modified-conflict "File modified"
+    :file-modified-message "The file has been modified by another application or device."
+    :overwrite "Overwrite"
+    :reload-from-disk "Reload from disk"
+    :file-changed-on-disk "The file has been modified on disk. Do you want to reload?"
+    :reload "Reload"
+    :ignore "Ignore"
+    :unsaved-changes "Unsaved changes"
+    :overwrite-description "changes made elsewhere will be lost"
+    :save-as-description "save with a new name, keep both"
+    :reload-description "lose local changes, load from disk"}})
 
 ;; =============================================================================
 ;; Translation Functions

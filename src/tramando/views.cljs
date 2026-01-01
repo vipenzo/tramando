@@ -14,6 +14,7 @@
             [tramando.context-menu :as context-menu]
             [tramando.ai.ui :as ai-ui]
             [tramando.chunk-selector :as selector]
+            [tramando.versioning :as versioning]
             ["@tauri-apps/plugin-dialog" :as dialog]))
 
 ;; =============================================================================
@@ -1395,6 +1396,11 @@
                 :font-size "0.85rem"}
         :on-click #(model/save-file-as!)}
        (t :save-as)]
+      ;; Version dropdown
+      [versioning/version-dropdown
+       {:on-save-version #(versioning/open-save-version-dialog!)
+        :on-list-versions #(versioning/open-version-list-dialog!)
+        :on-restore-backup #(versioning/open-restore-backup-dialog! model/reload-file!)}]
       ;; Export dropdown
       [export-dropdown]
       ;; Project info button
@@ -1409,17 +1415,27 @@
         :title (t :help-metadata)
         :on-click #(reset! metadata-open? true)}
        "📄"]
-      ;; Filename display (editable)
-      [:input {:type "text"
-               :value (:filename @model/app-state)
-               :style {:background "transparent"
-                       :border (str "1px solid " (:border colors))
-                       :border-radius "4px"
-                       :color (:text-muted colors)
-                       :padding "4px 8px"
-                       :font-size "0.85rem"
-                       :width "150px"}
-               :on-change #(model/set-filename! (-> % .-target .-value))}]
+      ;; Filename display (editable) with dirty indicator
+      [:div {:style {:display "flex"
+                     :align-items "center"
+                     :gap "4px"}}
+       [:input {:type "text"
+                :value (:filename @model/app-state)
+                :style {:background "transparent"
+                        :border (str "1px solid " (:border colors))
+                        :border-radius "4px"
+                        :color (:text-muted colors)
+                        :padding "4px 8px"
+                        :font-size "0.85rem"
+                        :width "150px"}
+                :on-change #(model/set-filename! (-> % .-target .-value))}]
+       ;; Dirty indicator (unsaved changes)
+       (when @versioning/dirty?
+         [:span {:style {:color (:accent colors)
+                         :font-size "1.2rem"
+                         :line-height "1"}
+                 :title (t :unsaved-changes)}
+          "•"])]
       ;; Annotation counter
       (let [ann-count (annotations/count-annotations)]
         (when (pos? ann-count)
@@ -1700,7 +1716,9 @@
       ;; Set up the context menu template action handler
       (context-menu/set-template-action-handler!
        (fn [template-id chunk selected-text aspect-id]
-         (ai-panel/handle-template-action! template-id chunk selected-text aspect-id))))
+         (ai-panel/handle-template-action! template-id chunk selected-text aspect-id)))
+      ;; Set up window focus listener for conflict detection
+      (versioning/setup-focus-listener! #(versioning/show-file-changed-dialog!)))
 
     :component-will-unmount
     (fn [_]
@@ -1744,7 +1762,13 @@
          (when @tutorial-open?
            [tutorial-modal])
          ;; Chunk Selector Modal (global)
-         [selector/selector-modal]]))}))
+         [selector/selector-modal]
+         ;; Versioning dialogs (conflict, file changed, versions, etc.)
+         [versioning/dialogs-container
+          {:on-save-as model/save-file-as!
+           :on-reload model/reload-file!
+           :on-reload-from-version (fn [content filename]
+                                     (model/load-version-copy! content filename))}]]))}))
 
 ;; =============================================================================
 ;; App Root
