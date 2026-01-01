@@ -8,6 +8,7 @@
             [tramando.i18n :as i18n :refer [t]]
             [tramando.context-menu :as context-menu]
             [tramando.events :as events]
+            [tramando.chunk-selector :as selector]
             ["@codemirror/state" :refer [EditorState StateField StateEffect RangeSetBuilder]]
             ["@codemirror/view" :refer [EditorView keymap lineNumbers highlightActiveLine
                                         highlightActiveLineGutter drawSelection
@@ -1156,95 +1157,356 @@
 ;; =============================================================================
 
 (defn parent-selector []
-  (let [chunk (model/get-selected-chunk)
-        error-msg (r/atom nil)]
+  (let [error-msg (r/atom nil)]
     (fn []
       (let [chunk (model/get-selected-chunk)
             colors (:colors @settings/settings)]
         (when (and chunk (not (model/is-aspect-container? (:id chunk))))
-          (let [possible-parents (model/get-possible-parents (:id chunk))
-                current-parent-id (:parent-id chunk)]
+          (let [current-parent-id (:parent-id chunk)
+                current-parent (when current-parent-id
+                                 (first (filter #(= (:id %) current-parent-id) (model/get-chunks))))
+                parent-display (if current-parent
+                                 (or (:summary current-parent) current-parent-id)
+                                 (t :root))]
             [:div {:style {:display "flex" :align-items "center" :gap "8px" :margin-top "8px"}}
              [:span {:style {:color (:text-muted colors) :font-size "0.8rem" :display "flex" :align-items "center" :gap "4px"}}
               (t :parent)
               [:span.help-icon {:title (t :help-parent)} "?"]]
-             [:select {:value (or current-parent-id "")
-                       :style {:background (:editor-bg colors)
+             [:button {:style {:background (:editor-bg colors)
                                :color (:text colors)
                                :border (str "1px solid " (:border colors))
                                :border-radius "3px"
-                               :padding "4px 8px"
+                               :padding "4px 12px"
                                :font-size "0.8rem"
                                :cursor "pointer"
-                               :outline "none"}
-                       :on-change (fn [e]
-                                    (let [new-parent (let [v (.. e -target -value)]
-                                                       (if (= v "") nil v))
-                                          result (model/change-parent! (:id chunk) new-parent)]
-                                      (if (:error result)
-                                        (reset! error-msg (:error result))
-                                        (reset! error-msg nil))))}
-              [:option {:value ""} (t :root)]
-              (doall
-               (for [p possible-parents]
-                 ^{:key (:id p)}
-                 [:option {:value (:id p)}
-                  (str (:id p) " - " (subs (:summary p) 0 (min 25 (count (:summary p)))))]))]
+                               :display "flex"
+                               :align-items "center"
+                               :gap "4px"}
+                       :on-click (fn []
+                                   (selector/open-selector!
+                                    {:title (t :select-parent)
+                                     :items (build-parent-tree (:id chunk))
+                                     :filter-placeholder (t :search-placeholder)
+                                     :show-categories-as-selectable true
+                                     :on-select (fn [item]
+                                                  (let [new-parent (:id item)
+                                                        result (model/change-parent! (:id chunk) new-parent)]
+                                                    (if (:error result)
+                                                      (reset! error-msg (:error result))
+                                                      (reset! error-msg nil))))}))}
+              [:span (str parent-display)]
+              [:span {:style {:font-size "0.7rem"}} "▼"]]
              (when @error-msg
                [:span {:style {:color "#ff6b6b" :font-size "0.75rem"}}
                 @error-msg])]))))))
 
 ;; =============================================================================
-;; Delete Button
+;; Chunk Actions (Create Child + Delete)
 ;; =============================================================================
 
-(defn delete-button []
-  (let [confirming? (r/atom false)
+(defn chunk-actions []
+  (let [confirming-delete? (r/atom false)
         error-msg (r/atom nil)]
     (fn []
       (let [chunk (model/get-selected-chunk)
             colors (:colors @settings/settings)]
         (when (and chunk (not (model/is-aspect-container? (:id chunk))))
           [:div {:style {:margin-top "12px" :padding-top "12px" :border-top (str "1px solid " (:border colors))}}
-           (if @confirming?
+           (if @confirming-delete?
+             ;; Confirm delete state
              [:div {:style {:display "flex" :gap "8px" :align-items "center"}}
               [:span {:style {:color "#ff6b6b" :font-size "0.85rem"}} (t :confirm)]
               [:button {:style {:background "#ff6b6b"
                                 :color "white"
                                 :border "none"
-                                :padding "4px 12px"
-                                :border-radius "3px"
-                                :cursor "pointer"
-                                :font-size "0.8rem"}
-                        :on-click (fn []
-                                    (let [result (model/try-delete-chunk! (:id chunk))]
-                                      (if (:error result)
-                                        (do (reset! error-msg (:error result))
-                                            (reset! confirming? false))
-                                        (reset! confirming? false))))}
-               (t :delete)]
-              [:button {:style {:background "transparent"
-                                :color (:text-muted colors)
-                                :border (str "1px solid " (:text-muted colors))
-                                :padding "4px 12px"
-                                :border-radius "3px"
-                                :cursor "pointer"
-                                :font-size "0.8rem"}
-                        :on-click #(reset! confirming? false)}
-               (t :cancel)]]
-             [:div
-              [:button {:style {:background "transparent"
-                                :color "#ff6b6b"
-                                :border "1px solid #ff6b6b"
                                 :padding "6px 12px"
                                 :border-radius "4px"
                                 :cursor "pointer"
                                 :font-size "0.85rem"}
-                        :on-click #(reset! confirming? true)}
-               (t :delete-chunk)]
+                        :on-click (fn []
+                                    (let [result (model/try-delete-chunk! (:id chunk))]
+                                      (if (:error result)
+                                        (do (reset! error-msg (:error result))
+                                            (reset! confirming-delete? false))
+                                        (reset! confirming-delete? false))))}
+               (t :delete)]
+              [:button {:style {:background "transparent"
+                                :color (:text-muted colors)
+                                :border (str "1px solid " (:text-muted colors))
+                                :padding "6px 12px"
+                                :border-radius "4px"
+                                :cursor "pointer"
+                                :font-size "0.85rem"}
+                        :on-click #(reset! confirming-delete? false)}
+               (t :cancel)]]
+             ;; Normal state - both buttons on same line
+             [:div
+              [:div {:style {:display "flex" :gap "8px"}}
+               [:button {:style {:background "transparent"
+                                 :color (:accent colors)
+                                 :border (str "1px solid " (:accent colors))
+                                 :padding "6px 12px"
+                                 :border-radius "4px"
+                                 :cursor "pointer"
+                                 :font-size "0.85rem"}
+                         :on-click #(model/add-chunk! :parent-id (:id chunk))}
+                (t :create-child)]
+               [:button {:style {:background "transparent"
+                                 :color "#ff6b6b"
+                                 :border "1px solid #ff6b6b"
+                                 :padding "6px 12px"
+                                 :border-radius "4px"
+                                 :cursor "pointer"
+                                 :font-size "0.85rem"}
+                         :on-click #(reset! confirming-delete? true)}
+                (t :delete-chunk)]]
               (when @error-msg
-                [:span {:style {:color "#ff6b6b" :font-size "0.75rem" :margin-left "8px"}}
+                [:span {:style {:color "#ff6b6b" :font-size "0.75rem" :margin-top "4px" :display "block"}}
                  @error-msg])])])))))
+
+;; Keep old name for backwards compatibility
+(def delete-button chunk-actions)
+
+;; =============================================================================
+;; Compact Header (ID + Title on row 1, controls on row 2)
+;; =============================================================================
+
+(defn compact-header []
+  (let [editing-id? (r/atom false)
+        temp-id (r/atom "")
+        id-error (r/atom nil)
+        parent-error (r/atom nil)
+        confirming-delete? (r/atom false)
+        delete-error (r/atom nil)
+        last-chunk-id (r/atom nil)]
+    (fn []
+      (let [chunk (model/get-selected-chunk)
+            colors (:colors @settings/settings)
+            is-aspect? (model/is-aspect-chunk? chunk)
+            is-container? (model/is-aspect-container? (:id chunk))]
+        ;; Reset editing state when chunk changes
+        (when (and chunk (not= (:id chunk) @last-chunk-id))
+          (reset! last-chunk-id (:id chunk))
+          (reset! editing-id? false)
+          (reset! id-error nil)
+          (reset! confirming-delete? false))
+
+        (when chunk
+          [:div
+           ;; Row 1: ID (for aspects) + Title
+           [:div {:style {:display "flex" :align-items "center" :gap "8px" :margin-bottom "8px"}}
+            ;; ID field (only for aspects)
+            (when is-aspect?
+              (if @editing-id?
+                [:<>
+                 [:span {:style {:color (:text-muted colors) :font-size "0.85rem"}} "["]
+                 [:input {:type "text"
+                          :value @temp-id
+                          :auto-focus true
+                          :style {:background "transparent"
+                                  :border (str "1px solid " (:border colors))
+                                  :border-radius "3px"
+                                  :color (:accent colors)
+                                  :font-size "0.85rem"
+                                  :font-family "monospace"
+                                  :padding "2px 6px"
+                                  :width "120px"
+                                  :outline "none"}
+                          :on-change #(do (reset! temp-id (.. % -target -value))
+                                          (reset! id-error nil))
+                          :on-key-down (fn [e]
+                                         (case (.-key e)
+                                           "Enter" (let [result (model/rename-chunk-id! (:id chunk) @temp-id)]
+                                                     (if (:ok result)
+                                                       (reset! editing-id? false)
+                                                       (reset! id-error (:error result))))
+                                           "Escape" (reset! editing-id? false)
+                                           nil))
+                          :on-blur #(when-not @id-error
+                                      (let [result (model/rename-chunk-id! (:id chunk) @temp-id)]
+                                        (when (:ok result) (reset! editing-id? false))))}]
+                 [:span {:style {:color (:text-muted colors) :font-size "0.85rem"}} "]"]
+                 [:span.help-icon {:title (t :help-id)} "?"]]
+                [:span {:style {:color (:text-muted colors)
+                                :font-size "0.85rem"
+                                :font-family "monospace"
+                                :cursor "pointer"
+                                :padding "2px 6px"
+                                :border-radius "3px"
+                                :background (:editor-bg colors)
+                                :display "flex"
+                                :align-items "center"
+                                :gap "4px"}
+                        :title "Clicca per modificare l'ID"
+                        :on-click #(do (reset! temp-id (:id chunk))
+                                       (reset! id-error nil)
+                                       (reset! editing-id? true))}
+                 (str "[" (:id chunk) "]")
+                 [:span.help-icon {:title (t :help-id)} "?"]]))
+
+            ;; Title input
+            [:input {:type "text"
+                     :value (:summary chunk)
+                     :placeholder (t :chunk-title-placeholder)
+                     :style {:background "transparent"
+                             :border (str "1px solid " (:border colors))
+                             :border-radius "4px"
+                             :color (:text colors)
+                             :padding "6px 10px"
+                             :font-size "1rem"
+                             :flex 1
+                             :outline "none"}
+                     :on-change #(model/update-chunk! (:id chunk) {:summary (.. % -target -value)})}]
+            [:span.help-icon {:title (t :help-summary)} "?"]]
+
+           ;; ID error message
+           (when @id-error
+             [:div {:style {:color "#ff6b6b" :font-size "0.75rem" :margin-bottom "4px"}}
+              @id-error])
+
+           ;; Row 2: Aspect tags (only for non-containers)
+           (when (and (not is-container?) (seq (:aspects chunk)))
+             [:div {:style {:display "flex" :flex-wrap "wrap" :align-items "center" :gap "8px" :margin-bottom "8px"}}
+              (doall
+               (for [aspect-id (:aspects chunk)]
+                 (let [aspect (first (filter #(= (:id %) aspect-id) (model/get-chunks)))]
+                   ^{:key aspect-id}
+                   [:span {:style {:background (:editor-bg colors)
+                                   :color (:accent colors)
+                                   :padding "2px 8px"
+                                   :border-radius "3px"
+                                   :font-size "0.8rem"
+                                   :display "flex"
+                                   :align-items "center"
+                                   :gap "4px"}}
+                    [:span {:style {:cursor "pointer"}
+                            :title (t :click-to-navigate)
+                            :on-click #(events/navigate-to-aspect! aspect-id)}
+                     (str "@" (or (:summary aspect) aspect-id))]
+                    [:button {:style {:background "none"
+                                      :border "none"
+                                      :color (:text-muted colors)
+                                      :cursor "pointer"
+                                      :padding "0 2px"
+                                      :font-size "0.9rem"
+                                      :line-height "1"}
+                              :title (t :remove)
+                              :on-click #(model/remove-aspect-from-chunk! (:id chunk) aspect-id)}
+                     "×"]])))])
+
+           ;; Row 3: Controls (only for non-containers)
+           (when-not is-container?
+             [:div {:style {:display "flex" :flex-wrap "wrap" :align-items "center" :gap "8px"}}
+              ;; Add aspect button
+              [:button {:style {:background "transparent"
+                                :color (:text-muted colors)
+                                :border (str "1px dashed " (:border colors))
+                                :padding "2px 8px"
+                                :border-radius "3px"
+                                :font-size "0.8rem"
+                                :cursor "pointer"}
+                        :on-click #(selector/open-selector!
+                                    {:title (t :select-aspect)
+                                     :items (build-aspects-tree)
+                                     :filter-placeholder (t :search-placeholder)
+                                     :on-select (fn [item]
+                                                  (when (and (:id item) (not= :category (:type item)))
+                                                    (model/add-aspect-to-chunk! (:id chunk) (:id item))))})}
+               (t :add-aspect)]
+              [:span.help-icon {:title (t :help-add-aspect)} "?"]
+
+              ;; Separator
+              [:span {:style {:color (:border colors)}} "|"]
+
+              ;; Parent selector
+              (let [current-parent-id (:parent-id chunk)
+                    current-parent (when current-parent-id
+                                     (first (filter #(= (:id %) current-parent-id) (model/get-chunks))))
+                    parent-display (if current-parent
+                                     (or (:summary current-parent) current-parent-id)
+                                     (t :root))]
+                [:<>
+                 [:span {:style {:color (:text-muted colors) :font-size "0.8rem"}} (t :parent)]
+                 [:span.help-icon {:title (t :help-parent)} "?"]
+                 [:button {:style {:background (:editor-bg colors)
+                                   :color (:text colors)
+                                   :border (str "1px solid " (:border colors))
+                                   :border-radius "3px"
+                                   :padding "2px 8px"
+                                   :font-size "0.8rem"
+                                   :cursor "pointer"
+                                   :display "flex"
+                                   :align-items "center"
+                                   :gap "4px"}
+                           :on-click #(selector/open-selector!
+                                       {:title (t :select-parent)
+                                        :items (build-parent-tree (:id chunk))
+                                        :filter-placeholder (t :search-placeholder)
+                                        :show-categories-as-selectable true
+                                        :on-select (fn [item]
+                                                     (let [result (model/change-parent! (:id chunk) (:id item))]
+                                                       (when (:error result)
+                                                         (reset! parent-error (:error result)))))})}
+                  [:span {:style {:max-width "100px" :overflow "hidden" :text-overflow "ellipsis" :white-space "nowrap"}}
+                   parent-display]
+                  [:span {:style {:font-size "0.7rem"}} "▼"]]])
+
+              ;; Separator
+              [:span {:style {:color (:border colors)}} "|"]
+
+              ;; Create child button
+              [:button {:style {:background "transparent"
+                                :color (:accent colors)
+                                :border (str "1px solid " (:accent colors))
+                                :padding "2px 8px"
+                                :border-radius "3px"
+                                :font-size "0.8rem"
+                                :cursor "pointer"}
+                        :on-click #(model/add-chunk! :parent-id (:id chunk))}
+               (t :create-child)]
+
+              ;; Delete button
+              (if @confirming-delete?
+                [:<>
+                 [:span {:style {:color "#ff6b6b" :font-size "0.8rem"}} (t :confirm)]
+                 [:button {:style {:background "#ff6b6b"
+                                   :color "white"
+                                   :border "none"
+                                   :padding "2px 8px"
+                                   :border-radius "3px"
+                                   :cursor "pointer"
+                                   :font-size "0.8rem"}
+                           :on-click #(let [result (model/try-delete-chunk! (:id chunk))]
+                                        (when (:error result)
+                                          (reset! delete-error (:error result)))
+                                        (reset! confirming-delete? false))}
+                  (t :delete)]
+                 [:button {:style {:background "transparent"
+                                   :color (:text-muted colors)
+                                   :border (str "1px solid " (:text-muted colors))
+                                   :padding "2px 8px"
+                                   :border-radius "3px"
+                                   :cursor "pointer"
+                                   :font-size "0.8rem"}
+                           :on-click #(reset! confirming-delete? false)}
+                  (t :cancel)]]
+                [:button {:style {:background "transparent"
+                                  :color "#ff6b6b"
+                                  :border "1px solid #ff6b6b"
+                                  :padding "2px 8px"
+                                  :border-radius "3px"
+                                  :font-size "0.8rem"
+                                  :cursor "pointer"}
+                          :on-click #(reset! confirming-delete? true)}
+                 (t :delete-chunk)])])
+
+           ;; Error messages
+           (when @parent-error
+             [:div {:style {:color "#ff6b6b" :font-size "0.75rem" :margin-top "4px"}}
+              @parent-error])
+           (when @delete-error
+             [:div {:style {:color "#ff6b6b" :font-size "0.75rem" :margin-top "4px"}}
+              @delete-error])])))))
 
 ;; =============================================================================
 ;; Tab State
@@ -1295,91 +1557,127 @@
                        :border-bottom (when (= current :read) (str "2px solid " (:accent colors)))}
                :title (t :help-tab-lettura)
                :on-click #(set-tab! :read)}
-      (t :reading)]]))
+      (t :reading)]
+     ;; Spacer to push markup toggle to the right
+     [:div {:style {:flex 1}}]
+     ;; Markup toggle
+     [:div {:style {:padding-right "12px"}}
+      [markup-toggle]]]))
+
+;; =============================================================================
+;; Tree Builders for Chunk Selector
+;; =============================================================================
+
+(defn- get-children-tree
+  "Build tree of children for a given parent id"
+  [parent-id]
+  (let [children (model/get-children parent-id)]
+    (mapv (fn [c]
+            {:id (:id c)
+             :title (or (:summary c) (:id c))
+             :type (keyword (:parent-id c))
+             :children (get-children-tree (:id c))})
+          children)))
+
+(defn build-aspects-tree
+  "Build tree structure for aspect selection"
+  []
+  [{:id "personaggi" :title (t :personaggi) :type :category :expanded true
+    :children (get-children-tree "personaggi")}
+   {:id "luoghi" :title (t :luoghi) :type :category :expanded false
+    :children (get-children-tree "luoghi")}
+   {:id "temi" :title (t :temi) :type :category :expanded false
+    :children (get-children-tree "temi")}
+   {:id "sequenze" :title (t :sequenze) :type :category :expanded false
+    :children (get-children-tree "sequenze")}
+   {:id "timeline" :title (t :timeline) :type :category :expanded false
+    :children (get-children-tree "timeline")}])
+
+(defn- build-structure-tree
+  "Build tree of structural chunks (non-aspect)"
+  []
+  (let [roots (filter #(nil? (:parent-id %)) (model/get-chunks))
+        structural-roots (remove #(model/is-aspect-container? (:id %)) roots)]
+    (mapv (fn [c]
+            {:id (:id c)
+             :title (or (:summary c) (:id c))
+             :type :structure
+             :children (get-children-tree (:id c))})
+          structural-roots)))
+
+(defn build-parent-tree
+  "Build full tree for parent selection (structure + aspects)"
+  [exclude-id]
+  (let [structure-tree (build-structure-tree)
+        ;; Filter out the chunk itself and its descendants from the tree
+        filter-tree (fn filter-tree [items]
+                      (->> items
+                           (remove #(= (:id %) exclude-id))
+                           (mapv #(update % :children filter-tree))))]
+    (concat
+     [{:id nil :title (t :root) :type :root}]
+     (filter-tree structure-tree))))
 
 ;; =============================================================================
 ;; Aspects Manager (add/remove aspects from a chunk)
 ;; =============================================================================
 
 (defn aspects-manager []
-  (let [dropdown-open? (r/atom false)]
-    (fn []
-      (let [chunk (model/get-selected-chunk)
-            all-aspects (model/get-all-aspects)
-            current-aspects (:aspects chunk)
-            colors (:colors @settings/settings)]
-        (when (and chunk (not (model/is-aspect-container? (:id chunk))))
-          [:div {:style {:margin-top "8px"}}
-           [:div {:style {:display "flex" :flex-wrap "wrap" :gap "6px" :align-items "center"}}
-            ;; Current aspects with remove button
-            (doall
-             (for [aspect-id current-aspects]
-               (let [aspect (first (filter #(= (:id %) aspect-id) (model/get-chunks)))]
-                 ^{:key aspect-id}
-                 [:span {:style {:background (:editor-bg colors)
-                                 :color (:accent colors)
-                                 :padding "2px 8px"
-                                 :border-radius "3px"
-                                 :font-size "0.8rem"
-                                 :display "flex"
-                                 :align-items "center"
-                                 :gap "4px"}}
-                  [:span {:style {:cursor "pointer"}
-                          :title (t :click-to-navigate)
-                          :on-click #(events/navigate-to-aspect! aspect-id)}
-                   (str "@" (or (:summary aspect) aspect-id))]
-                  [:button {:style {:background "none"
-                                    :border "none"
-                                    :color (:text-muted colors)
-                                    :cursor "pointer"
-                                    :padding "0 2px"
-                                    :font-size "0.9rem"
-                                    :line-height "1"}
-                            :title (t :remove)
-                            :on-click #(model/remove-aspect-from-chunk! (:id chunk) aspect-id)}
-                   "×"]])))
-
-            ;; Add aspect dropdown
-            [:div {:style {:position "relative"}}
-             [:button {:style {:background "transparent"
-                               :color (:text-muted colors)
-                               :border (str "1px dashed " (:border colors))
+  (fn []
+    (let [chunk (model/get-selected-chunk)
+          current-aspects (:aspects chunk)
+          colors (:colors @settings/settings)]
+      (when (and chunk (not (model/is-aspect-container? (:id chunk))))
+        [:div {:style {:margin-top "8px"}}
+         [:div {:style {:display "flex" :flex-wrap "wrap" :gap "6px" :align-items "center"}}
+          ;; Current aspects with remove button
+          (doall
+           (for [aspect-id current-aspects]
+             (let [aspect (first (filter #(= (:id %) aspect-id) (model/get-chunks)))]
+               ^{:key aspect-id}
+               [:span {:style {:background (:editor-bg colors)
+                               :color (:accent colors)
                                :padding "2px 8px"
                                :border-radius "3px"
                                :font-size "0.8rem"
-                               :cursor "pointer"}
-                       :on-click #(swap! dropdown-open? not)}
-              (t :add-aspect)]
-             [help/help-icon :add-aspect]
-             (when @dropdown-open?
-               [:div {:style {:position "absolute"
-                              :top "100%"
-                              :left 0
-                              :background (:sidebar colors)
-                              :border (str "1px solid " (:border colors))
-                              :border-radius "4px"
-                              :min-width "200px"
-                              :max-height "200px"
-                              :overflow-y "auto"
-                              :z-index 100
-                              :margin-top "4px"}}
-                (let [available (remove #(contains? current-aspects (:id %)) all-aspects)]
-                  (if (empty? available)
-                    [:div {:style {:padding "8px" :color (:text-muted colors) :font-size "0.8rem"}}
-                     (t :all-aspects-added)]
-                    (doall
-                     (for [aspect available]
-                      ^{:key (:id aspect)}
-                      [:div {:style {:padding "6px 10px"
-                                     :cursor "pointer"
-                                     :font-size "0.8rem"
-                                     :color (:text colors)}
-                             :on-mouse-over #(set! (.. % -target -style -background) (:editor-bg colors))
-                             :on-mouse-out #(set! (.. % -target -style -background) "transparent")
-                             :on-click (fn []
-                                         (model/add-aspect-to-chunk! (:id chunk) (:id aspect))
-                                         (reset! dropdown-open? false))}
-                       (str "@" (:id aspect) " - " (:summary aspect))]))))])]]])))))
+                               :display "flex"
+                               :align-items "center"
+                               :gap "4px"}}
+                [:span {:style {:cursor "pointer"}
+                        :title (t :click-to-navigate)
+                        :on-click #(events/navigate-to-aspect! aspect-id)}
+                 (str "@" (or (:summary aspect) aspect-id))]
+                [:button {:style {:background "none"
+                                  :border "none"
+                                  :color (:text-muted colors)
+                                  :cursor "pointer"
+                                  :padding "0 2px"
+                                  :font-size "0.9rem"
+                                  :line-height "1"}
+                          :title (t :remove)
+                          :on-click #(model/remove-aspect-from-chunk! (:id chunk) aspect-id)}
+                 "×"]])))
+
+          ;; Add aspect button (opens modal)
+          [:div {:style {:display "flex" :align-items "center" :gap "4px"}}
+           [:button {:style {:background "transparent"
+                             :color (:text-muted colors)
+                             :border (str "1px dashed " (:border colors))
+                             :padding "2px 8px"
+                             :border-radius "3px"
+                             :font-size "0.8rem"
+                             :cursor "pointer"}
+                     :on-click (fn []
+                                 (selector/open-selector!
+                                  {:title (t :select-aspect)
+                                   :items (build-aspects-tree)
+                                   :filter-placeholder (t :search-placeholder)
+                                   :on-select (fn [item]
+                                                (when (and (:id item)
+                                                           (not= :category (:type item)))
+                                                  (model/add-aspect-to-chunk! (:id chunk) (:id item))))}))}
+            (t :add-aspect)]
+           [help/help-icon :add-aspect]]]]))))
 
 ;; =============================================================================
 ;; References View (who uses this aspect / children list)

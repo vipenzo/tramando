@@ -13,6 +13,7 @@
             [tramando.ai-panel :as ai-panel]
             [tramando.context-menu :as context-menu]
             [tramando.ai.ui :as ai-ui]
+            [tramando.chunk-selector :as selector]
             ["@tauri-apps/plugin-dialog" :as dialog]))
 
 ;; =============================================================================
@@ -114,8 +115,9 @@
                    :align-items "center"
                    :justify-content "center"
                    :z-index 1000}
-           :on-click #(when (= (.-target %) (.-currentTarget %))
-                        (reset! settings/settings-open? false))}
+           ;; Use mousedown to avoid closing when text selection drag ends outside
+           :on-mouse-down #(when (= (.-target %) (.-currentTarget %))
+                             (reset! settings/settings-open? false))}
      [:div {:style {:background (settings/get-color :sidebar)
                     :border-radius "8px"
                     :padding "24px"
@@ -781,8 +783,9 @@
                    :align-items "center"
                    :justify-content "center"
                    :z-index 1000}
-           :on-click #(when (= (.-target %) (.-currentTarget %))
-                        (reset! metadata-open? false))}
+           ;; Use mousedown to avoid closing when text selection drag ends outside
+           :on-mouse-down #(when (= (.-target %) (.-currentTarget %))
+                             (reset! metadata-open? false))}
      [:div {:style {:background (settings/get-color :sidebar)
                     :border-radius "8px"
                     :padding "24px"
@@ -1478,14 +1481,7 @@
      (if chunk
        [:div {:style {:position "relative" :z-index 1 :display "flex" :flex-direction "column" :height "100%"}}
         [:div.editor-header
-         [editor/id-input]
-         [editor/summary-input]
-         [editor/aspects-manager]
-         [editor/parent-selector]
-         [editor/delete-button]]
-        ;; Markup toggle above editor
-        [:div {:style {:display "flex" :justify-content "flex-end" :padding "8px 20px 8px 0"}}
-         [editor/markup-toggle]]
+         [editor/compact-header]]
         [editor/tab-bar]
         [editor/tab-content]]
        [:div {:style {:display "flex"
@@ -1746,7 +1742,9 @@
            [metadata-modal])
          ;; Tutorial Modal
          (when @tutorial-open?
-           [tutorial-modal])]))}))
+           [tutorial-modal])
+         ;; Chunk Selector Modal (global)
+         [selector/selector-modal]]))}))
 
 ;; =============================================================================
 ;; App Root

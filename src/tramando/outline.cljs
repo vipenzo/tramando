@@ -22,18 +22,18 @@
    :padding "0 4px"
    :font-size "0.75rem"})
 
-;; Global state for collapsed nodes
-(defonce collapsed-nodes (r/atom #{}))
+;; Global state for expanded nodes (collapsed by default)
+(defonce expanded-nodes (r/atom #{}))
 
-(defn- toggle-collapsed! [id]
-  (swap! collapsed-nodes #(if (contains? % id) (disj % id) (conj % id))))
+(defn- toggle-expanded! [id]
+  (swap! expanded-nodes #(if (contains? % id) (disj % id) (conj % id))))
 
-(defn- collapsed? [id]
-  (contains? @collapsed-nodes id))
+(defn- expanded? [id]
+  (contains? @expanded-nodes id))
 
 (defn- expand-node! [id]
-  "Expand a collapsed node (remove from collapsed set)"
-  (swap! collapsed-nodes disj id))
+  "Expand a node (add to expanded set)"
+  (swap! expanded-nodes conj id))
 
 (defn navigate-to-aspect!
   "Navigate to an aspect: expand its parent hierarchy and select it.
@@ -199,7 +199,7 @@
   (let [selected-id (model/get-selected-id)
         selected? (= id selected-id)
         has-children? (seq children)
-        is-collapsed? (collapsed? id)
+        is-collapsed? (not (expanded? id))
         siblings (model/get-siblings chunk)
         idx (first (keep-indexed #(when (= (:id %2) id) %1) siblings))
         can-move-up? (and idx (pos? idx))
@@ -219,7 +219,7 @@
         [:span {:style {:cursor "pointer" :margin-right "4px" :font-size "0.7rem" :color (:text-muted colors)}
                 :on-click (fn [e]
                             (.stopPropagation e)
-                            (toggle-collapsed! id))}
+                            (toggle-expanded! id))}
          (if is-collapsed? "▶" "▼")])
       [:span.chunk-summary {:style {:flex 1 :color (:text colors)}}
        (or (when (seq display-summary) display-summary) (t :no-title))]
@@ -264,7 +264,7 @@
   (let [selected-id (model/get-selected-id)
         selected? (= id selected-id)
         has-children? (seq children)
-        is-collapsed? (collapsed? id)
+        is-collapsed? (not (expanded? id))
         usage-count (model/aspect-usage-count id)
         siblings (model/get-siblings chunk)
         idx (first (keep-indexed #(when (= (:id %2) id) %1) siblings))
@@ -286,7 +286,7 @@
         [:span {:style {:cursor "pointer" :margin-right "4px" :font-size "0.7rem" :color (:text-muted colors)}
                 :on-click (fn [e]
                             (.stopPropagation e)
-                            (toggle-collapsed! id))}
+                            (toggle-expanded! id))}
          (if is-collapsed? "▶" "▼")])
       [:span.chunk-summary {:style {:flex 1 :color color}}
        (or (when (seq display-summary) display-summary) (t :no-title))]
@@ -328,7 +328,7 @@
 (defn aspect-container-section
   "Render an expandable aspect container with its children"
   [{:keys [id summary]}]
-  (let [is-collapsed? (collapsed? id)
+  (let [is-collapsed? (not (expanded? id))
         children (model/build-aspect-tree id)
         colors (:colors @settings/settings)
         color (container-color id)
@@ -342,7 +342,7 @@
                     :padding "4px 0"
                     :color color
                     :font-size "0.85rem"}
-            :on-click #(toggle-collapsed! id)}
+            :on-click #(toggle-expanded! id)}
       [:span {:style {:margin-right "4px" :font-size "0.7rem"}}
        (if is-collapsed? "▶" "▼")]
       display-name
@@ -510,7 +510,7 @@
                     selected-alt))])]))
 
 (defn- annotation-type-section [type items]
-  (let [is-collapsed? (collapsed? (str "ann-" (name type)))
+  (let [is-collapsed? (not (expanded? (str "ann-" (name type))))
         colors (:colors @settings/settings)
         type-label (name type)
         type-color (annotation-type-color type)]
@@ -521,7 +521,7 @@
                     :padding "4px 0"
                     :color type-color
                     :font-size "0.85rem"}
-            :on-click #(toggle-collapsed! (str "ann-" (name type)))}
+            :on-click #(toggle-expanded! (str "ann-" (name type)))}
       [:span {:style {:margin-right "4px" :font-size "0.7rem"}}
        (if is-collapsed? "▶" "▼")]
       (str type-label " (" (count items) ")")]
@@ -539,7 +539,7 @@
   (let [_chunks @model/app-state ; subscribe to changes
         {:keys [TODO NOTE FIX]} (annotations/get-all-annotations)
         total (+ (count TODO) (count NOTE) (count FIX))
-        is-collapsed? (collapsed? "annotations-section")
+        is-collapsed? (not (expanded? "annotations-section"))
         colors (:colors @settings/settings)]
     [:div {:style {:margin-top "16px" :padding-top "16px" :border-top (str "1px solid " (:border colors))}}
      [:div {:style {:display "flex"
@@ -547,7 +547,7 @@
                     :justify-content "space-between"
                     :margin-bottom "8px"
                     :cursor "pointer"}
-            :on-click #(toggle-collapsed! "annotations-section")}
+            :on-click #(toggle-expanded! "annotations-section")}
       [:h2 {:style {:color (:text colors) :margin 0 :display "flex" :align-items "center" :gap "8px"}}
        [:span {:style {:font-size "0.7rem" :color (:text-muted colors)}}
         (if is-collapsed? "▶" "▼")]
@@ -837,24 +837,6 @@
              ^{:key (:id container)}
              [aspect-container-section container]))
           [new-aspect-dropdown]]
-
-         ;; + Figlio button
-         (when-let [selected (model/get-selected-chunk)]
-           (when-not (model/is-aspect-container? (:id selected))
-             [:div {:style {:margin-top "16px" :padding-top "16px" :border-top (str "1px solid " (:border colors))}}
-              [:button
-               {:style {:background "transparent"
-                        :color (:accent colors)
-                        :border (str "1px solid " (:accent colors))
-                        :padding "8px 16px"
-                        :border-radius "4px"
-                        :cursor "pointer"
-                        :width "100%"
-                        :font-size "0.9rem"}
-                :on-click (fn []
-                            (model/add-chunk! :parent-id (:id selected)))}
-               (t :add-child (str (subs (:summary selected) 0 (min 20 (count (:summary selected))))
-                                  (when (> (count (:summary selected)) 20) "...")))]]))
 
          ;; ANNOTAZIONI section
          [annotations-section]])]]))

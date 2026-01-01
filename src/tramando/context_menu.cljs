@@ -158,14 +158,15 @@
                      :align-items "center"
                      :justify-content "center"
                      :z-index 10002}
-             :on-click #(hide-edit-modal!)}
+             ;; Use mousedown to avoid closing when text selection drag ends outside
+             :on-mouse-down #(hide-edit-modal!)}
        [:div {:style {:background (:sidebar colors)
                       :border-radius "8px"
                       :padding "20px"
                       :min-width "320px"
                       :max-width "450px"
                       :box-shadow "0 4px 20px rgba(0,0,0,0.4)"}
-              :on-click #(.stopPropagation %)}
+              :on-mouse-down #(.stopPropagation %)}
         ;; Title
         [:h3 {:style {:margin "0 0 16px 0"
                       :color (:text colors)

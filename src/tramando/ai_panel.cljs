@@ -1157,11 +1157,11 @@
                           :padding "12px"
                           :z-index 1000}}
 
-            ;; Click outside to close
+            ;; Click outside to close (use mousedown to avoid text selection issues)
             [:div {:style {:position "fixed"
                            :top 0 :left 0 :right 0 :bottom 0
                            :z-index -1}
-                   :on-click close-context-dropdown!}]
+                   :on-mouse-down close-context-dropdown!}]
 
         ;; Preset selector
         [:div {:style {:margin-bottom "12px"}}

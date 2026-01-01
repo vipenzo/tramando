@@ -43,7 +43,8 @@
     :export-md "Esporta MD"
     :export-pdf "Esporta PDF"
     :delete "Elimina"
-    :delete-chunk "Elimina chunk"
+    :delete-chunk "Elimina questo chunk"
+    :create-child "Crea figlio"
     :copy "Copia"
     :copied "Copiato"
     :cancel "Annulla"
@@ -224,6 +225,11 @@
     :replace-placeholder "Sostituisci con..."
     :replace-button "Sostituisci"
     :replace-all-button "Sostituisci tutti"
+
+    ;; Chunk selector
+    :select-aspect "Seleziona aspetto"
+    :select-parent "Seleziona parent"
+    :no-results "Nessun risultato"
     :replaced-n-occurrences "Sostituite {0} occorrenze"
     :replaced-one-occurrence "Sostituita 1 occorrenza"
 
@@ -432,7 +438,8 @@
     :export-md "Export MD"
     :export-pdf "Export PDF"
     :delete "Delete"
-    :delete-chunk "Delete chunk"
+    :delete-chunk "Delete this chunk"
+    :create-child "Create child"
     :copy "Copy"
     :copied "Copied"
     :cancel "Cancel"
@@ -615,6 +622,11 @@
     :replace-all-button "Replace all"
     :replaced-n-occurrences "Replaced {0} occurrences"
     :replaced-one-occurrence "Replaced 1 occurrence"
+
+    ;; Chunk selector
+    :select-aspect "Select aspect"
+    :select-parent "Select parent"
+    :no-results "No results"
 
     ;; AI Panel
     :ai-panel-title "AI Assistant"
