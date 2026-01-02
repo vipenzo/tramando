@@ -45,6 +45,7 @@
     :delete "Elimina"
     :delete-chunk "Elimina questo chunk"
     :create-child "Crea figlio"
+    :show-in-hierarchy "Mostra in struttura"
     :copy "Copia"
     :copied "Copiato"
     :cancel "Annulla"
@@ -92,6 +93,7 @@
     :settings-browse "Sfoglia..."
     :settings-always-use-folder "Apri sempre da questa cartella"
     :settings-no-folder "(nessuna cartella selezionata)"
+    :not-available-in-webapp "(non disponibile in browser)"
 
     ;; Color labels
     :color-background "Sfondo"
@@ -407,6 +409,10 @@
     :priority-medium "Media"
     :priority-high "Alta"
     :comment-placeholder "Aggiungi un commento..."
+
+    ;; Aspect Link Context Menu
+    :go-to-aspect "Vai all'aspetto"
+    :aspect-not-found "Aspetto non trovato"
     :annotation-updated "Annotazione aggiornata"
 
     ;; Versioning
@@ -474,6 +480,7 @@
     :delete "Delete"
     :delete-chunk "Delete this chunk"
     :create-child "Create child"
+    :show-in-hierarchy "Show in structure"
     :copy "Copy"
     :copied "Copied"
     :cancel "Cancel"
@@ -521,6 +528,7 @@
     :settings-browse "Browse..."
     :settings-always-use-folder "Always use this folder"
     :settings-no-folder "(no folder selected)"
+    :not-available-in-webapp "(not available in browser)"
 
     ;; Color labels
     :color-background "Background"
@@ -837,6 +845,10 @@
     :priority-high "High"
     :comment-placeholder "Add a comment..."
     :annotation-updated "Annotation updated"
+
+    ;; Aspect Link Context Menu
+    :go-to-aspect "Go to aspect"
+    :aspect-not-found "Aspect not found"
 
     ;; Versioning
     :version "Version"

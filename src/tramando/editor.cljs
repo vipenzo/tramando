@@ -79,7 +79,23 @@
                                                :boxShadow "0 0 2px rgba(255, 165, 0, 0.8)"}
                ;; Flash highlight for navigation
                ".cm-annotation-flash" #js {:animation "annotation-flash 2.5s ease-out"
-                                           :borderRadius "3px"}}))
+                                           :borderRadius "3px"}
+               ;; Aspect link styles - markup mode
+               ".cm-aspect-link" #js {:backgroundColor "rgba(156, 39, 176, 0.25)"
+                                      :borderRadius "3px"
+                                      :padding "0 2px"}
+               ;; Aspect link styles - reading mode (resolved name)
+               ".cm-aspect-link-resolved" #js {:backgroundColor "rgba(156, 39, 176, 0.2)"
+                                               :borderBottom "1px dashed rgba(156, 39, 176, 0.6)"
+                                               :borderRadius "2px"
+                                               :padding "0 3px"
+                                               :cursor "pointer"}
+               ;; Aspect link - not found
+               ".cm-aspect-link-missing" #js {:backgroundColor "rgba(244, 67, 54, 0.15)"
+                                              :borderBottom "1px dashed rgba(244, 67, 54, 0.5)"
+                                              :borderRadius "2px"
+                                              :padding "0 2px"
+                                              :color "var(--color-text-muted)"}}))
 
 ;; =============================================================================
 ;; Editor Search State
@@ -483,6 +499,47 @@
           (js/setTimeout update-search! 50))))))
 
 ;; =============================================================================
+;; Scroll to Pattern (for navigation from "Usato da")
+;; =============================================================================
+
+(defonce pending-scroll-pattern (atom nil))
+
+(defn scroll-to-pattern!
+  "Scroll to the first occurrence of a pattern in the editor.
+   Pattern should be a string (will be escaped for regex)."
+  [pattern]
+  (when-let [^js view @editor-view-ref]
+    (let [doc-text (.. view -state -doc (toString))
+          ;; Escape special regex characters and create pattern
+          escaped (-> pattern
+                      (str/replace #"[\[\]\\^$.|?*+(){}]" "\\$&"))
+          regex (js/RegExp. escaped "i")
+          match (.exec regex doc-text)]
+      (when match
+        (let [from (.-index match)
+              to (+ from (count (aget match 0)))]
+          ;; Select the match and scroll into view
+          (.dispatch view #js {:selection #js {:anchor from :head to}
+                               :scrollIntoView true})
+          (.focus view))))))
+
+(defn set-pending-scroll-pattern!
+  "Set a pattern to scroll to after the next editor load."
+  [pattern]
+  (reset! pending-scroll-pattern pattern))
+
+(defn execute-pending-scroll!
+  "Execute pending scroll if there is one. Called after editor loads."
+  []
+  (when-let [pattern @pending-scroll-pattern]
+    (reset! pending-scroll-pattern nil)
+    ;; Small delay to ensure editor is fully rendered
+    (js/setTimeout #(scroll-to-pattern! pattern) 100)))
+
+;; Register the pending scroll function with events module
+(events/set-pending-scroll-fn! set-pending-scroll-pattern!)
+
+;; =============================================================================
 ;; Search Highlight ViewPlugin
 ;; =============================================================================
 
@@ -507,6 +564,25 @@
 
 ;; Syntax: [!TYPE:selected text:priority:comment]
 (def ^:private annotation-regex (js/RegExp. "\\[!(TODO|NOTE|FIX):([^:]*):([^:]*):([^\\]]*)\\]" "g"))
+
+;; Syntax: [@aspect-id] - links to aspects
+(def ^:private aspect-link-regex (js/RegExp. "\\[@([^\\]]+)\\]" "g"))
+
+(defn- find-aspect-by-id
+  "Find an aspect chunk by its ID. Returns the chunk or nil."
+  [aspect-id]
+  (first (filter #(= (:id %) aspect-id) (model/get-all-aspects))))
+
+(defn- get-aspect-display-name
+  "Get display name for an aspect: 'Name - Summary' or just 'Summary'"
+  [aspect]
+  (when aspect
+    (let [summary (:summary aspect)
+          ;; Try to extract a title from content if it starts with #
+          content (:content aspect)
+          title-from-content (when (and content (str/starts-with? (str/trim content) "#"))
+                               (-> content str/trim (str/split #"\n") first (str/replace #"^#+ *" "")))]
+      (or title-from-content summary (:id aspect)))))
 
 ;; Create a widget class that properly extends WidgetType
 ;; Using JavaScript class syntax via eval for proper inheritance
@@ -675,6 +751,32 @@
                   (.push builder (.range (.mark Decoration #js {:class "cm-annotation-hidden"})
                                          suffix-start end))))))
         (recur))))
+    ;; Process aspect links [@id]
+    (set! (.-lastIndex aspect-link-regex) 0)
+    (loop []
+      (when-let [match (.exec aspect-link-regex text)]
+        (let [full-match (aget match 0)
+              aspect-id (aget match 1)
+              start (.-index match)
+              end (+ start (count full-match))
+              aspect (find-aspect-by-id aspect-id)
+              display-name (get-aspect-display-name aspect)]
+          (if show-markup?
+            ;; Markup mode: highlight the whole [@id]
+            (.push builder (.range (.mark Decoration #js {:class "cm-aspect-link"
+                                                          :attributes #js {:title (or display-name (str "Aspetto non trovato: " aspect-id))}})
+                                   start end))
+            ;; Reading mode: replace with aspect name or show as missing
+            (if aspect
+              ;; Found - replace with widget showing the name
+              (.push builder (.range (.replace Decoration
+                                               #js {:widget (create-text-widget display-name "cm-aspect-link-resolved")})
+                                     start end))
+              ;; Not found - show as missing
+              (.push builder (.range (.replace Decoration
+                                               #js {:widget (create-text-widget (str "?" aspect-id) "cm-aspect-link-missing")})
+                                     start end)))))
+        (recur)))
     ;; Sort by position and create DecorationSet
     (.sort builder (fn [a b] (- (.-from a) (.-from b))))
     (.set Decoration builder true)))
@@ -715,6 +817,23 @@
 (declare build-aspects-tree)
 (declare adjust-menu-position)
 
+(defn- find-aspect-link-at-position
+  "Find aspect link [@id] at a specific position in text.
+   Returns {:aspect-id :start :end :aspect} or nil."
+  [text pos]
+  (let [pattern (js/RegExp. "\\[@([^\\]]+)\\]" "g")]
+    (loop []
+      (when-let [match (.exec pattern text)]
+        (let [start (.-index match)
+              end (+ start (count (aget match 0)))
+              aspect-id (aget match 1)]
+          (if (and (>= pos start) (< pos end))
+            {:aspect-id aspect-id
+             :start start
+             :end end
+             :aspect (find-aspect-by-id aspect-id)}
+            (recur)))))))
+
 (defn make-contextmenu-extension [chunk-id]
   "CodeMirror extension for handling right-click context menu"
   (.domEventHandlers EditorView
@@ -734,35 +853,67 @@
                  click-pos (try
                              (.posAtCoords view #js {:x x :y y})
                              (catch :default _ nil))
+                 ;; Check for aspect link at click position
+                 aspect-link-at-click (when click-pos
+                                        (find-aspect-link-at-position doc-text click-pos))
                  ;; Check for annotation at click position, cursor, or selection
-                 annotation-at-click (when click-pos
+                 annotation-at-click (when (and click-pos (not aspect-link-at-click))
                                        (find-annotation-at-position doc-text click-pos chunk-id))
-                 annotation-at-cursor (find-annotation-at-position doc-text sel-from chunk-id)]
+                 annotation-at-cursor (when (not aspect-link-at-click)
+                                        (find-annotation-at-position doc-text sel-from chunk-id))]
              (.preventDefault event)
              (cond
+               ;; Aspect link at click position - show aspect link menu
+               aspect-link-at-click
+               (let [aspect-menu-height 60
+                     viewport-height (.-innerHeight js/window)
+                     aspect-adj-y (if (> (+ y aspect-menu-height) viewport-height)
+                                    (- y aspect-menu-height 10)
+                                    y)]
+                 (context-menu/show-menu! adj-x aspect-adj-y nil nil
+                                          :aspect-link aspect-link-at-click
+                                          :menu-type :aspect-link))
+
                ;; Annotation at click position - show annotation menu
                annotation-at-click
-               (do
-                 (let [priority (:priority annotation-at-click)
-                       menu-type (cond
-                                   (annotations/is-ai-done? annotation-at-click) :annotation-ai-done
-                                   (= priority :AI) :annotation-ai-pending
-                                   :else :annotation-normal)]
-                   (context-menu/show-menu! adj-x adj-y nil nil
-                                            :annotation annotation-at-click
-                                            :menu-type menu-type)))
+               (let [priority (:priority annotation-at-click)
+                     menu-type (cond
+                                 (annotations/is-ai-done? annotation-at-click) :annotation-ai-done
+                                 (= priority :AI) :annotation-ai-pending
+                                 :else :annotation-normal)
+                     ;; Use appropriate menu height for position adjustment
+                     menu-height (case menu-type
+                                   :annotation-ai-done 300
+                                   :annotation-ai-pending 60
+                                   :annotation-normal 100
+                                   300)
+                     viewport-height (.-innerHeight js/window)
+                     ann-adj-y (if (> (+ y menu-height) viewport-height)
+                                 (- y menu-height 10)
+                                 y)]
+                 (context-menu/show-menu! adj-x ann-adj-y nil nil
+                                          :annotation annotation-at-click
+                                          :menu-type menu-type))
 
                ;; Annotation at cursor position - show annotation menu
                annotation-at-cursor
-               (do
-                 (let [priority (:priority annotation-at-cursor)
-                       menu-type (cond
-                                   (annotations/is-ai-done? annotation-at-cursor) :annotation-ai-done
-                                   (= priority :AI) :annotation-ai-pending
-                                   :else :annotation-normal)]
-                   (context-menu/show-menu! adj-x adj-y nil nil
-                                            :annotation annotation-at-cursor
-                                            :menu-type menu-type)))
+               (let [priority (:priority annotation-at-cursor)
+                     menu-type (cond
+                                 (annotations/is-ai-done? annotation-at-cursor) :annotation-ai-done
+                                 (= priority :AI) :annotation-ai-pending
+                                 :else :annotation-normal)
+                     menu-height (case menu-type
+                                   :annotation-ai-done 300
+                                   :annotation-ai-pending 60
+                                   :annotation-normal 100
+                                   300)
+                     viewport-height (.-innerHeight js/window)
+                     ann-adj-y (if (> (+ y menu-height) viewport-height)
+                                 (- y menu-height 10)
+                                 y)]
+                 (context-menu/show-menu! adj-x ann-adj-y nil nil
+                                          :annotation annotation-at-cursor
+                                          :menu-type menu-type))
 
                ;; Has selection - show selection menu
                has-selection?
@@ -772,17 +923,24 @@
                      annotation (or annotation-at-end annotation-from-text)]
                  (when (seq (str/trim selected-text))
                    (if annotation
-                     (do
-                       (let [priority (:priority annotation)
-                             menu-type (cond
-                                         (annotations/is-ai-done? annotation) :annotation-ai-done
-                                         (= priority :AI) :annotation-ai-pending
-                                         :else :annotation-normal)]
-                         (context-menu/show-menu! adj-x adj-y nil nil
-                                                  :annotation annotation
-                                                  :menu-type menu-type)))
-                     (do
-                       (context-menu/show-menu! adj-x adj-y chunk selected-text)))))
+                     (let [priority (:priority annotation)
+                           menu-type (cond
+                                       (annotations/is-ai-done? annotation) :annotation-ai-done
+                                       (= priority :AI) :annotation-ai-pending
+                                       :else :annotation-normal)
+                           menu-height (case menu-type
+                                         :annotation-ai-done 300
+                                         :annotation-ai-pending 60
+                                         :annotation-normal 100
+                                         300)
+                           viewport-height (.-innerHeight js/window)
+                           ann-adj-y (if (> (+ y menu-height) viewport-height)
+                                       (- y menu-height 10)
+                                       y)]
+                       (context-menu/show-menu! adj-x ann-adj-y nil nil
+                                                :annotation annotation
+                                                :menu-type menu-type))
+                     (context-menu/show-menu! adj-x adj-y chunk selected-text))))
 
                ;; Nothing to show - no action needed
                :else nil)
@@ -1101,7 +1259,9 @@
             (reset! last-chunk-id (:id chunk))
             (reset! last-show-markup @annotations/show-markup?)
             ;; Store view in local-editor-view for annotation handler
-            (reset! local-editor-view view))))
+            (reset! local-editor-view view)
+            ;; Execute any pending scroll (from "Usato da" navigation)
+            (execute-pending-scroll!))))
 
       :component-did-update
       (fn [this old-argv]
@@ -1119,14 +1279,18 @@
               (update-search!))
             (when chunk
               (let [state (create-editor-state (:content chunk) (:id chunk))
-                    view (create-editor-view @editor-ref state)]
+                    view (create-editor-view @editor-ref state)
+                    chunk-changed? (not= (:id chunk) @last-chunk-id)]
                 (reset! editor-view view)
                 (reset! editor-view-ref view) ;; Update global ref
                 (reset! last-chunk-id (:id chunk))
                 (reset! last-show-markup show-markup?)
                 (reset! last-refresh-counter refresh-counter)
                 ;; Store view in local-editor-view for annotation handler
-                (reset! local-editor-view view))))))
+                (reset! local-editor-view view)
+                ;; Execute pending scroll only when chunk changed
+                (when chunk-changed?
+                  (execute-pending-scroll!)))))))
 
       :component-will-unmount
       (fn [this]
@@ -1560,7 +1724,7 @@
                                                      (let [result (model/change-parent! (:id chunk) (:id item))]
                                                        (when (:error result)
                                                          (reset! parent-error (:error result)))))})}
-                  [:span {:style {:max-width "100px" :overflow "hidden" :text-overflow "ellipsis" :white-space "nowrap"}}
+                  [:span {:style {:max-width "150px" :overflow "hidden" :text-overflow "ellipsis" :white-space "nowrap"}}
                    parent-display]
                   [:span {:style {:font-size "0.7rem"}} "▼"]]])
 
@@ -1577,6 +1741,17 @@
                                 :cursor "pointer"}
                         :on-click #(model/add-chunk! :parent-id (:id chunk))}
                (t :create-child)]
+
+              ;; Show in hierarchy button
+              [:button {:style {:background "transparent"
+                                :color (:text-muted colors)
+                                :border (str "1px solid " (:border colors))
+                                :padding "2px 8px"
+                                :border-radius "3px"
+                                :font-size "0.8rem"
+                                :cursor "pointer"}
+                        :on-click #(events/navigate-to-chunk! (:id chunk))}
+               (t :show-in-hierarchy)]
 
               ;; Delete button
               (if @confirming-delete?
@@ -1813,15 +1988,19 @@
             [:div {:style {:display "flex" :flex-direction "column" :gap "8px"}}
              (doall
               (for [c users]
-                ^{:key (:id c)}
-                [:div {:style {:background (:sidebar colors)
-                               :padding "10px 14px"
-                               :border-radius "4px"
-                               :cursor "pointer"
-                               :border-left (str "3px solid " (:accent colors))}
-                       :on-click #(model/select-chunk! (:id c))}
-                 [:div {:style {:color (:text colors)}}
-                  (model/get-chunk-path c)]]))])])
+                (let [aspect-id (:id chunk)
+                      scroll-pattern (str "[@" aspect-id "]")]
+                  ^{:key (:id c)}
+                  [:div {:style {:background (:sidebar colors)
+                                 :padding "10px 14px"
+                                 :border-radius "4px"
+                                 :cursor "pointer"
+                                 :border-left (str "3px solid " (:accent colors))}
+                         :on-click #(do
+                                      (set-tab! :edit)
+                                      (events/navigate-to-chunk-and-scroll! (:id c) scroll-pattern))}
+                   [:div {:style {:color (:text colors)}}
+                    (model/get-chunk-path c)]])))])])
 
        ;; Show children
        (let [children (model/get-children (:id chunk))
@@ -1841,7 +2020,7 @@
                               :border-radius "4px"
                               :cursor "pointer"
                               :border-left (str "3px solid " (:border colors))}
-                      :on-click #(model/select-chunk! (:id c))}
+                      :on-click #(events/navigate-to-chunk! (:id c))}
                 [:div {:style {:color (:text colors) :margin-bottom "4px"}}
                  (model/expand-summary-macros (:summary c) c)]
                 (when (seq (:content c))

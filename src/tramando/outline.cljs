@@ -35,19 +35,25 @@
   "Expand a node (add to expanded set)"
   (swap! expanded-nodes conj id))
 
+(defn navigate-to-chunk!
+  "Navigate to any chunk: expand its entire ancestor hierarchy and select it."
+  [chunk-id]
+  (when-let [chunk (model/get-chunk chunk-id)]
+    ;; Expand all ancestors in the hierarchy
+    (doseq [ancestor-id (model/get-ancestors chunk-id)]
+      (expand-node! ancestor-id))
+    ;; Select the chunk
+    (model/select-chunk! chunk-id)
+    true))
+
 (defn navigate-to-aspect!
   "Navigate to an aspect: expand its parent hierarchy and select it.
    aspect-id can be either the aspect ID or its summary name."
   [aspect-id]
-  (when-let [aspect (model/get-chunk aspect-id)]
-    ;; Expand the parent container (personaggi, luoghi, temi)
-    (when-let [parent-id (:parent-id aspect)]
-      (expand-node! parent-id))
-    ;; Select the aspect
-    (model/select-chunk! aspect-id)
-    true))
+  (navigate-to-chunk! aspect-id))
 
-;; Register the navigation function with events module
+;; Register the navigation functions with events module
+(events/set-navigate-to-chunk-fn! navigate-to-chunk!)
 (events/set-navigate-to-aspect-fn! navigate-to-aspect!)
 
 ;; =============================================================================

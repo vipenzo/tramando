@@ -56,7 +56,7 @@
 
 (defn show-menu!
   "Show the context menu at the specified position"
-  [x y chunk selected-text & {:keys [annotation menu-type]}]
+  [x y chunk selected-text & {:keys [annotation aspect-link menu-type]}]
   (reset! menu-state {:visible true
                       :x x
                       :y y
@@ -64,6 +64,7 @@
                       :selected-text selected-text
                       :open-submenu nil
                       :annotation annotation
+                      :aspect-link aspect-link
                       :menu-type (or menu-type :selection)}))
 
 (defn hide-menu!
@@ -589,6 +590,40 @@
                              (hide-menu!))}]]))
 
 ;; =============================================================================
+;; Aspect Link Context Menu
+;; =============================================================================
+
+(defn- aspect-link-menu
+  "Context menu for aspect links [@id]"
+  [{:keys [x y aspect-link]}]
+  (let [menu-width 200
+        aspect-id (:aspect-id aspect-link)
+        aspect (:aspect aspect-link)
+        aspect-name (when aspect (or (:summary aspect) aspect-id))]
+    [:div {:style {:position "fixed"
+                   :left (str x "px")
+                   :top (str y "px")
+                   :background (settings/get-color :sidebar)
+                   :border (str "1px solid " (settings/get-color :border))
+                   :border-radius "6px"
+                   :box-shadow "0 4px 12px rgba(0,0,0,0.3)"
+                   :min-width (str menu-width "px")
+                   :z-index 10001
+                   :overflow "hidden"}
+           :on-click #(.stopPropagation %)}
+     (if aspect
+       ;; Aspect found - show go to option
+       [menu-item {:label (str (t :go-to-aspect) ": " aspect-name)
+                   :icon "→"
+                   :on-click (fn []
+                               (events/navigate-to-chunk! aspect-id)
+                               (hide-menu!))}]
+       ;; Aspect not found
+       [menu-item {:label (str (t :aspect-not-found) ": " aspect-id)
+                   :disabled? true
+                   :color (settings/get-color :text-muted)}])]))
+
+;; =============================================================================
 ;; Selection Context Menu (text selected, no annotation)
 ;; =============================================================================
 
@@ -684,7 +719,7 @@
 (defn context-menu
   "The main context menu component"
   []
-  (let [{:keys [visible x y chunk selected-text open-submenu annotation menu-type]} @menu-state]
+  (let [{:keys [visible x y chunk selected-text open-submenu annotation aspect-link menu-type]} @menu-state]
     [:<>
      ;; Context menu overlay
      (when visible
@@ -709,6 +744,9 @@
 
           :annotation-normal
           [normal-annotation-menu {:x x :y y :annotation annotation :chunk chunk}]
+
+          :aspect-link
+          [aspect-link-menu {:x x :y y :aspect-link aspect-link}]
 
           ;; Default: selection menu
           [selection-context-menu {:x x :y y :chunk chunk :selected-text selected-text :open-submenu open-submenu}])])

@@ -15,7 +15,7 @@
             [tramando.ai.ui :as ai-ui]
             [tramando.chunk-selector :as selector]
             [tramando.versioning :as versioning]
-            ["@tauri-apps/plugin-dialog" :as dialog]))
+            [tramando.platform :as platform]))
 
 ;; =============================================================================
 ;; View Mode State
@@ -294,30 +294,34 @@
                          :border-radius "4px"
                          :padding "8px 12px"
                          :font-size "0.85rem"}}]
-        [:button {:style {:background "transparent"
-                          :color (settings/get-color :text)
-                          :border (str "1px solid " (settings/get-color :border))
-                          :padding "8px 16px"
-                          :border-radius "4px"
-                          :cursor "pointer"
+        (if (platform/tauri?)
+          [:button {:style {:background "transparent"
+                            :color (settings/get-color :text)
+                            :border (str "1px solid " (settings/get-color :border))
+                            :padding "8px 16px"
+                            :border-radius "4px"
+                            :cursor "pointer"
+                            :font-size "0.85rem"
+                            :white-space "nowrap"}
+                    :on-click (fn []
+                                ;; Use Tauri dialog plugin to pick folder
+                                (when-let [dialog (.-dialog (.-__TAURI__ js/window))]
+                                  (-> (.open dialog #js {:directory true
+                                                         :multiple false
+                                                         :title (t :settings-default-folder)})
+                                      (.then (fn [path]
+                                               (when path
+                                                 (settings/set-default-folder! path))))
+                                      (.catch (fn [err]
+                                                (js/console.error "Dialog error:" err))))))}
+           (t :settings-browse)]
+          ;; Webapp mode: folder picker not available
+          [:span {:style {:color (settings/get-color :text-muted)
                           :font-size "0.85rem"
-                          :white-space "nowrap"}
-                  :on-click (fn []
-                              ;; Use Tauri dialog plugin to pick folder
-                              (try
-                                (-> (dialog/open #js {:directory true
-                                                      :multiple false
-                                                      :title (t :settings-default-folder)})
-                                    (.then (fn [path]
-                                             (when path
-                                               (settings/set-default-folder! path))))
-                                    (.catch (fn [err]
-                                              (js/console.error "Dialog error:" err))))
-                                (catch :default e
-                                  (js/console.error "Tauri dialog not available:" e))))}
-         (t :settings-browse)]
-        ;; Clear button (only shown if folder is set)
-        (when (not (empty? (settings/get-default-folder)))
+                          :font-style "italic"}}
+           (t :not-available-in-webapp)])
+        ;; Clear button (only shown if folder is set, Tauri only)
+        (when (and (platform/tauri?) (not (empty? (settings/get-default-folder))))
           [:button {:style {:background "transparent"
                             :color (settings/get-color :text-muted)
                             :border (str "1px solid " (settings/get-color :border))

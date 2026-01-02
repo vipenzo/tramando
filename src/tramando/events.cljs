@@ -48,6 +48,44 @@
     false))
 
 ;; =============================================================================
+;; Chunk Navigation (for clicking chunk links, expands parent hierarchy)
+;; =============================================================================
+
+;; Store the navigate function - set by outline when mounted
+(defonce navigate-to-chunk-fn (atom nil))
+
+(defn set-navigate-to-chunk-fn!
+  "Register the outline's chunk navigation function"
+  [f]
+  (reset! navigate-to-chunk-fn f))
+
+(defn navigate-to-chunk!
+  "Navigate to a chunk: select it and expand its parent hierarchy.
+   Returns true if successful, false if handler not available."
+  [chunk-id]
+  (if-let [nav-fn @navigate-to-chunk-fn]
+    (nav-fn chunk-id)
+    false))
+
+;; Store the scroll-to-pattern function - set by editor when mounted
+(defonce set-pending-scroll-fn (atom nil))
+
+(defn set-pending-scroll-fn!
+  "Register the editor's set-pending-scroll function"
+  [f]
+  (reset! set-pending-scroll-fn f))
+
+(defn navigate-to-chunk-and-scroll!
+  "Navigate to a chunk and scroll to a specific pattern (e.g., [@aspect-id]).
+   The pattern will be searched and scrolled to after the editor loads."
+  [chunk-id scroll-pattern]
+  ;; Set the pending scroll pattern before navigating
+  (when-let [scroll-fn @set-pending-scroll-fn]
+    (scroll-fn scroll-pattern))
+  ;; Then navigate
+  (navigate-to-chunk! chunk-id))
+
+;; =============================================================================
 ;; Aspect Navigation (for clicking aspect tags)
 ;; =============================================================================
 

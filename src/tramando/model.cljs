@@ -3,9 +3,8 @@
             [reagent.core :as r]
             [tramando.settings :as settings]
             [tramando.versioning :as versioning]
-            ["js-yaml" :as yaml]
-            ["@tauri-apps/plugin-dialog" :as dialog]
-            ["@tauri-apps/plugin-fs" :as fs]))
+            [tramando.platform :as platform]
+            ["js-yaml" :as yaml]))
 
 ;; =============================================================================
 ;; Chunk Model
@@ -565,6 +564,19 @@
   (let [parent-id (:parent-id chunk)]
     (filterv #(= (:parent-id %) parent-id) (get-chunks))))
 
+(defn get-ancestors
+  "Get all ancestor IDs of a chunk, from immediate parent up to root.
+   Returns a vector of IDs in order from closest parent to root."
+  [chunk-id]
+  (let [chunks (get-chunks)
+        chunk-by-id (into {} (map (juxt :id identity) chunks))]
+    (loop [current-id (:parent-id (chunk-by-id chunk-id))
+           ancestors []]
+      (if (or (nil? current-id) (not (chunk-by-id current-id)))
+        ancestors
+        (recur (:parent-id (chunk-by-id current-id))
+               (conj ancestors current-id))))))
+
 (defn- swap-positions
   "Swap two chunks in the chunks vector"
   [chunks id1 id2]
@@ -671,48 +683,59 @@
   (:filename @app-state))
 
 (defn- do-save-to-path!
-  "Internal: save content to a specific path (with backup)"
+  "Internal: save content to a specific path (with backup) - Tauri only"
   [filepath]
-  (let [content (get-file-content)]
-    ;; Create backup first, then save
-    (-> (versioning/create-backup! filepath)
-        (.then #(fs/writeTextFile filepath content))
-        (.then (fn []
-                 ;; Update filepath and filename in state
-                 (swap! app-state assoc :filepath filepath)
-                 (let [filename (last (str/split filepath #"/"))]
-                   (swap! app-state assoc :filename filename))
-                 ;; Update file-info for conflict detection
-                 (versioning/update-file-info! filepath content)
-                 ;; Mark as clean (no unsaved changes)
-                 (versioning/mark-clean!)
-                 ;; Show "Salvato" then fade
-                 (reset! save-status :saved)
-                 (when @saved-fade-timer
-                   (js/clearTimeout @saved-fade-timer))
-                 (reset! saved-fade-timer
-                         (js/setTimeout #(reset! save-status :idle) saved-fade-delay-ms))))
-        (.catch (fn [err]
-                  (js/console.error "Save error:" err))))))
+  (when (platform/tauri?)
+    (let [content (get-file-content)]
+      ;; Create backup first, then save
+      (-> (versioning/create-backup! filepath)
+          (.then #(platform/save-file! content (get-filename) filepath nil nil))
+          (.then (fn []
+                   ;; Update filepath and filename in state
+                   (swap! app-state assoc :filepath filepath)
+                   (let [filename (last (str/split filepath #"/"))]
+                     (swap! app-state assoc :filename filename))
+                   ;; Update file-info for conflict detection
+                   (versioning/update-file-info! filepath content)
+                   ;; Mark as clean (no unsaved changes)
+                   (versioning/mark-clean!)
+                   ;; Show "Salvato" then fade
+                   (reset! save-status :saved)
+                   (when @saved-fade-timer
+                     (js/clearTimeout @saved-fade-timer))
+                   (reset! saved-fade-timer
+                           (js/setTimeout #(reset! save-status :idle) saved-fade-delay-ms))))
+          (.catch (fn [err]
+                    (js/console.error "Save error:" err)))))))
 
 (defn save-file-as!
-  "Show save dialog and save file"
+  "Show save dialog and save file (works on both Tauri and webapp)"
   []
   ;; Cancel any pending autosave
   (when @autosave-timer
     (js/clearTimeout @autosave-timer)
     (reset! autosave-timer nil))
   (let [default-folder (settings/get-default-folder)
-        filename (get-filename)]
-    (-> (dialog/save #js {:defaultPath (if (empty? default-folder)
-                                         filename
-                                         (str default-folder "/" filename))
-                          :filters #js [#js {:name "Tramando" :extensions #js ["trmd"]}]})
-        (.then (fn [path]
-                 (when path
-                   (do-save-to-path! path))))
-        (.catch (fn [err]
-                  (js/console.error "Save dialog error:" err))))))
+        filename (get-filename)
+        content (get-file-content)]
+    (platform/save-file-as!
+      content
+      filename
+      default-folder
+      (fn [{:keys [success filepath filename]}]
+        (when success
+          ;; Update state
+          (swap! app-state assoc :filepath filepath :filename filename)
+          ;; In Tauri, update file-info for conflict detection
+          (when (and (platform/tauri?) filepath)
+            (versioning/update-file-info! filepath content)
+            (versioning/mark-clean!))
+          ;; Show "Salvato" then fade
+          (reset! save-status :saved)
+          (when @saved-fade-timer
+            (js/clearTimeout @saved-fade-timer))
+          (reset! saved-fade-timer
+                  (js/setTimeout #(reset! save-status :idle) saved-fade-delay-ms)))))))
 
 (defn save-file!
   "Save the current file. If filepath is known, check conflicts and save. Otherwise show save dialog."
@@ -721,19 +744,23 @@
   (when @autosave-timer
     (js/clearTimeout @autosave-timer)
     (reset! autosave-timer nil))
-  (if-let [filepath (:filepath @app-state)]
-    ;; File has been saved before, check for conflicts
-    (-> (versioning/check-conflict)
-        (.then (fn [{:keys [conflict?]}]
-                 (if conflict?
-                   ;; Show conflict dialog
-                   (versioning/show-conflict-dialog!
-                    {:on-overwrite (fn []
-                                     (versioning/show-conflict-dialog! nil)
-                                     (do-save-to-path! filepath))})
-                   ;; No conflict, save directly
-                   (do-save-to-path! filepath)))))
-    ;; New file, show save dialog
+  (if (platform/tauri?)
+    ;; Tauri mode: check filepath and conflicts
+    (if-let [filepath (:filepath @app-state)]
+      ;; File has been saved before, check for conflicts
+      (-> (versioning/check-conflict)
+          (.then (fn [{:keys [conflict?]}]
+                   (if conflict?
+                     ;; Show conflict dialog
+                     (versioning/show-conflict-dialog!
+                      {:on-overwrite (fn []
+                                       (versioning/show-conflict-dialog! nil)
+                                       (do-save-to-path! filepath))})
+                     ;; No conflict, save directly
+                     (do-save-to-path! filepath)))))
+      ;; New file, show save dialog
+      (save-file-as!))
+    ;; Webapp mode: always use save-as (triggers download or File System Access)
     (save-file-as!)))
 
 (defn export-md!
@@ -787,33 +814,26 @@
    (versioning/mark-clean!)))
 
 (defn open-file!
-  "Show open dialog and load selected file"
+  "Show open dialog and load selected file (works on both Tauri and webapp)"
   []
   (let [default-folder (settings/get-default-folder)]
-    (-> (dialog/open #js {:defaultPath (when (not (empty? default-folder)) default-folder)
-                          :filters #js [#js {:name "Tramando" :extensions #js ["trmd" "md" "txt"]}]
-                          :multiple false})
-        (.then (fn [path]
-                 (when path
-                   (-> (fs/readTextFile path)
-                       (.then (fn [content]
-                                (let [filename (last (str/split path #"/"))]
-                                  (load-file-content! content filename path))))
-                       (.catch (fn [err]
-                                 (js/console.error "Read file error:" err)))))))
-        (.catch (fn [err]
-                  (js/console.error "Open dialog error:" err))))))
+    (platform/open-file!
+      default-folder
+      (fn [{:keys [content filename filepath]}]
+        (when content
+          (load-file-content! content filename filepath))))))
 
 (defn reload-file!
-  "Reload the current file from disk"
+  "Reload the current file from disk (Tauri only)"
   []
-  (when-let [filepath (:filepath @app-state)]
-    (-> (fs/readTextFile filepath)
-        (.then (fn [content]
-                 (let [filename (last (str/split filepath #"/"))]
-                   (load-file-content! content filename filepath))))
-        (.catch (fn [err]
-                  (js/console.error "Reload file error:" err))))))
+  (when (platform/tauri?)
+    (when-let [filepath (:filepath @app-state)]
+      (platform/read-file!
+        filepath
+        (fn [{:keys [content filepath filename error]}]
+          (if error
+            (js/console.error "Reload file error:" error)
+            (load-file-content! content filename filepath)))))))
 
 (defn load-version-copy!
   "Load content as a new unsaved document (for 'Open copy' from versions)"
@@ -910,11 +930,15 @@
       (map build-node (get by-parent nil [])))))
 
 (defn chunks-using-aspect
-  "Return chunks that reference this aspect id in their :aspects set (excludes self)"
+  "Return chunks that reference this aspect id in their :aspects set
+   OR via inline [@id] links in content (excludes self)"
   [aspect-id]
-  (filter #(and (contains? (:aspects %) aspect-id)
-                (not= (:id %) aspect-id))
-          (get-chunks)))
+  (let [inline-pattern (js/RegExp. (str "\\[@" aspect-id "\\]") "i")]
+    (filter #(and (not= (:id %) aspect-id)
+                  (or (contains? (:aspects %) aspect-id)
+                      (and (:content %)
+                           (.test inline-pattern (:content %)))))
+            (get-chunks))))
 
 (defn aspect-usage-count
   "Count how many chunks reference this aspect (excludes self)"

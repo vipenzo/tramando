@@ -3,10 +3,8 @@
   (:require [clojure.string :as str]
             [reagent.core :as r]
             [tramando.settings :as settings]
-            [tramando.i18n :refer [t]]
-            ["@tauri-apps/plugin-fs" :as fs]
-            ["@tauri-apps/api/path" :as path]
-            ["@tauri-apps/api/window" :refer [getCurrentWindow]]))
+            [tramando.platform :as platform]
+            [tramando.i18n :refer [t]]))
 
 ;; =============================================================================
 ;; State
@@ -79,21 +77,40 @@
   (let [filename (get-filename path)]
     (str/replace filename #"\.[^.]+$" "")))
 
+;; Dynamic Tauri API access (only available in Tauri mode)
+(defn- get-tauri-fs []
+  (when (platform/tauri?)
+    (.-fs (.-__TAURI__ js/window))))
+
+(defn- get-tauri-path []
+  (when (platform/tauri?)
+    (.-path (.-__TAURI__ js/window))))
+
+(defn- get-tauri-window []
+  (when (platform/tauri?)
+    (.-window (.-__TAURI__ js/window))))
+
 (defn file-exists?
   "Check if file exists. Returns a promise."
   [path]
-  (-> (fs/exists path)
-      (.catch (fn [_] false))))
+  (if-let [fs (get-tauri-fs)]
+    (-> (.exists fs path)
+        (.catch (fn [_] false)))
+    (js/Promise.resolve false)))
 
 (defn read-file
   "Read file content. Returns a promise."
   [path]
-  (fs/readTextFile path))
+  (if-let [fs (get-tauri-fs)]
+    (.readTextFile fs path)
+    (js/Promise.reject "File operations not available in webapp mode")))
 
 (defn write-file
   "Write content to file. Returns a promise."
   [path content]
-  (fs/writeTextFile path content))
+  (if-let [fs (get-tauri-fs)]
+    (.writeTextFile fs path content)
+    (js/Promise.reject "File operations not available in webapp mode")))
 
 (defn copy-file
   "Copy file from src to dest. Returns a promise."
@@ -104,29 +121,37 @@
 (defn ensure-dir
   "Create directory if it doesn't exist. Returns a promise."
   [path]
-  (-> (fs/exists path)
-      (.then (fn [exists?]
-               (when-not exists?
-                 (fs/mkdir path #js {:recursive true}))))))
+  (if-let [fs (get-tauri-fs)]
+    (-> (.exists fs path)
+        (.then (fn [exists?]
+                 (when-not exists?
+                   (.mkdir fs path #js {:recursive true})))))
+    (js/Promise.resolve nil)))
 
 (defn list-dir
   "List files in directory. Returns a promise with array of entries."
   [path]
-  (-> (fs/readDir path)
-      (.catch (fn [_] []))))
+  (if-let [fs (get-tauri-fs)]
+    (-> (.readDir fs path)
+        (.catch (fn [_] [])))
+    (js/Promise.resolve [])))
 
 (defn remove-file
   "Delete a file. Returns a promise."
   [path]
-  (fs/remove path))
+  (if-let [fs (get-tauri-fs)]
+    (.remove fs path)
+    (js/Promise.resolve nil)))
 
 (defn get-file-stat
   "Get file metadata (mtime). Returns a promise."
   [path]
-  (-> (fs/stat path)
-      (.then (fn [stat]
-               {:mtime (.-mtime stat)}))
-      (.catch (fn [_] nil))))
+  (if-let [fs (get-tauri-fs)]
+    (-> (.stat fs path)
+        (.then (fn [stat]
+                 {:mtime (.-mtime stat)}))
+        (.catch (fn [_] nil)))
+    (js/Promise.resolve nil)))
 
 ;; =============================================================================
 ;; File Info Management
@@ -238,10 +263,12 @@
 (defn get-versions-dir
   "Get versions directory for a file (in app data directory). Returns a promise."
   [file-path]
-  (-> (path/appDataDir)
-      (.then (fn [app-dir]
-               (let [folder-name (path-to-folder-name file-path)]
-                 (str app-dir "versions/" folder-name "/"))))))
+  (if-let [path-api (get-tauri-path)]
+    (-> (.appDataDir path-api)
+        (.then (fn [app-dir]
+                 (let [folder-name (path-to-folder-name file-path)]
+                   (str app-dir "versions/" folder-name "/")))))
+    (js/Promise.reject "Versions not available in webapp mode")))
 
 (defn slugify
   "Convert text to URL-safe slug"
@@ -363,15 +390,16 @@
   "Setup window focus listener to detect external file changes"
   [on-file-changed!]
   ;; Only set up listener if running in Tauri (not in browser dev mode)
-  (when (exists? js/window.__TAURI__)
-    (let [window (getCurrentWindow)]
-      (.listen window "tauri://focus"
-               (fn [_]
-                 (when @file-info
-                   (-> (check-conflict)
-                       (.then (fn [{:keys [conflict? file-deleted?]}]
-                                (when (and conflict? (not file-deleted?))
-                                  (on-file-changed!)))))))))))
+  (when (platform/tauri?)
+    (when-let [window-api (get-tauri-window)]
+      (when-let [get-current (.getCurrent window-api)]
+        (.listen get-current "tauri://focus"
+                 (fn [_]
+                   (when @file-info
+                     (-> (check-conflict)
+                         (.then (fn [{:keys [conflict? file-deleted?]}]
+                                  (when (and conflict? (not file-deleted?))
+                                    (on-file-changed!))))))))))))
 
 ;; =============================================================================
 ;; UI Components - Dialogs
