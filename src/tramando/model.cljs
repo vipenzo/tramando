@@ -33,14 +33,21 @@
 
 (defn make-chunk
   "Create a new chunk with the given properties"
-  [{:keys [id summary content parent-id aspects ordered-refs]
-    :or {summary "" content "" parent-id nil aspects #{} ordered-refs []}}]
+  [{:keys [id summary content parent-id aspects ordered-refs
+           owner previous-owner ownership-expires discussion]
+    :or {summary "" content "" parent-id nil aspects #{} ordered-refs []
+         owner "local" previous-owner nil ownership-expires nil discussion []}}]
   {:id id
    :summary summary
    :content content
    :parent-id parent-id
    :aspects (set aspects)
-   :ordered-refs (vec ordered-refs)})
+   :ordered-refs (vec ordered-refs)
+   ;; Collaborative fields
+   :owner owner
+   :previous-owner previous-owner
+   :ownership-expires ownership-expires
+   :discussion (vec discussion)})
 
 (defn- id-prefix-for-parent
   "Get the ID prefix based on parent-id"
@@ -117,6 +124,55 @@
 (def ^:private aspect-re
   #"\[@([^\]]+)\]")
 
+;; Collaborative attribute patterns: [#owner:value], [#prev-owner:value], [#expires:value]
+(def ^:private owner-re #"\[#owner:([^\]]+)\]")
+(def ^:private prev-owner-re #"\[#prev-owner:([^\]]+)\]")
+(def ^:private expires-re #"\[#expires:([^\]]+)\]")
+
+;; Discussion block pattern: [!DISCUSSION:base64data]
+(def ^:private discussion-re #"\[!DISCUSSION:([^\]]+)\]")
+
+;; =============================================================================
+;; Base64 and Discussion Helpers
+;; =============================================================================
+
+(defn- encode-base64
+  "Encode a string to Base64"
+  [s]
+  (js/btoa (js/encodeURIComponent s)))
+
+(defn- decode-base64
+  "Decode a Base64 string"
+  [s]
+  (try
+    (js/decodeURIComponent (js/atob s))
+    (catch :default _
+      nil)))
+
+(defn- encode-discussion
+  "Encode discussion list to Base64 JSON"
+  [discussion]
+  (when (seq discussion)
+    (encode-base64 (js/JSON.stringify (clj->js discussion)))))
+
+(defn- decode-discussion
+  "Decode Base64 JSON to discussion list"
+  [base64-str]
+  (when-let [json-str (decode-base64 base64-str)]
+    (try
+      (js->clj (js/JSON.parse json-str) :keywordize-keys true)
+      (catch :default _
+        []))))
+
+(defn- extract-discussion-from-content
+  "Extract [!DISCUSSION:...] block from content, returns {:content :discussion}"
+  [content]
+  (if-let [[full-match base64-data] (re-find discussion-re content)]
+    {:content (str/trim (str/replace content full-match ""))
+     :discussion (or (decode-discussion base64-data) [])}
+    {:content content
+     :discussion []}))
+
 (defn- count-indent
   "Count leading spaces (2 spaces = 1 level)"
   [line]
@@ -124,15 +180,22 @@
     (quot spaces 2)))
 
 (defn- parse-header
-  "Parse a chunk header line, returns {:id :summary :aspects} or nil"
+  "Parse a chunk header line, returns {:id :summary :aspects :owner :previous-owner :ownership-expires} or nil"
   [line]
   (when-let [[_ id summary rest] (re-matches chunk-header-re (str/trim line))]
     (let [aspects (->> (re-seq aspect-re rest)
                        (map second)
-                       set)]
+                       set)
+          ;; Extract collaborative attributes (optional)
+          owner (second (re-find owner-re rest))
+          prev-owner (second (re-find prev-owner-re rest))
+          expires (second (re-find expires-re rest))]
       {:id id
        :summary summary
-       :aspects aspects})))
+       :aspects aspects
+       :owner (or owner "local")
+       :previous-owner prev-owner
+       :ownership-expires expires})))
 
 ;; Default metadata (defined here for use in parse-yaml-frontmatter)
 (def default-metadata
@@ -170,6 +233,14 @@
     {:metadata default-metadata
      :content text}))
 
+(defn- finalize-chunk
+  "Finalize a chunk by processing its content and extracting discussion"
+  [chunk content-lines]
+  (when chunk
+    (let [raw-content (str/trim (str/join "\n" content-lines))
+          {:keys [content discussion]} (extract-discussion-from-content raw-content)]
+      (assoc chunk :content content :discussion discussion))))
+
 (defn- parse-chunks
   "Parse chunks from content (without frontmatter)"
   [text]
@@ -181,8 +252,8 @@
            indent-stack []]  ; stack of {:id :indent}
       (if (empty? lines)
         ;; Finalize last chunk
-        (if current-chunk
-          (conj chunks (assoc current-chunk :content (str/trim (str/join "\n" content-lines))))
+        (if-let [final-chunk (finalize-chunk current-chunk content-lines)]
+          (conj chunks final-chunk)
           chunks)
         (let [line (first lines)
               indent (count-indent line)
@@ -190,8 +261,8 @@
           (if header
             ;; New chunk header found
             (let [;; Save previous chunk if any
-                  chunks (if current-chunk
-                           (conj chunks (assoc current-chunk :content (str/trim (str/join "\n" content-lines))))
+                  chunks (if-let [prev-chunk (finalize-chunk current-chunk content-lines)]
+                           (conj chunks prev-chunk)
                            chunks)
                   ;; Find parent based on indentation
                   parent-stack (take-while #(< (:indent %) indent) indent-stack)
@@ -203,7 +274,11 @@
                      (make-chunk {:id (:id header)
                                   :summary (:summary header)
                                   :parent-id parent-id
-                                  :aspects (:aspects header)})
+                                  :aspects (:aspects header)
+                                  ;; Collaborative fields from header
+                                  :owner (:owner header)
+                                  :previous-owner (:previous-owner header)
+                                  :ownership-expires (:ownership-expires header)})
                      []
                      new-stack))
             ;; Content line
@@ -230,9 +305,24 @@
   [chunk depth]
   (let [indent (apply str (repeat (* 2 depth) " "))
         aspects-str (str/join "" (map #(str "[@" % "]") (:aspects chunk)))
-        header (str indent "[C:" (:id chunk) "\"" (:summary chunk) "\"]" aspects-str)
-        content-lines (when (seq (:content chunk))
-                        (map #(str indent %) (str/split-lines (:content chunk))))]
+        ;; Collaborative attributes (only include if non-default)
+        owner (:owner chunk)
+        owner-str (when (and owner (not= owner "local"))
+                    (str "[#owner:" owner "]"))
+        prev-owner-str (when (:previous-owner chunk)
+                         (str "[#prev-owner:" (:previous-owner chunk) "]"))
+        expires-str (when (:ownership-expires chunk)
+                      (str "[#expires:" (:ownership-expires chunk) "]"))
+        collab-str (str owner-str prev-owner-str expires-str)
+        ;; Build header
+        header (str indent "[C:" (:id chunk) "\"" (:summary chunk) "\"]" aspects-str collab-str)
+        ;; Content with optional discussion block
+        base-content (:content chunk)
+        discussion-block (when (seq (:discussion chunk))
+                           (str "\n\n[!DISCUSSION:" (encode-discussion (:discussion chunk)) "]"))
+        full-content (str base-content discussion-block)
+        content-lines (when (seq full-content)
+                        (map #(str indent %) (str/split-lines full-content)))]
     (str/join "\n" (cons header content-lines))))
 
 (defn- serialize-tree
