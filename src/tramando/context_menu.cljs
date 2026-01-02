@@ -299,7 +299,9 @@
                 start (.indexOf content selected-text)]
             (when (>= start 0)
               (let [end (+ start (count selected-text))]
-                (model/create-proposal-in-chunk! (:id chunk) start end proposed-text))))))))
+                (model/create-proposal-in-chunk! (:id chunk) start end proposed-text)
+                ;; Refresh editor to update decorations
+                (js/setTimeout #(events/refresh-editor!) 50))))))))
   (hide-menu!))
 
 ;; =============================================================================
@@ -607,6 +609,140 @@
                              (hide-menu!))}]]))
 
 ;; =============================================================================
+;; Proposal Annotation Menu (Interactive like AI-DONE)
+;; =============================================================================
+
+(defn- proposal-annotation-menu
+  "Context menu for PROPOSAL annotations - interactive preview like AI-DONE"
+  [{:keys [x y annotation]}]
+  (let [menu-width 300
+        chunk-id (:chunk-id annotation)
+        original-text (:selected-text annotation)
+        sender (annotations/get-proposal-from annotation)
+        ;; Read fresh data from chunk to get current selection state
+        fresh-chunk (model/get-chunk chunk-id)
+        fresh-content (:content fresh-chunk)
+        ;; Find the annotation in fresh content and parse its data
+        fresh-annotation (first (filter #(and (= (:selected-text %) original-text)
+                                              (annotations/is-proposal? %))
+                                        (annotations/parse-annotations fresh-content)))
+        fresh-comment (or (:comment fresh-annotation) (:comment annotation))
+        proposal-data (annotations/parse-proposal-data fresh-comment)
+        proposed-text (or (:text proposal-data) "")
+        current-sel (or (:sel proposal-data) 0)
+        ;; Preview helper
+        make-preview (fn [text]
+                       (if (> (count text) 60)
+                         (str (subs text 0 57) "...")
+                         text))]
+    [:div {:style {:position "fixed"
+                   :left (str x "px")
+                   :top (str y "px")
+                   :background (settings/get-color :sidebar)
+                   :border (str "1px solid " (settings/get-color :border))
+                   :border-radius "6px"
+                   :box-shadow "0 4px 12px rgba(0,0,0,0.3)"
+                   :min-width (str menu-width "px")
+                   :max-width "400px"
+                   :z-index 10001
+                   :overflow "hidden"}
+           :on-click #(.stopPropagation %)}
+     ;; Header: who proposed
+     [:div {:style {:padding "10px 12px"
+                    :font-size "0.85rem"
+                    :color (settings/get-color :text-muted)
+                    :border-bottom (str "1px solid " (settings/get-color :border))}}
+      [:span {:style {:font-weight "500" :color (settings/get-color :text)}}
+       (str (t :proposal-from) " " (or sender "local"))]]
+
+     ;; Original text option (sel=0) - selectable
+     (let [is-original-selected? (zero? current-sel)]
+       [:div {:style {:padding "8px 12px"
+                      :cursor "pointer"
+                      :display "flex"
+                      :align-items "flex-start"
+                      :gap "8px"
+                      :background (when is-original-selected? (settings/get-color :editor-bg))
+                      :border-bottom (str "1px solid " (settings/get-color :border))}
+              :on-mouse-over #(set! (.. % -currentTarget -style -background) (settings/get-color :editor-bg))
+              :on-mouse-out #(set! (.. % -currentTarget -style -background) (if is-original-selected? (settings/get-color :editor-bg) "transparent"))
+              :on-click (fn [e]
+                          (.stopPropagation e)
+                          (model/update-proposal-selection! chunk-id original-text 0)
+                          (js/setTimeout #(events/refresh-editor!) 50))}
+        [:span {:style {:color (if is-original-selected? (settings/get-color :accent) (settings/get-color :text-muted))
+                        :flex-shrink 0}}
+         (if is-original-selected? "●" "○")]
+        [:div {:style {:flex 1}}
+         [:div {:style {:font-size "0.7rem"
+                        :text-transform "uppercase"
+                        :color (settings/get-color :text-muted)
+                        :margin-bottom "2px"}}
+          (t :proposal-original)]
+         [:span {:style {:font-size "0.85rem"
+                         :color (settings/get-color :text)}}
+          (make-preview original-text)]]
+        (when is-original-selected?
+          [:span {:style {:color (settings/get-color :accent)
+                          :flex-shrink 0}}
+           "✓"])])
+
+     ;; Proposed text option (sel=1) - selectable
+     (let [is-proposed-selected? (pos? current-sel)]
+       [:div {:style {:padding "8px 12px"
+                      :cursor "pointer"
+                      :display "flex"
+                      :align-items "flex-start"
+                      :gap "8px"
+                      :background (when is-proposed-selected? (settings/get-color :editor-bg))
+                      :border-bottom (str "1px solid " (settings/get-color :border))}
+              :on-mouse-over #(set! (.. % -currentTarget -style -background) (settings/get-color :editor-bg))
+              :on-mouse-out #(set! (.. % -currentTarget -style -background) (if is-proposed-selected? (settings/get-color :editor-bg) "transparent"))
+              :on-click (fn [e]
+                          (.stopPropagation e)
+                          (model/update-proposal-selection! chunk-id original-text 1)
+                          (js/setTimeout #(events/refresh-editor!) 50))}
+        [:span {:style {:color (if is-proposed-selected? "#4CAF50" (settings/get-color :text-muted))
+                        :flex-shrink 0}}
+         (if is-proposed-selected? "●" "○")]
+        [:div {:style {:flex 1}}
+         [:div {:style {:font-size "0.7rem"
+                        :text-transform "uppercase"
+                        :color (settings/get-color :text-muted)
+                        :margin-bottom "2px"}}
+          (t :proposal-proposed)]
+         [:span {:style {:font-size "0.85rem"
+                         :color "#4CAF50"
+                         :font-weight "500"}}
+          (make-preview (if (seq proposed-text) proposed-text "(testo vuoto)"))]]
+        (when is-proposed-selected?
+          [:span {:style {:color "#4CAF50"
+                          :flex-shrink 0}}
+           "✓"])])
+
+     ;; Separator
+     [menu-separator]
+
+     ;; Confirm button (applies the current selection - original or proposed)
+     [menu-item {:label (if (pos? current-sel)
+                          (t :proposal-accept)      ; Proposed selected
+                          (t :proposal-reject))     ; Original selected (reject proposal)
+                 :icon "✓"
+                 :color (if (pos? current-sel) "#4CAF50" (settings/get-color :text))
+                 :on-click (fn []
+                             (if (pos? current-sel)
+                               ;; Apply proposed text
+                               (do
+                                 (model/accept-proposal! chunk-id annotation)
+                                 (events/show-toast! (t :discussion-proposal-accepted)))
+                               ;; Keep original (reject)
+                               (do
+                                 (model/reject-proposal! chunk-id annotation)
+                                 (events/show-toast! (t :discussion-proposal-rejected))))
+                             (events/refresh-editor!)
+                             (hide-menu!))}]]))
+
+;; =============================================================================
 ;; Aspect Link Context Menu
 ;; =============================================================================
 
@@ -768,6 +904,9 @@
           :annotation-normal
           [normal-annotation-menu {:x x :y y :annotation annotation :chunk chunk}]
 
+          :annotation-proposal
+          [proposal-annotation-menu {:x x :y y :annotation annotation}]
+
           :aspect-link
           [aspect-link-menu {:x x :y y :aspect-link aspect-link}]
 
@@ -822,6 +961,7 @@
         menu-type (cond
                     (annotations/is-ai-done? annotation) :annotation-ai-done
                     (= priority :AI) :annotation-ai-pending
+                    (annotations/is-proposal? annotation) :annotation-proposal
                     :else :annotation-normal)]
     (show-menu! adjusted-x adjusted-y nil nil
                 :annotation annotation

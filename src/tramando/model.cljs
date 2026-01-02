@@ -1,5 +1,6 @@
 (ns tramando.model
   (:require [clojure.string :as str]
+            [cljs.reader :as reader]
             [reagent.core :as r]
             [tramando.settings :as settings]
             [tramando.versioning :as versioning]
@@ -174,73 +175,93 @@
      :discussion []}))
 
 ;; =============================================================================
-;; Inline Proposals
+;; Inline Proposals (Annotation-based format)
 ;; =============================================================================
-;; Format: [!PROPOSAL:base64] where base64 contains JSON with:
-;; {:sender "username", :status "pending", :original-text "...", :proposed-text "...", :created-at "ISO"}
+;; Format: [!PROPOSAL:original-text:Puser:base64(proposed-text)]
+;; This integrates with the annotation system for consistent UI/UX
 
-(def ^:private proposal-re #"\[!PROPOSAL:([^\]]+)\]")
+(defn- encode-proposal-data
+  "Encode proposal data (text + selection) to Base64 EDN"
+  [proposed-text sel]
+  (js/btoa (js/encodeURIComponent (pr-str {:text proposed-text :sel sel}))))
 
-(defn encode-proposal
-  "Encode a proposal to Base64 marker"
-  [proposal]
-  (str "[!PROPOSAL:" (encode-base64 (js/JSON.stringify (clj->js proposal))) "]"))
-
-(defn decode-proposal
-  "Decode a Base64 proposal marker to map"
-  [base64-str]
-  (when-let [json-str (decode-base64 base64-str)]
+(defn- parse-proposal-data
+  "Parse Base64-encoded EDN data from a PROPOSAL annotation comment.
+   Returns {:text string :sel 0|1} or nil.
+   For backwards compatibility, also handles plain base64 text (old format)."
+  [encoded-string]
+  (when (and encoded-string (seq encoded-string))
     (try
-      (let [parsed (js->clj (js/JSON.parse json-str) :keywordize-keys true)]
-        ;; Convert status string to keyword
-        (update parsed :status keyword))
+      (let [decoded (-> encoded-string js/atob js/decodeURIComponent)
+            data (reader/read-string decoded)]
+        (if (map? data)
+          {:text (or (:text data) "") :sel (or (:sel data) 0)}
+          {:text decoded :sel 0}))
       (catch :default _
-        nil))))
+        (try
+          {:text (js/decodeURIComponent (js/atob encoded-string)) :sel 0}
+          (catch :default _ nil))))))
 
-(defn find-proposals
-  "Find all proposals in content. Returns [{:match \"full marker\" :data {...} :start idx :end idx}]"
-  [content]
-  (when content
-    (let [matches (re-seq proposal-re content)]
-      (->> matches
-           (map (fn [[full-match base64-data]]
-                  (let [start (.indexOf content full-match)]
-                    {:match full-match
-                     :data (decode-proposal base64-data)
-                     :start start
-                     :end (+ start (count full-match))})))
-           (filter :data)  ;; Only valid proposals
-           vec))))
+(defn- decode-proposed-text
+  "Decode proposed text from PROPOSAL annotation comment"
+  [base64-str]
+  (:text (parse-proposal-data base64-str)))
 
-(defn create-proposal
-  "Create a new proposal map"
-  [{:keys [original-text proposed-text sender]
-    :or {sender "local"}}]
-  {:sender sender
-   :status :pending
-   :original-text original-text
-   :proposed-text proposed-text
-   :created-at (.toISOString (js/Date.))})
+(defn make-proposal-marker
+  "Create a proposal annotation marker.
+   Format: [!PROPOSAL:original-text:Puser:base64({:text \"...\" :sel 0})]"
+  ([original-text proposed-text user]
+   (make-proposal-marker original-text proposed-text user 0))
+  ([original-text proposed-text user sel]
+   (str "[!PROPOSAL:" original-text ":P" user ":" (encode-proposal-data proposed-text sel) "]")))
 
 (defn insert-proposal-in-content
-  "Replace selected text with a proposal marker in content"
-  [content start end proposed-text sender]
+  "Replace selected text with a proposal annotation in content"
+  [content start end proposed-text user]
   (let [original-text (subs content start end)
-        proposal (create-proposal {:original-text original-text
-                                   :proposed-text proposed-text
-                                   :sender sender})
-        marker (encode-proposal proposal)]
+        marker (make-proposal-marker original-text proposed-text user)]
     (str (subs content 0 start) marker (subs content end))))
 
+(defn- find-proposal-annotation-pattern
+  "Create a regex pattern to find a PROPOSAL annotation by original text.
+   Allows optional whitespace around the selected text (handles trimmed vs untrimmed)."
+  [original-text user]
+  (let [escaped-text (str/replace original-text #"[.*+?^${}()\[\]\\|]" (fn [m] (str "\\" m)))]
+    (re-pattern (str "\\[!PROPOSAL:\\s*" escaped-text "\\s*:P" user ":([A-Za-z0-9+/=]+)\\]"))))
+
 (defn accept-proposal-in-content
-  "Accept a proposal: replace marker with proposed-text"
-  [content proposal-match]
-  (str/replace content (:match proposal-match) (:proposed-text (:data proposal-match))))
+  "Accept a proposal: replace annotation with the currently selected text.
+   If sel=0 (original), keeps original (preserving whitespace).
+   If sel=1 (proposed), applies proposed text."
+  [content annotation]
+  (let [data (parse-proposal-data (:comment annotation))
+        proposed-text (:text data)
+        sel (or (:sel data) 0)
+        user (or (:proposal-from (:priority annotation)) "local")
+        ;; Escape the trimmed text for regex
+        escaped-text (str/replace (:selected-text annotation) #"[.*+?^${}()\[\]\\|]" (fn [m] (str "\\" m)))
+        ;; Capture the actual text including any surrounding whitespace
+        pattern (re-pattern (str "\\[!PROPOSAL:(\\s*" escaped-text "\\s*):P" user ":([A-Za-z0-9+/=]+)\\]"))
+        match (re-find pattern content)]
+    (if match
+      (let [original-with-spaces (second match)
+            replacement (if (zero? sel) original-with-spaces proposed-text)]
+        (str/replace content (first match) replacement))
+      content)))
 
 (defn reject-proposal-in-content
-  "Reject a proposal: replace marker with original-text"
-  [content proposal-match]
-  (str/replace content (:match proposal-match) (:original-text (:data proposal-match))))
+  "Reject a proposal: always replace annotation with original-text (preserving whitespace)"
+  [content annotation]
+  (let [user (or (:proposal-from (:priority annotation)) "local")
+        ;; Escape the trimmed text for regex
+        escaped-text (str/replace (:selected-text annotation) #"[.*+?^${}()\[\]\\|]" (fn [m] (str "\\" m)))
+        ;; Capture the actual text including any surrounding whitespace
+        pattern (re-pattern (str "\\[!PROPOSAL:(\\s*" escaped-text "\\s*):P" user ":([A-Za-z0-9+/=]+)\\]"))
+        match (re-find pattern content)]
+    (if match
+      ;; Replace with the captured text (preserving original whitespace)
+      (str/replace content (first match) (second match))
+      content)))
 
 (defn- count-indent
   "Count leading spaces (2 spaces = 1 level)"
@@ -719,19 +740,55 @@
       (mark-modified!)
       new-content)))
 
-(defn accept-proposal!
-  "Accept a proposal: replace marker with proposed-text and add to discussion"
-  [chunk-id proposal-match & {:keys [reason] :or {reason nil}}]
+(defn update-proposal-selection!
+  "Update the :sel value in a PROPOSAL annotation.
+   chunk-id: the chunk containing the annotation
+   original-text: the selected text in the annotation (may be trimmed)
+   new-sel: 0 = original, 1 = proposed"
+  [chunk-id original-text new-sel]
   (when-let [chunk (get-chunk chunk-id)]
     (let [content (:content chunk)
-          proposal-data (:data proposal-match)
-          new-content (accept-proposal-in-content content proposal-match)
+          ;; Pattern to find the PROPOSAL annotation - capture original text with any whitespace
+          escaped-text (str/replace original-text #"[.*+?^${}()\[\]\\|]" (fn [m] (str "\\" m)))
+          pattern (re-pattern (str "\\[!PROPOSAL:(\\s*" escaped-text "\\s*):P([^:]+):([A-Za-z0-9+/=]+)\\]"))
+          match (re-find pattern content)]
+      (when match
+        (let [old-annotation (first match)
+              original-with-spaces (second match)  ; Captured text with whitespace
+              user (nth match 2)
+              old-b64 (nth match 3)
+              old-data (parse-proposal-data old-b64)]
+          (when old-data
+            (let [new-data (assoc old-data :sel new-sel)
+                  new-b64 (encode-proposal-data (:text new-data) (:sel new-data))
+                  ;; Preserve original whitespace in the new annotation
+                  new-annotation (str "[!PROPOSAL:" original-with-spaces ":P" user ":" new-b64 "]")
+                  new-content (str/replace content old-annotation new-annotation)]
+              (push-history!)
+              (swap! app-state update :chunks
+                     (fn [chunks]
+                       (mapv (fn [c]
+                               (if (= (:id c) chunk-id)
+                                 (assoc c :content new-content)
+                                 c))
+                             chunks)))
+              (mark-modified!))))))))
+
+(defn accept-proposal!
+  "Accept a proposal annotation: apply selected text and add to discussion.
+   annotation should be a parsed annotation with :type :PROPOSAL"
+  [chunk-id annotation & {:keys [reason] :or {reason nil}}]
+  (when-let [chunk (get-chunk chunk-id)]
+    (let [content (:content chunk)
+          proposed-text (decode-proposed-text (:comment annotation))
+          sender (or (:proposal-from (:priority annotation)) "local")
+          new-content (accept-proposal-in-content content annotation)
           ;; Create discussion entry
-          discussion-entry {:author (:sender proposal-data)
+          discussion-entry {:author sender
                             :timestamp (.toISOString (js/Date.))
                             :type :proposal
-                            :previous-text (:original-text proposal-data)
-                            :proposed-text (:proposed-text proposal-data)
+                            :previous-text (:selected-text annotation)
+                            :proposed-text proposed-text
                             :answer :accepted
                             :reason reason}]
       (push-history!)
@@ -748,20 +805,25 @@
       new-content)))
 
 (defn reject-proposal!
-  "Reject a proposal: replace marker with original-text and add to discussion"
-  [chunk-id proposal-match & {:keys [reason] :or {reason nil}}]
+  "Reject a proposal annotation: replace marker with original-text and add to discussion.
+   Options:
+   - :reason - optional reason for rejection
+   - :no-log - if true, don't add to discussion (for cancel without decision)"
+  [chunk-id annotation & {:keys [reason no-log] :or {reason nil no-log false}}]
   (when-let [chunk (get-chunk chunk-id)]
     (let [content (:content chunk)
-          proposal-data (:data proposal-match)
-          new-content (reject-proposal-in-content content proposal-match)
-          ;; Create discussion entry
-          discussion-entry {:author (:sender proposal-data)
-                            :timestamp (.toISOString (js/Date.))
-                            :type :proposal
-                            :previous-text (:original-text proposal-data)
-                            :proposed-text (:proposed-text proposal-data)
-                            :answer :rejected
-                            :reason reason}]
+          proposed-text (decode-proposed-text (:comment annotation))
+          sender (or (:proposal-from (:priority annotation)) "local")
+          new-content (reject-proposal-in-content content annotation)
+          ;; Create discussion entry (only if not suppressed)
+          discussion-entry (when-not no-log
+                             {:author sender
+                              :timestamp (.toISOString (js/Date.))
+                              :type :proposal
+                              :previous-text (:selected-text annotation)
+                              :proposed-text proposed-text
+                              :answer :rejected
+                              :reason reason})]
       (push-history!)
       (swap! app-state update :chunks
              (fn [chunks]
@@ -769,7 +831,8 @@
                        (if (= (:id c) chunk-id)
                          (-> c
                              (assoc :content new-content)
-                             (update :discussion (fnil conj []) discussion-entry))
+                             (cond-> discussion-entry
+                               (update :discussion (fnil conj []) discussion-entry)))
                          c))
                      chunks)))
       (mark-modified!)

@@ -45,6 +45,8 @@
                                           :borderRadius "3px"}
                ".cm-annotation-fix" #js {:backgroundColor "rgba(244, 67, 54, 0.25)"
                                          :borderRadius "3px"}
+               ".cm-annotation-proposal" #js {:backgroundColor "rgba(156, 39, 176, 0.25)"
+                                              :borderRadius "3px"}
                ;; Reading mode - highlighted text only
                ".cm-annotation-text-todo" #js {:backgroundColor "rgba(255, 193, 7, 0.4)"
                                                :borderRadius "2px"
@@ -55,6 +57,9 @@
                ".cm-annotation-text-fix" #js {:backgroundColor "rgba(244, 67, 54, 0.35)"
                                               :borderRadius "2px"
                                               :padding "0 2px"}
+               ".cm-annotation-text-proposal" #js {:backgroundColor "rgba(156, 39, 176, 0.35)"
+                                                   :borderRadius "2px"
+                                                   :padding "0 2px"}
                ;; Hidden parts in reading mode
                ".cm-annotation-hidden" #js {:fontSize "0"
                                             :color "transparent"
@@ -68,9 +73,14 @@
                                               :marginRight "4px"}
                ;; Alternative text (normal)
                ".cm-ai-alternative-text" #js {:borderBottom "2px dotted var(--color-accent)"}
+               ;; Proposal text (when selected)
+               ".cm-proposal-text" #js {:borderBottom "2px dotted #9c27b0"}
                ;; AI selected annotation in markup mode
                ".cm-ai-selected" #js {:backgroundColor "rgba(76, 175, 80, 0.25)"
                                       :borderRadius "3px"}
+               ;; PROPOSAL selected annotation in markup mode
+               ".cm-proposal-selected" #js {:backgroundColor "rgba(76, 175, 80, 0.25)"
+                                            :borderRadius "3px"}
                ;; Search match highlighting
                ".cm-search-match" #js {:backgroundColor "rgba(255, 230, 0, 0.3)"
                                        :borderRadius "2px"}
@@ -184,7 +194,7 @@
 
 (def ^:private annotation-regex-for-ranges
   "Regex to find annotations and their parts: [!TYPE:text:priority:comment]"
-  (js/RegExp. "\\[!(TODO|NOTE|FIX):([^:]*):([^:]*):([^\\]]*)\\]" "g"))
+  (js/RegExp. "\\[!(TODO|NOTE|FIX|PROPOSAL):([^:]*):([^:]*):([^\\]]*)\\]" "g"))
 
 (defn- get-hidden-ranges
   "Returns vector of {:from :to} for hidden parts of annotations.
@@ -407,7 +417,7 @@
        (let [doc-text (.. view -state -doc (toString))
              ;; Find the annotation pattern containing this selected-text using JS regex for position
              escaped-text (str/replace selected-text #"[.*+?^${}()|\\[\\]\\\\]" "\\\\$&")
-             js-pattern (js/RegExp. (str "\\[!(TODO|NOTE|FIX):" escaped-text ":[^\\]]*\\]") "g")
+             js-pattern (js/RegExp. (str "\\[!(TODO|NOTE|FIX|PROPOSAL):" escaped-text ":[^\\]]*\\]") "g")
              match (.exec js-pattern doc-text)]
          (when match
            (let [idx (.-index match)
@@ -563,7 +573,7 @@
 ;; =============================================================================
 
 ;; Syntax: [!TYPE:selected text:priority:comment]
-(def ^:private annotation-regex (js/RegExp. "\\[!(TODO|NOTE|FIX):([^:]*):([^:]*):([^\\]]*)\\]" "g"))
+(def ^:private annotation-regex (js/RegExp. "\\[!(TODO|NOTE|FIX|PROPOSAL):([^:]*):([^:]*):([^\\]]*)\\]" "g"))
 
 ;; Syntax: [@aspect-id] - links to aspects
 (def ^:private aspect-link-regex (js/RegExp. "\\[@([^\\]]+)\\]" "g"))
@@ -689,6 +699,14 @@
               ;; Get alternative text if selected
               alt-text (when has-ai-selection?
                          (nth ai-alts (dec ai-sel)))
+              ;; Check if this is a PROPOSAL annotation with selection
+              is-proposal? (= type-str "PROPOSAL")
+              proposal-data (when is-proposal?
+                              (annotations/parse-proposal-data comment-text))
+              proposal-sel (when proposal-data (or (:sel proposal-data) 0))
+              has-proposal-selection? (and is-proposal? (pos? proposal-sel))
+              proposal-text (when has-proposal-selection?
+                              (:text proposal-data))
               ;; Calculate positions of parts: [!TYPE:text:priority:comment]
               prefix-end (+ start 2 (count type-str) 1) ; after [!TYPE:
               text-start prefix-end
@@ -709,6 +727,7 @@
             (let [css-class (cond
                               has-ai-selection? "cm-ai-selected"
                               is-ai-done? "cm-annotation-note"
+                              has-proposal-selection? "cm-proposal-selected"
                               :else (str "cm-annotation-" type-lower))]
               (.push builder (.range (.mark Decoration #js {:class css-class})
                                      start end)))
@@ -717,7 +736,9 @@
                   annotation-text (subs text start end)
                   spans-lines? (str/includes? annotation-text "\n")
                   ;; Also check if alt-text contains newlines
-                  alt-spans-lines? (and alt-text (str/includes? alt-text "\n"))]
+                  alt-spans-lines? (and alt-text (str/includes? alt-text "\n"))
+                  ;; Also check if proposal-text contains newlines
+                  proposal-spans-lines? (and proposal-text (str/includes? proposal-text "\n"))]
               (cond
                 ;; AI-DONE with selection (single line annotation AND alternative): use widget with strikethrough
                 (and has-ai-selection? (not spans-lines?) (not alt-spans-lines?))
@@ -734,6 +755,24 @@
                   ;; Insert widget with alternative text at start position
                   (.push builder (.range (.widget Decoration
                                                   #js {:widget (create-text-widget alt-text "cm-ai-alternative-text")
+                                                       :side 1})
+                                         start)))
+
+                ;; PROPOSAL with selection (sel=1): show proposed text with widget
+                (and has-proposal-selection? (not spans-lines?) (not proposal-spans-lines?))
+                (.push builder (.range (.replace Decoration
+                                                 #js {:widget (create-ai-alternative-widget selected-text proposal-text)})
+                                       start end))
+
+                ;; PROPOSAL with selection but multiline: hide annotation, show proposal as plain text
+                (and has-proposal-selection? (or spans-lines? proposal-spans-lines?))
+                (do
+                  ;; Hide the entire annotation
+                  (.push builder (.range (.mark Decoration #js {:class "cm-annotation-hidden"})
+                                         start end))
+                  ;; Insert widget with proposal text at start position
+                  (.push builder (.range (.widget Decoration
+                                                  #js {:widget (create-text-widget proposal-text "cm-proposal-text")
                                                        :side 1})
                                          start)))
 
@@ -880,11 +919,13 @@
                      menu-type (cond
                                  (annotations/is-ai-done? annotation-at-click) :annotation-ai-done
                                  (= priority :AI) :annotation-ai-pending
+                                 (annotations/is-proposal? annotation-at-click) :annotation-proposal
                                  :else :annotation-normal)
                      ;; Use appropriate menu height for position adjustment
                      menu-height (case menu-type
                                    :annotation-ai-done 300
                                    :annotation-ai-pending 60
+                                   :annotation-proposal 350
                                    :annotation-normal 100
                                    300)
                      viewport-height (.-innerHeight js/window)
@@ -901,10 +942,12 @@
                      menu-type (cond
                                  (annotations/is-ai-done? annotation-at-cursor) :annotation-ai-done
                                  (= priority :AI) :annotation-ai-pending
+                                 (annotations/is-proposal? annotation-at-cursor) :annotation-proposal
                                  :else :annotation-normal)
                      menu-height (case menu-type
                                    :annotation-ai-done 300
                                    :annotation-ai-pending 60
+                                   :annotation-proposal 350
                                    :annotation-normal 100
                                    300)
                      viewport-height (.-innerHeight js/window)
@@ -927,10 +970,12 @@
                            menu-type (cond
                                        (annotations/is-ai-done? annotation) :annotation-ai-done
                                        (= priority :AI) :annotation-ai-pending
+                                       (annotations/is-proposal? annotation) :annotation-proposal
                                        :else :annotation-normal)
                            menu-height (case menu-type
                                          :annotation-ai-done 300
                                          :annotation-ai-pending 60
+                                         :annotation-proposal 350
                                          :annotation-normal 100
                                          300)
                            viewport-height (.-innerHeight js/window)
@@ -1129,7 +1174,7 @@
 (defn- contains-annotation?
   "Check if text contains any annotation markers"
   [text]
-  (boolean (re-find #"\[!(TODO|NOTE|FIX):" text)))
+  (boolean (re-find #"\[!(TODO|NOTE|FIX|PROPOSAL):" text)))
 
 (defn- wrap-selection-with-annotation!
   "Wrap selected text with annotation syntax [!TYPE:text:priority:comment]"
@@ -1177,7 +1222,7 @@
    Returns annotation map or nil."
   [text chunk-id]
   (when (and text (str/starts-with? text "[!"))
-    (let [pattern (js/RegExp. "^\\[!(TODO|NOTE|FIX):([^:]*):([^:]*):([^\\]]*)\\]$")]
+    (let [pattern (js/RegExp. "^\\[!(TODO|NOTE|FIX|PROPOSAL):([^:]*):([^:]*):([^\\]]*)\\]$")]
       (when-let [match (.exec pattern text)]
         {:type (keyword (aget match 1))
          :selected-text (str/trim (aget match 2))
@@ -1190,7 +1235,7 @@
    Uses JavaScript RegExp with lastIndex to accurately find match positions."
   [text pos chunk-id]
   ;; Use JavaScript RegExp with global flag to get match positions
-  (let [pattern (js/RegExp. "\\[!(TODO|NOTE|FIX):([^:]*):([^:]*):([^\\]]*)\\]" "g")]
+  (let [pattern (js/RegExp. "\\[!(TODO|NOTE|FIX|PROPOSAL):([^:]*):([^:]*):([^\\]]*)\\]" "g")]
     (loop []
       (let [match (.exec pattern text)]
         (when match
@@ -2419,98 +2464,11 @@
                       :white-space "pre-wrap"}}
         (:text entry)])]))
 
-(defn- pending-proposal-entry
-  "Render a pending proposal with accept/reject buttons"
-  [proposal-match chunk-id colors]
-  (let [data (:data proposal-match)
-        reason-input (r/atom "")]
-    (fn [proposal-match chunk-id colors]
-      (let [data (:data proposal-match)]
-        [:div {:style {:padding "12px"
-                       :margin-bottom "8px"
-                       :background "rgba(255, 193, 7, 0.1)"
-                       :border-radius "6px"
-                       :border-left "3px solid #FFC107"}}
-         ;; Header
-         [:div {:style {:display "flex"
-                        :justify-content "space-between"
-                        :margin-bottom "8px"
-                        :font-size "0.8rem"
-                        :color (:text-muted colors)}}
-          [:span {:style {:font-weight "500"}}
-           (str (t :proposal-from) " " (:sender data))]
-          [:span {:style {:background "#FFC107"
-                          :color "#000"
-                          :padding "2px 6px"
-                          :border-radius "3px"
-                          :font-size "0.7rem"}}
-           (t :proposal-pending)]]
-         ;; Original vs Proposed
-         [:div {:style {:background (:editor-bg colors)
-                        :padding "10px"
-                        :border-radius "4px"
-                        :margin-bottom "10px"}}
-          [:div {:style {:margin-bottom "8px"}}
-           [:span {:style {:font-size "0.75rem" :color (:text-muted colors)}}
-            (t :proposal-original)]
-           [:div {:style {:margin-top "4px"
-                          :padding "6px"
-                          :background (:sidebar-bg colors)
-                          :border-radius "3px"
-                          :text-decoration "line-through"
-                          :color (:text-muted colors)}}
-            (:original-text data)]]
-          [:div
-           [:span {:style {:font-size "0.75rem" :color (:text-muted colors)}}
-            (t :proposal-proposed)]
-           [:div {:style {:margin-top "4px"
-                          :padding "6px"
-                          :background (:sidebar-bg colors)
-                          :border-radius "3px"
-                          :color (:text colors)}}
-            (:proposed-text data)]]]
-         ;; Reason input
-         [:input {:type "text"
-                  :style {:width "100%"
-                          :padding "6px 10px"
-                          :border (str "1px solid " (:border colors))
-                          :border-radius "4px"
-                          :background (:editor-bg colors)
-                          :color (:text colors)
-                          :font-size "0.85rem"
-                          :margin-bottom "10px"}
-                  :placeholder (t :proposal-reason)
-                  :value @reason-input
-                  :on-change #(reset! reason-input (-> % .-target .-value))}]
-         ;; Action buttons
-         [:div {:style {:display "flex" :gap "8px" :justify-content "flex-end"}}
-          [:button {:style {:padding "6px 12px"
-                            :background "#f44336"
-                            :color "white"
-                            :border "none"
-                            :border-radius "4px"
-                            :cursor "pointer"
-                            :font-size "0.8rem"}
-                    :on-click #(model/reject-proposal! chunk-id proposal-match
-                                                       :reason (when (seq @reason-input) @reason-input))}
-           (t :proposal-reject)]
-          [:button {:style {:padding "6px 12px"
-                            :background "#4CAF50"
-                            :color "white"
-                            :border "none"
-                            :border-radius "4px"
-                            :cursor "pointer"
-                            :font-size "0.8rem"}
-                    :on-click #(model/accept-proposal! chunk-id proposal-match
-                                                       :reason (when (seq @reason-input) @reason-input))}
-           (t :proposal-accept)]]]))))
-
 (defn discussion-view []
   (let [new-comment (r/atom "")]
     (fn []
       (let [chunk (model/get-selected-chunk)
             discussion (or (:discussion chunk) [])
-            pending-proposals (model/find-proposals (:content chunk))
             colors (:colors @settings/settings)
             chunk-id (:id chunk)]
         [:div {:style {:display "flex"
@@ -2539,48 +2497,20 @@
                       :on-click #(when (js/confirm (t :discussion-clear-confirm))
                                    (model/clear-discussion! chunk-id))}
              (t :discussion-clear)])]
-         ;; Scrollable content
+         ;; Scrollable content (discussion entries)
          [:div {:style {:flex 1
                         :overflow-y "auto"
                         :padding "16px"}}
-          ;; Pending proposals section
-          (when (seq pending-proposals)
-            [:div {:style {:margin-bottom "20px"}}
-             [:div {:style {:font-size "0.85rem"
-                            :font-weight "500"
-                            :color (:text colors)
-                            :margin-bottom "10px"
-                            :display "flex"
-                            :align-items "center"
-                            :gap "8px"}}
-              [:span {:style {:background "#FFC107"
-                              :color "#000"
-                              :padding "2px 8px"
-                              :border-radius "10px"
-                              :font-size "0.75rem"}}
-               (count pending-proposals)]
-              (t :proposal)]
-             (for [[idx prop] (map-indexed vector pending-proposals)]
-               ^{:key (str "prop-" idx)}
-               [pending-proposal-entry prop chunk-id colors])])
-          ;; Discussion entries (resolved)
-          (if (and (empty? discussion) (empty? pending-proposals))
+          (if (empty? discussion)
             [:div {:style {:text-align "center"
                            :color (:text-muted colors)
                            :padding "32px"
                            :font-style "italic"}}
              (t :discussion-empty)]
-            (when (seq discussion)
-              [:div
-               (when (seq pending-proposals)
-                 [:div {:style {:font-size "0.85rem"
-                                :font-weight "500"
-                                :color (:text colors)
-                                :margin-bottom "10px"}}
-                  (t :discussion)])
-               (for [[idx entry] (map-indexed vector discussion)]
-                 ^{:key (str "disc-" idx)}
-                 [discussion-entry entry colors])]))]
+            [:div
+             (for [[idx entry] (map-indexed vector discussion)]
+               ^{:key (str "disc-" idx)}
+               [discussion-entry entry colors])])]
          ;; New comment input
          [:div {:style {:padding "12px"
                         :border-top (str "1px solid " (:border colors))

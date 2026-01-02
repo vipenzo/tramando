@@ -157,7 +157,7 @@
       (check-match summary) :summary
       ;; Check if match is in annotation
       (and (check-match content)
-           (re-find #"\[!(TODO|NOTE|FIX):" content)
+           (re-find #"\[!(TODO|NOTE|FIX|PROPOSAL):" content)
            (let [stripped (annotations/strip-annotations content)]
              (not (check-match stripped)))) :annotation
       (check-match content) :content
@@ -416,6 +416,7 @@
     :TODO "#f5a623"
     :NOTE "#2196f3"
     :FIX "#f44336"
+    :PROPOSAL "#9c27b0"
     "#888"))
 
 (defn- format-priority
@@ -539,8 +540,8 @@
 
 (defn annotations-section []
   (let [_chunks @model/app-state ; subscribe to changes
-        {:keys [TODO NOTE FIX]} (annotations/get-all-annotations)
-        total (+ (count TODO) (count NOTE) (count FIX))
+        {:keys [TODO NOTE FIX PROPOSAL]} (annotations/get-all-annotations)
+        total (+ (count TODO) (count NOTE) (count FIX) (count PROPOSAL))
         is-collapsed? (not (expanded? "annotations-section"))
         colors (:colors @settings/settings)]
     [:div {:style {:margin-top "16px" :padding-top "16px" :border-top (str "1px solid " (:border colors))}}
@@ -564,6 +565,8 @@
          total])]
      (when-not is-collapsed?
        [:div
+        (when (pos? (count PROPOSAL))
+          [annotation-type-section :PROPOSAL PROPOSAL])
         (when (pos? (count TODO))
           [annotation-type-section :TODO TODO])
         (when (pos? (count FIX))

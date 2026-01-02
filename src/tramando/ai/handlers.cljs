@@ -93,7 +93,7 @@
 (defn- contains-annotation?
   "Check if text contains any annotation markers"
   [text]
-  (boolean (re-find #"\[!(TODO|NOTE|FIX):" text)))
+  (boolean (re-find #"\[!(TODO|NOTE|FIX|PROPOSAL):" text)))
 
 (defn insert-ai-annotation!
   "Insert [!NOTE:text:AI:] annotation in chunk content.

@@ -101,6 +101,26 @@ Quando una proposta viene accettata o rifiutata e poi rimossa dal testo, migra n
 - Un admin di progetto può riassegnare ownership
 - Ownership temporanea: quando scade, torna a previous-owner
 
+## Undo in modalità collaborativa
+
+L'undo rispetta i confini dell'ownership e non crea mai conflitti cross-utente.
+
+### Se sei owner del chunk:
+- Undo completo, come in modalità locale
+- Puoi annullare qualsiasi modifica, incluse quelle derivanti da proposte che hai accettato
+- La responsabilità del contenuto è tua
+
+### Se non sei owner del chunk:
+- Puoi solo creare proposte
+- Undo cancella la tua proposta pending (non ancora valutata dall'owner)
+- Se la proposta è già stata accettata o rifiutata, non c'è nulla da annullare — il testo appartiene all'owner
+
+### Principio generale
+
+L'undo non attraversa mai il confine dell'ownership. Ogni utente annulla solo le proprie azioni, e le proprie azioni sono limitate dal ruolo che ha su quel chunk.
+
+Questo elimina la necessità di merge complessi o gestione di conflitti in caso di undo concorrenti.
+
 ## Ruoli
 
 ### Livello sistema
