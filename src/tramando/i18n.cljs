@@ -80,6 +80,19 @@
     :discussion-proposal-rejected "Proposta rifiutata"
     :help-tab-discussion "Commenti e proposte risolte per questo chunk"
 
+    ;; Proposals
+    :proposal "Proposta"
+    :proposal-create "Proponi modifica"
+    :proposal-accept "Accetta"
+    :proposal-reject "Rifiuta"
+    :proposal-from "Proposta di {0}"
+    :proposal-original "Testo originale:"
+    :proposal-proposed "Testo proposto:"
+    :proposal-pending "In attesa"
+    :proposal-enter-text "Inserisci il testo proposto..."
+    :proposal-reason "Motivo (opzionale)..."
+    :proposal-no-selection "Seleziona del testo per proporre una modifica"
+
     ;; Status
     :modified "Modificato"
     :saving "Salvataggio..."
@@ -527,6 +540,19 @@
     :discussion-proposal-accepted "Proposal accepted"
     :discussion-proposal-rejected "Proposal rejected"
     :help-tab-discussion "Comments and resolved proposals for this chunk"
+
+    ;; Proposals
+    :proposal "Proposal"
+    :proposal-create "Propose change"
+    :proposal-accept "Accept"
+    :proposal-reject "Reject"
+    :proposal-from "Proposal from {0}"
+    :proposal-original "Original text:"
+    :proposal-proposed "Proposed text:"
+    :proposal-pending "Pending"
+    :proposal-enter-text "Enter proposed text..."
+    :proposal-reason "Reason (optional)..."
+    :proposal-no-selection "Select text to propose a change"
 
     ;; Status
     :modified "Modified"

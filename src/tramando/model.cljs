@@ -173,6 +173,75 @@
     {:content content
      :discussion []}))
 
+;; =============================================================================
+;; Inline Proposals
+;; =============================================================================
+;; Format: [!PROPOSAL:base64] where base64 contains JSON with:
+;; {:sender "username", :status "pending", :original-text "...", :proposed-text "...", :created-at "ISO"}
+
+(def ^:private proposal-re #"\[!PROPOSAL:([^\]]+)\]")
+
+(defn encode-proposal
+  "Encode a proposal to Base64 marker"
+  [proposal]
+  (str "[!PROPOSAL:" (encode-base64 (js/JSON.stringify (clj->js proposal))) "]"))
+
+(defn decode-proposal
+  "Decode a Base64 proposal marker to map"
+  [base64-str]
+  (when-let [json-str (decode-base64 base64-str)]
+    (try
+      (let [parsed (js->clj (js/JSON.parse json-str) :keywordize-keys true)]
+        ;; Convert status string to keyword
+        (update parsed :status keyword))
+      (catch :default _
+        nil))))
+
+(defn find-proposals
+  "Find all proposals in content. Returns [{:match \"full marker\" :data {...} :start idx :end idx}]"
+  [content]
+  (when content
+    (let [matches (re-seq proposal-re content)]
+      (->> matches
+           (map (fn [[full-match base64-data]]
+                  (let [start (.indexOf content full-match)]
+                    {:match full-match
+                     :data (decode-proposal base64-data)
+                     :start start
+                     :end (+ start (count full-match))})))
+           (filter :data)  ;; Only valid proposals
+           vec))))
+
+(defn create-proposal
+  "Create a new proposal map"
+  [{:keys [original-text proposed-text sender]
+    :or {sender "local"}}]
+  {:sender sender
+   :status :pending
+   :original-text original-text
+   :proposed-text proposed-text
+   :created-at (.toISOString (js/Date.))})
+
+(defn insert-proposal-in-content
+  "Replace selected text with a proposal marker in content"
+  [content start end proposed-text sender]
+  (let [original-text (subs content start end)
+        proposal (create-proposal {:original-text original-text
+                                   :proposed-text proposed-text
+                                   :sender sender})
+        marker (encode-proposal proposal)]
+    (str (subs content 0 start) marker (subs content end))))
+
+(defn accept-proposal-in-content
+  "Accept a proposal: replace marker with proposed-text"
+  [content proposal-match]
+  (str/replace content (:match proposal-match) (:proposed-text (:data proposal-match))))
+
+(defn reject-proposal-in-content
+  "Reject a proposal: replace marker with original-text"
+  [content proposal-match]
+  (str/replace content (:match proposal-match) (:original-text (:data proposal-match))))
+
 (defn- count-indent
   "Count leading spaces (2 spaces = 1 level)"
   [line]
@@ -627,6 +696,84 @@
                      c))
                  chunks)))
   (mark-modified!))
+
+;; =============================================================================
+;; Proposal Actions (create, accept, reject with discussion migration)
+;; =============================================================================
+
+(defn create-proposal-in-chunk!
+  "Create a proposal by replacing selected text in chunk content.
+   Returns the new content with the proposal marker."
+  [chunk-id start end proposed-text]
+  (when-let [chunk (get-chunk chunk-id)]
+    (let [content (:content chunk)
+          new-content (insert-proposal-in-content content start end proposed-text "local")]
+      (push-history!)
+      (swap! app-state update :chunks
+             (fn [chunks]
+               (mapv (fn [c]
+                       (if (= (:id c) chunk-id)
+                         (assoc c :content new-content)
+                         c))
+                     chunks)))
+      (mark-modified!)
+      new-content)))
+
+(defn accept-proposal!
+  "Accept a proposal: replace marker with proposed-text and add to discussion"
+  [chunk-id proposal-match & {:keys [reason] :or {reason nil}}]
+  (when-let [chunk (get-chunk chunk-id)]
+    (let [content (:content chunk)
+          proposal-data (:data proposal-match)
+          new-content (accept-proposal-in-content content proposal-match)
+          ;; Create discussion entry
+          discussion-entry {:author (:sender proposal-data)
+                            :timestamp (.toISOString (js/Date.))
+                            :type :proposal
+                            :previous-text (:original-text proposal-data)
+                            :proposed-text (:proposed-text proposal-data)
+                            :answer :accepted
+                            :reason reason}]
+      (push-history!)
+      (swap! app-state update :chunks
+             (fn [chunks]
+               (mapv (fn [c]
+                       (if (= (:id c) chunk-id)
+                         (-> c
+                             (assoc :content new-content)
+                             (update :discussion (fnil conj []) discussion-entry))
+                         c))
+                     chunks)))
+      (mark-modified!)
+      new-content)))
+
+(defn reject-proposal!
+  "Reject a proposal: replace marker with original-text and add to discussion"
+  [chunk-id proposal-match & {:keys [reason] :or {reason nil}}]
+  (when-let [chunk (get-chunk chunk-id)]
+    (let [content (:content chunk)
+          proposal-data (:data proposal-match)
+          new-content (reject-proposal-in-content content proposal-match)
+          ;; Create discussion entry
+          discussion-entry {:author (:sender proposal-data)
+                            :timestamp (.toISOString (js/Date.))
+                            :type :proposal
+                            :previous-text (:original-text proposal-data)
+                            :proposed-text (:proposed-text proposal-data)
+                            :answer :rejected
+                            :reason reason}]
+      (push-history!)
+      (swap! app-state update :chunks
+             (fn [chunks]
+               (mapv (fn [c]
+                       (if (= (:id c) chunk-id)
+                         (-> c
+                             (assoc :content new-content)
+                             (update :discussion (fnil conj []) discussion-entry))
+                         c))
+                     chunks)))
+      (mark-modified!)
+      new-content)))
 
 (defn add-chunk!
   "Add a new chunk, optionally with a parent, summary, and content.

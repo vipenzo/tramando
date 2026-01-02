@@ -285,6 +285,23 @@
                          (:selected-text @menu-state)))
   (hide-menu!))
 
+(defn handle-create-proposal!
+  "Handle creating a proposal for selected text"
+  []
+  (let [chunk (:chunk @menu-state)
+        selected-text (:selected-text @menu-state)]
+    (when (and chunk (seq selected-text))
+      ;; Prompt for proposed text
+      (when-let [proposed-text (js/prompt (t :proposal-enter-text) selected-text)]
+        (when (and (seq proposed-text) (not= proposed-text selected-text))
+          (let [content (:content chunk)
+                ;; Find the position of selected text in content
+                start (.indexOf content selected-text)]
+            (when (>= start 0)
+              (let [end (+ start (count selected-text))]
+                (model/create-proposal-in-chunk! (:id chunk) start end proposed-text))))))))
+  (hide-menu!))
+
 ;; =============================================================================
 ;; Menu Components
 ;; =============================================================================
@@ -656,6 +673,12 @@
                   :submenu-key :annotation}]
       (when (= open-submenu :annotation)
         [annotation-submenu (calculate-submenu-rect x y 0 menu-width)])]
+
+     ;; Proposal section (collaborative)
+     [menu-separator]
+     [menu-item {:label (t :proposal-create)
+                 :on-click handle-create-proposal!
+                 :icon "💬"}]
 
      ;; AI section (only if configured)
      (when ai-configured?

@@ -2419,11 +2419,98 @@
                       :white-space "pre-wrap"}}
         (:text entry)])]))
 
+(defn- pending-proposal-entry
+  "Render a pending proposal with accept/reject buttons"
+  [proposal-match chunk-id colors]
+  (let [data (:data proposal-match)
+        reason-input (r/atom "")]
+    (fn [proposal-match chunk-id colors]
+      (let [data (:data proposal-match)]
+        [:div {:style {:padding "12px"
+                       :margin-bottom "8px"
+                       :background "rgba(255, 193, 7, 0.1)"
+                       :border-radius "6px"
+                       :border-left "3px solid #FFC107"}}
+         ;; Header
+         [:div {:style {:display "flex"
+                        :justify-content "space-between"
+                        :margin-bottom "8px"
+                        :font-size "0.8rem"
+                        :color (:text-muted colors)}}
+          [:span {:style {:font-weight "500"}}
+           (str (t :proposal-from) " " (:sender data))]
+          [:span {:style {:background "#FFC107"
+                          :color "#000"
+                          :padding "2px 6px"
+                          :border-radius "3px"
+                          :font-size "0.7rem"}}
+           (t :proposal-pending)]]
+         ;; Original vs Proposed
+         [:div {:style {:background (:editor-bg colors)
+                        :padding "10px"
+                        :border-radius "4px"
+                        :margin-bottom "10px"}}
+          [:div {:style {:margin-bottom "8px"}}
+           [:span {:style {:font-size "0.75rem" :color (:text-muted colors)}}
+            (t :proposal-original)]
+           [:div {:style {:margin-top "4px"
+                          :padding "6px"
+                          :background (:sidebar-bg colors)
+                          :border-radius "3px"
+                          :text-decoration "line-through"
+                          :color (:text-muted colors)}}
+            (:original-text data)]]
+          [:div
+           [:span {:style {:font-size "0.75rem" :color (:text-muted colors)}}
+            (t :proposal-proposed)]
+           [:div {:style {:margin-top "4px"
+                          :padding "6px"
+                          :background (:sidebar-bg colors)
+                          :border-radius "3px"
+                          :color (:text colors)}}
+            (:proposed-text data)]]]
+         ;; Reason input
+         [:input {:type "text"
+                  :style {:width "100%"
+                          :padding "6px 10px"
+                          :border (str "1px solid " (:border colors))
+                          :border-radius "4px"
+                          :background (:editor-bg colors)
+                          :color (:text colors)
+                          :font-size "0.85rem"
+                          :margin-bottom "10px"}
+                  :placeholder (t :proposal-reason)
+                  :value @reason-input
+                  :on-change #(reset! reason-input (-> % .-target .-value))}]
+         ;; Action buttons
+         [:div {:style {:display "flex" :gap "8px" :justify-content "flex-end"}}
+          [:button {:style {:padding "6px 12px"
+                            :background "#f44336"
+                            :color "white"
+                            :border "none"
+                            :border-radius "4px"
+                            :cursor "pointer"
+                            :font-size "0.8rem"}
+                    :on-click #(model/reject-proposal! chunk-id proposal-match
+                                                       :reason (when (seq @reason-input) @reason-input))}
+           (t :proposal-reject)]
+          [:button {:style {:padding "6px 12px"
+                            :background "#4CAF50"
+                            :color "white"
+                            :border "none"
+                            :border-radius "4px"
+                            :cursor "pointer"
+                            :font-size "0.8rem"}
+                    :on-click #(model/accept-proposal! chunk-id proposal-match
+                                                       :reason (when (seq @reason-input) @reason-input))}
+           (t :proposal-accept)]]]))))
+
 (defn discussion-view []
   (let [new-comment (r/atom "")]
     (fn []
       (let [chunk (model/get-selected-chunk)
             discussion (or (:discussion chunk) [])
+            pending-proposals (model/find-proposals (:content chunk))
             colors (:colors @settings/settings)
             chunk-id (:id chunk)]
         [:div {:style {:display "flex"
@@ -2452,19 +2539,48 @@
                       :on-click #(when (js/confirm (t :discussion-clear-confirm))
                                    (model/clear-discussion! chunk-id))}
              (t :discussion-clear)])]
-         ;; Discussion list (scrollable)
+         ;; Scrollable content
          [:div {:style {:flex 1
                         :overflow-y "auto"
                         :padding "16px"}}
-          (if (empty? discussion)
+          ;; Pending proposals section
+          (when (seq pending-proposals)
+            [:div {:style {:margin-bottom "20px"}}
+             [:div {:style {:font-size "0.85rem"
+                            :font-weight "500"
+                            :color (:text colors)
+                            :margin-bottom "10px"
+                            :display "flex"
+                            :align-items "center"
+                            :gap "8px"}}
+              [:span {:style {:background "#FFC107"
+                              :color "#000"
+                              :padding "2px 8px"
+                              :border-radius "10px"
+                              :font-size "0.75rem"}}
+               (count pending-proposals)]
+              (t :proposal)]
+             (for [[idx prop] (map-indexed vector pending-proposals)]
+               ^{:key (str "prop-" idx)}
+               [pending-proposal-entry prop chunk-id colors])])
+          ;; Discussion entries (resolved)
+          (if (and (empty? discussion) (empty? pending-proposals))
             [:div {:style {:text-align "center"
                            :color (:text-muted colors)
                            :padding "32px"
                            :font-style "italic"}}
              (t :discussion-empty)]
-            (for [[idx entry] (map-indexed vector discussion)]
-              ^{:key idx}
-              [discussion-entry entry colors]))]
+            (when (seq discussion)
+              [:div
+               (when (seq pending-proposals)
+                 [:div {:style {:font-size "0.85rem"
+                                :font-weight "500"
+                                :color (:text colors)
+                                :margin-bottom "10px"}}
+                  (t :discussion)])
+               (for [[idx entry] (map-indexed vector discussion)]
+                 ^{:key (str "disc-" idx)}
+                 [discussion-entry entry colors])]))]
          ;; New comment input
          [:div {:style {:padding "12px"
                         :border-top (str "1px solid " (:border colors))
