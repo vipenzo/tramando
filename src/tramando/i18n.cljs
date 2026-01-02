@@ -67,6 +67,19 @@
     :click-to-navigate "Clicca per navigare all'aspetto"
     :remove "Rimuovi"
 
+    ;; Discussion
+    :discussion "Discussione"
+    :discussion-empty "Nessun commento per questo chunk."
+    :discussion-add-comment "Aggiungi commento..."
+    :discussion-send "Invia"
+    :discussion-clear "Svuota discussione"
+    :discussion-clear-confirm "Eliminare tutti i commenti?"
+    :discussion-owner "Proprietario"
+    :discussion-comment "Commento"
+    :discussion-proposal-accepted "Proposta accettata"
+    :discussion-proposal-rejected "Proposta rifiutata"
+    :help-tab-discussion "Commenti e proposte risolte per questo chunk"
+
     ;; Status
     :modified "Modificato"
     :saving "Salvataggio..."
@@ -501,6 +514,19 @@
     :click-to-edit-id "Click to edit ID"
     :click-to-navigate "Click to navigate to aspect"
     :remove "Remove"
+
+    ;; Discussion
+    :discussion "Discussion"
+    :discussion-empty "No comments for this chunk."
+    :discussion-add-comment "Add comment..."
+    :discussion-send "Send"
+    :discussion-clear "Clear discussion"
+    :discussion-clear-confirm "Delete all comments?"
+    :discussion-owner "Owner"
+    :discussion-comment "Comment"
+    :discussion-proposal-accepted "Proposal accepted"
+    :discussion-proposal-rejected "Proposal rejected"
+    :help-tab-discussion "Comments and resolved proposals for this chunk"
 
     ;; Status
     :modified "Modified"

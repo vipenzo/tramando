@@ -565,6 +565,69 @@
                  chunks)))
   (mark-modified!))
 
+;; =============================================================================
+;; Discussion Management
+;; =============================================================================
+
+(defn get-discussion
+  "Get the discussion for the currently selected chunk"
+  []
+  (when-let [chunk (get-selected-chunk)]
+    (:discussion chunk)))
+
+(defn add-comment!
+  "Add a comment to the discussion of a chunk.
+   comment-data should be {:text \"...\"}
+   Author and timestamp are added automatically."
+  [chunk-id comment-data]
+  (let [comment {:author "local"  ;; In collaborative mode, this will be the username
+                 :timestamp (.toISOString (js/Date.))
+                 :type :comment
+                 :text (:text comment-data)}]
+    (push-history!)
+    (swap! app-state update :chunks
+           (fn [chunks]
+             (mapv (fn [c]
+                     (if (= (:id c) chunk-id)
+                       (update c :discussion (fnil conj []) comment)
+                       c))
+                   chunks)))
+    (mark-modified!)))
+
+(defn add-resolved-proposal!
+  "Add a resolved proposal to the discussion (migrated from inline).
+   proposal-data should include :previous-text, :proposed-text, :answer, :reason"
+  [chunk-id proposal-data]
+  (let [entry {:author (:author proposal-data "local")
+               :timestamp (.toISOString (js/Date.))
+               :type :proposal
+               :previous-text (:previous-text proposal-data)
+               :proposed-text (:proposed-text proposal-data)
+               :answer (:answer proposal-data)  ;; :accepted or :rejected
+               :reason (:reason proposal-data)}]
+    (push-history!)
+    (swap! app-state update :chunks
+           (fn [chunks]
+             (mapv (fn [c]
+                     (if (= (:id c) chunk-id)
+                       (update c :discussion (fnil conj []) entry)
+                       c))
+                   chunks)))
+    (mark-modified!)))
+
+(defn clear-discussion!
+  "Clear all discussion entries for a chunk (purge)"
+  [chunk-id]
+  (push-history!)
+  (swap! app-state update :chunks
+         (fn [chunks]
+           (mapv (fn [c]
+                   (if (= (:id c) chunk-id)
+                     (assoc c :discussion [])
+                     c))
+                 chunks)))
+  (mark-modified!))
+
 (defn add-chunk!
   "Add a new chunk, optionally with a parent, summary, and content.
    If :id is provided, uses that ID instead of auto-generating.

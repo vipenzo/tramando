@@ -1800,7 +1800,7 @@
 ;; Tab State
 ;; =============================================================================
 
-(defonce active-tab (r/atom :edit)) ;; :edit, :refs, :read
+(defonce active-tab (r/atom :edit)) ;; :edit, :refs, :read, :discussion
 
 (defn set-tab! [tab]
   (reset! active-tab tab))
@@ -1846,6 +1846,16 @@
                :title (t :help-tab-lettura)
                :on-click #(set-tab! :read)}
       (t :reading)]
+     [:button {:style {:background (if (= current :discussion) (:editor-bg colors) "transparent")
+                       :color (if (= current :discussion) (:accent colors) (:text-muted colors))
+                       :border "none"
+                       :padding "8px 16px"
+                       :cursor "pointer"
+                       :font-size "0.85rem"
+                       :border-bottom (when (= current :discussion) (str "2px solid " (:accent colors)))}
+               :title (t :help-tab-discussion)
+               :on-click #(set-tab! :discussion)}
+      (t :discussion)]
      ;; Spacer to push markup toggle to the right
      [:div {:style {:flex 1}}]
      ;; Markup toggle
@@ -2343,6 +2353,151 @@
               [help/help-icon :help-replace]])])))))
 
 ;; =============================================================================
+;; Discussion View
+;; =============================================================================
+
+(defn- format-timestamp
+  "Format ISO timestamp to readable date/time"
+  [iso-string]
+  (try
+    (let [date (js/Date. iso-string)]
+      (str (.toLocaleDateString date) " " (.toLocaleTimeString date)))
+    (catch :default _
+      iso-string)))
+
+(defn- discussion-entry
+  "Render a single discussion entry (comment or resolved proposal)"
+  [entry colors]
+  (let [is-proposal? (= (:type entry) :proposal)]
+    [:div {:style {:padding "12px"
+                   :margin-bottom "8px"
+                   :background (:sidebar-bg colors)
+                   :border-radius "6px"
+                   :border-left (str "3px solid " (if is-proposal?
+                                                    (if (= (:answer entry) :accepted)
+                                                      "#4CAF50"
+                                                      "#f44336")
+                                                    (:accent colors)))}}
+     ;; Header: author + timestamp
+     [:div {:style {:display "flex"
+                    :justify-content "space-between"
+                    :margin-bottom "8px"
+                    :font-size "0.8rem"
+                    :color (:text-muted colors)}}
+      [:span {:style {:font-weight "500"}} (:author entry)]
+      [:span (format-timestamp (:timestamp entry))]]
+     ;; Content based on type
+     (if is-proposal?
+       ;; Proposal entry
+       [:div
+        [:div {:style {:font-size "0.75rem"
+                       :text-transform "uppercase"
+                       :margin-bottom "6px"
+                       :color (if (= (:answer entry) :accepted) "#4CAF50" "#f44336")}}
+         (if (= (:answer entry) :accepted)
+           (t :discussion-proposal-accepted)
+           (t :discussion-proposal-rejected))]
+        [:div {:style {:background (:editor-bg colors)
+                       :padding "8px"
+                       :border-radius "4px"
+                       :font-size "0.85rem"
+                       :margin-bottom "6px"}}
+         [:div {:style {:text-decoration "line-through"
+                        :color (:text-muted colors)
+                        :margin-bottom "4px"}}
+          (:previous-text entry)]
+         [:div {:style {:color (:text colors)}}
+          (:proposed-text entry)]]
+        (when (:reason entry)
+          [:div {:style {:font-style "italic"
+                         :font-size "0.85rem"
+                         :color (:text-muted colors)}}
+           (:reason entry)])]
+       ;; Comment entry
+       [:div {:style {:font-size "0.9rem"
+                      :color (:text colors)
+                      :white-space "pre-wrap"}}
+        (:text entry)])]))
+
+(defn discussion-view []
+  (let [new-comment (r/atom "")]
+    (fn []
+      (let [chunk (model/get-selected-chunk)
+            discussion (or (:discussion chunk) [])
+            colors (:colors @settings/settings)
+            chunk-id (:id chunk)]
+        [:div {:style {:display "flex"
+                       :flex-direction "column"
+                       :height "100%"
+                       :overflow "hidden"}}
+         ;; Header with owner info
+         [:div {:style {:padding "12px 16px"
+                        :border-bottom (str "1px solid " (:border colors))
+                        :display "flex"
+                        :justify-content "space-between"
+                        :align-items "center"}}
+          [:div {:style {:font-size "0.85rem" :color (:text-muted colors)}}
+           (str (t :discussion-owner) ": ")
+           [:span {:style {:color (:text colors) :font-weight "500"}}
+            (or (:owner chunk) "local")]]
+          ;; Clear button (only if there are entries)
+          (when (seq discussion)
+            [:button {:style {:background "transparent"
+                              :border (str "1px solid " (:border colors))
+                              :color (:text-muted colors)
+                              :padding "4px 8px"
+                              :border-radius "4px"
+                              :font-size "0.75rem"
+                              :cursor "pointer"}
+                      :on-click #(when (js/confirm (t :discussion-clear-confirm))
+                                   (model/clear-discussion! chunk-id))}
+             (t :discussion-clear)])]
+         ;; Discussion list (scrollable)
+         [:div {:style {:flex 1
+                        :overflow-y "auto"
+                        :padding "16px"}}
+          (if (empty? discussion)
+            [:div {:style {:text-align "center"
+                           :color (:text-muted colors)
+                           :padding "32px"
+                           :font-style "italic"}}
+             (t :discussion-empty)]
+            (for [[idx entry] (map-indexed vector discussion)]
+              ^{:key idx}
+              [discussion-entry entry colors]))]
+         ;; New comment input
+         [:div {:style {:padding "12px"
+                        :border-top (str "1px solid " (:border colors))
+                        :display "flex"
+                        :gap "8px"}}
+          [:textarea {:style {:flex 1
+                              :padding "8px 12px"
+                              :border (str "1px solid " (:border colors))
+                              :border-radius "4px"
+                              :background (:editor-bg colors)
+                              :color (:text colors)
+                              :font-size "0.9rem"
+                              :resize "none"
+                              :min-height "60px"
+                              :font-family "inherit"}
+                      :placeholder (t :discussion-add-comment)
+                      :value @new-comment
+                      :on-change #(reset! new-comment (-> % .-target .-value))}]
+          [:button {:style {:padding "8px 16px"
+                            :background (:accent colors)
+                            :color "white"
+                            :border "none"
+                            :border-radius "4px"
+                            :cursor "pointer"
+                            :font-size "0.85rem"
+                            :align-self "flex-end"}
+                    :disabled (empty? (str/trim @new-comment))
+                    :on-click #(when-not (empty? (str/trim @new-comment))
+                                 (model/add-comment! chunk-id {:text @new-comment})
+                                 (reset! new-comment ""))}
+           (t :discussion-send)]]]))))
+
+;; =============================================================================
 ;; Tab Content
 ;; =============================================================================
 
@@ -2353,4 +2508,5 @@
            [editor-component]]
     :refs [refs-view]
     :read [read-view]
+    :discussion [discussion-view]
     nil))
