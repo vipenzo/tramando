@@ -681,19 +681,20 @@
 
 (def annotation-highlight
   (.define ViewPlugin
-           (fn [view]
+           (fn [^js view]
              (let [show? @annotations/show-markup?]
                #js {:decorations (create-annotation-decorations view show?)
                     :showMarkup show?
-                    :update (fn [vu] ; vu = ViewUpdate
+                    :update (fn [^js vu] ; vu = ViewUpdate
                               (this-as this
-                                (let [current-show? @annotations/show-markup?]
+                                (let [^js this this
+                                      current-show? @annotations/show-markup?]
                                   (when (or (.-docChanged vu)
                                             (not= (.-showMarkup this) current-show?))
                                     (set! (.-showMarkup this) current-show?)
                                     (set! (.-decorations this)
                                           (create-annotation-decorations (.-view vu) current-show?))))))}))
-           #js {:decorations (fn [v] (.-decorations v))}))
+           #js {:decorations (fn [^js v] (.-decorations v))}))
 
 ;; =============================================================================
 ;; Update Handler
@@ -701,10 +702,195 @@
 
 (defn make-update-listener [chunk-id]
   (.of (.-updateListener EditorView)
-       (fn [update]
+       (fn [^js update]
          (when (.-docChanged update)
            (let [content (.. update -state -doc (toString))]
              (model/update-chunk! chunk-id {:content content})))
+         js/undefined)))
+
+;; Forward declarations for functions defined later in the file
+(declare find-annotation-at-position)
+(declare parse-annotation-from-text)
+(declare build-parent-tree)
+(declare build-aspects-tree)
+(declare adjust-menu-position)
+
+(defn make-contextmenu-extension [chunk-id]
+  "CodeMirror extension for handling right-click context menu"
+  (.domEventHandlers EditorView
+    #js {:contextmenu
+         (fn [event ^js view]
+           (let [^js state (.-state view)
+                 sel (.. state -selection -main)
+                 sel-from (.-from sel)
+                 sel-to (.-to sel)
+                 has-selection? (not= sel-from sel-to)
+                 doc-text (.. state -doc (toString))
+                 chunk (model/get-selected-chunk)
+                 x (.-clientX event)
+                 y (.-clientY event)
+                 [adj-x adj-y] (adjust-menu-position x y)
+                 ;; Get position where user actually clicked
+                 click-pos (try
+                             (.posAtCoords view #js {:x x :y y})
+                             (catch :default _ nil))
+                 ;; Check for annotation at click position, cursor, or selection
+                 annotation-at-click (when click-pos
+                                       (find-annotation-at-position doc-text click-pos chunk-id))
+                 annotation-at-cursor (find-annotation-at-position doc-text sel-from chunk-id)]
+             (.preventDefault event)
+             (cond
+               ;; Annotation at click position - show annotation menu
+               annotation-at-click
+               (do
+                 (let [priority (:priority annotation-at-click)
+                       menu-type (cond
+                                   (annotations/is-ai-done? annotation-at-click) :annotation-ai-done
+                                   (= priority :AI) :annotation-ai-pending
+                                   :else :annotation-normal)]
+                   (context-menu/show-menu! adj-x adj-y nil nil
+                                            :annotation annotation-at-click
+                                            :menu-type menu-type)))
+
+               ;; Annotation at cursor position - show annotation menu
+               annotation-at-cursor
+               (do
+                 (let [priority (:priority annotation-at-cursor)
+                       menu-type (cond
+                                   (annotations/is-ai-done? annotation-at-cursor) :annotation-ai-done
+                                   (= priority :AI) :annotation-ai-pending
+                                   :else :annotation-normal)]
+                   (context-menu/show-menu! adj-x adj-y nil nil
+                                            :annotation annotation-at-cursor
+                                            :menu-type menu-type)))
+
+               ;; Has selection - show selection menu
+               has-selection?
+               (let [selected-text (.. state (sliceDoc sel-from sel-to))
+                     annotation-at-end (find-annotation-at-position doc-text sel-to chunk-id)
+                     annotation-from-text (parse-annotation-from-text selected-text chunk-id)
+                     annotation (or annotation-at-end annotation-from-text)]
+                 (when (seq (str/trim selected-text))
+                   (if annotation
+                     (do
+                       (let [priority (:priority annotation)
+                             menu-type (cond
+                                         (annotations/is-ai-done? annotation) :annotation-ai-done
+                                         (= priority :AI) :annotation-ai-pending
+                                         :else :annotation-normal)]
+                         (context-menu/show-menu! adj-x adj-y nil nil
+                                                  :annotation annotation
+                                                  :menu-type menu-type)))
+                     (do
+                       (context-menu/show-menu! adj-x adj-y chunk selected-text)))))
+
+               ;; Nothing to show - no action needed
+               :else nil)
+             ;; Return true to indicate event was handled
+             true))}))
+
+;; =============================================================================
+;; Selection-based Context Menu
+;; =============================================================================
+
+(defonce last-selection-range (atom nil))
+
+(defn- adjust-menu-position
+  "Adjust menu position to avoid clipping at screen edges"
+  [x y]
+  (let [viewport-width (.-innerWidth js/window)
+        viewport-height (.-innerHeight js/window)
+        menu-width 220  ;; approximate menu width
+        menu-height 300 ;; approximate max menu height
+        adjusted-x (if (> (+ x menu-width) viewport-width)
+                     (- viewport-width menu-width 10)
+                     x)
+        adjusted-y (if (> (+ y menu-height) viewport-height)
+                     (- y menu-height 10) ;; show above instead
+                     y)]
+    [adjusted-x adjusted-y]))
+
+(defn open-context-menu-for-selection!
+  "Open context menu for current selection or annotation at cursor.
+   Called by keyboard shortcut (Cmd+M). Returns true if menu was opened."
+  []
+  (when-let [^js view @editor-view-ref]
+    (let [state (.-state view)
+          sel (.. state -selection -main)
+          sel-from (.-from sel)
+          sel-to (.-to sel)
+          has-selection? (not= sel-from sel-to)
+          chunk (model/get-selected-chunk)
+          chunk-id (:id chunk)
+          doc-text (.. state -doc (toString))
+          ;; Check for annotation at cursor position OR at selection start
+          annotation-at-cursor (find-annotation-at-position doc-text sel-from chunk-id)
+          ;; Also check if selection end is on annotation
+          annotation-at-end (when has-selection?
+                              (find-annotation-at-position doc-text sel-to chunk-id))
+          ;; Check if selected text itself is an annotation
+          selected-text (when has-selection?
+                          (.. state (sliceDoc sel-from sel-to)))
+          annotation-from-text (when has-selection?
+                                 (parse-annotation-from-text selected-text chunk-id))
+          ;; Use any annotation found
+          annotation (or annotation-at-cursor annotation-at-end annotation-from-text)]
+      (cond
+        ;; Found an annotation - show annotation menu
+        annotation
+        (when-let [coords (.coordsAtPos view sel-from)]
+          (let [[adj-x adj-y] (adjust-menu-position (.-left coords) (+ (.-bottom coords) 5))]
+            (context-menu/show-menu! adj-x adj-y
+                                     nil nil
+                                     :annotation annotation
+                                     :menu-type :annotation)
+            true))
+
+        ;; Has selection (not an annotation) - show selection menu
+        (and has-selection? (seq (str/trim (or selected-text ""))))
+        (when-let [coords (.coordsAtPos view sel-to)]
+          (let [[adj-x adj-y] (adjust-menu-position (.-left coords) (+ (.-bottom coords) 5))]
+            (context-menu/show-menu! adj-x adj-y chunk selected-text)
+            true))
+
+        ;; No selection, no annotation
+        :else false))))
+
+(defn make-selection-listener [chunk-id]
+  "Create a listener that shows context menu when text is selected.
+   Uses selectionSet to detect selection changes."
+  (.of (.-updateListener EditorView)
+       (fn [^js update]
+         ;; Only react when selection changes (not on every keystroke)
+         (when (.-selectionSet update)
+           (let [view (.-view update)
+                 state (.-state update)
+                 sel (.. state -selection -main)
+                 sel-from (.-from sel)
+                 sel-to (.-to sel)
+                 has-selection? (not= sel-from sel-to)]
+             (if has-selection?
+               ;; Selection made - check what kind and show appropriate menu
+               (let [selected-text (.. state (sliceDoc sel-from sel-to))
+                     chunk (model/get-selected-chunk)
+                     doc-text (.. state -doc (toString))
+                     ;; Check for annotations
+                     annotation-at-start (find-annotation-at-position doc-text sel-from chunk-id)
+                     annotation-at-end (find-annotation-at-position doc-text sel-to chunk-id)
+                     annotation-from-text (parse-annotation-from-text selected-text chunk-id)
+                     annotation (or annotation-at-start annotation-at-end annotation-from-text)]
+                 (when (seq (str/trim selected-text))
+                   (when-let [coords (.coordsAtPos view sel-to)]
+                     (let [[adj-x adj-y] (adjust-menu-position (.-left coords) (+ (.-bottom coords) 5))]
+                       (if annotation
+                         ;; Show annotation menu
+                         (context-menu/show-menu! adj-x adj-y nil nil
+                                                  :annotation annotation
+                                                  :menu-type :annotation)
+                         ;; Show selection menu
+                         (context-menu/show-menu! adj-x adj-y chunk selected-text))))))
+               ;; Selection cleared - hide menu
+               (context-menu/hide-menu!))))
          js/undefined)))
 
 ;; =============================================================================
@@ -769,7 +955,8 @@
                                  flash-highlight-plugin
                                  (.of keymap search-keymap)  ;; Our search keymap first (higher priority)
                                  (.of keymap (.concat defaultKeymap historyKeymap searchKeymap #js [indentWithTab]))
-                                 (make-update-listener chunk-id)]}))
+                                 (make-update-listener chunk-id)
+                                 (make-contextmenu-extension chunk-id)]}))
 
 (defn create-editor-view [parent-element state]
   (EditorView. #js {:state state
@@ -827,12 +1014,6 @@
 ;; Set up handler for delete annotation from context menu
 (context-menu/set-delete-annotation-handler! delete-annotation!)
 
-;; Store reference to contextmenu handler for cleanup
-(defonce contextmenu-handler (atom nil))
-
-;; Forward declaration
-(declare find-annotation-at-position)
-
 (defn- parse-annotation-from-text
   "Try to parse an annotation from text that might be a complete annotation.
    Returns annotation map or nil."
@@ -845,65 +1026,6 @@
          :priority (annotations/parse-priority (aget match 3))
          :comment (str/trim (or (aget match 4) ""))
          :chunk-id chunk-id}))))
-
-(defn- create-contextmenu-handler
-  "Create the right-click context menu handler function"
-  [editor-view-atom]
-  (fn [e]
-    ;; Always prevent browser default menu first
-    (.preventDefault e)
-    (when-let [view @editor-view-atom]
-      (let [current-chunk (model/get-selected-chunk)
-            chunk-id (:id current-chunk)
-            doc-text (.. view -state -doc (toString))
-            ;; Get selection info
-            sel (.. view -state -selection -main)
-            sel-from (.-from sel)
-            sel-to (.-to sel)
-            has-selection? (not= sel-from sel-to)
-            selected-text (when has-selection?
-                            (.. view -state (sliceDoc sel-from sel-to)))
-            ;; Try multiple ways to detect annotation:
-            ;; 1. Check if cursor/selection start is within an annotation
-            annotation-at-cursor (find-annotation-at-position doc-text sel-from chunk-id)
-            ;; 2. If selection, also check if selection end is within an annotation
-            annotation-at-sel-end (when (and has-selection? (not annotation-at-cursor))
-                                    (find-annotation-at-position doc-text sel-to chunk-id))
-            ;; 3. Check if selected text IS a complete annotation
-            annotation-from-selection (when (and has-selection?
-                                                  (not annotation-at-cursor)
-                                                  (not annotation-at-sel-end))
-                                        (parse-annotation-from-text selected-text chunk-id))
-            ;; 4. Check at click position (important for widgets where selection may snap elsewhere)
-            click-pos (try
-                        (.. view (posAtCoords #js {:x (.-clientX e) :y (.-clientY e)}))
-                        (catch :default _ nil))
-            annotation-at-click (when (and click-pos (not annotation-at-cursor) (not annotation-at-sel-end))
-                                  (find-annotation-at-position doc-text click-pos chunk-id))
-            annotation (or annotation-at-cursor annotation-at-sel-end annotation-from-selection annotation-at-click)]
-        (cond
-          ;; Cursor/selection is on annotation - show annotation-specific menu
-          annotation
-          (context-menu/handle-annotation-context-menu e annotation)
-
-          ;; Has meaningful selection - show selection menu
-          (and has-selection? (seq (str/trim (or selected-text ""))))
-          (context-menu/handle-context-menu e current-chunk selected-text)
-
-          ;; Default: no menu shown (browser menu already prevented)
-          :else nil)))))
-
-(defn- setup-contextmenu-listener!
-  "Set up the context menu listener, removing any previous listener"
-  [editor-ref-atom editor-view-atom]
-  (when-let [ref @editor-ref-atom]
-    ;; Remove old listener if exists
-    (when-let [old-handler @contextmenu-handler]
-      (.removeEventListener ref "contextmenu" old-handler))
-    ;; Create and store new handler
-    (let [new-handler (create-contextmenu-handler editor-view-atom)]
-      (reset! contextmenu-handler new-handler)
-      (.addEventListener ref "contextmenu" new-handler))))
 
 (defn- find-annotation-at-position
   "Find if there's an annotation at the given character position in the text.
@@ -979,9 +1101,7 @@
             (reset! last-chunk-id (:id chunk))
             (reset! last-show-markup @annotations/show-markup?)
             ;; Store view in local-editor-view for annotation handler
-            (reset! local-editor-view view)
-            ;; Set up right-click handler
-            (setup-contextmenu-listener! editor-ref editor-view))))
+            (reset! local-editor-view view))))
 
       :component-did-update
       (fn [this old-argv]
@@ -1006,17 +1126,10 @@
                 (reset! last-show-markup show-markup?)
                 (reset! last-refresh-counter refresh-counter)
                 ;; Store view in local-editor-view for annotation handler
-                (reset! local-editor-view view)
-                ;; Set up right-click handler (removes old listener if present)
-                (setup-contextmenu-listener! editor-ref editor-view))))))
+                (reset! local-editor-view view))))))
 
       :component-will-unmount
       (fn [this]
-        ;; Clean up contextmenu listener
-        (when-let [ref @editor-ref]
-          (when-let [handler @contextmenu-handler]
-            (.removeEventListener ref "contextmenu" handler)
-            (reset! contextmenu-handler nil)))
         (when @editor-view
           (.destroy @editor-view))
         (reset! editor-view-ref nil))

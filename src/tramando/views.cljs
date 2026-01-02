@@ -1550,6 +1550,12 @@
         (.preventDefault e)
         (model/undo!))
 
+      ;; Context menu for selection/annotation: Ctrl+M or Cmd+M
+      (and ctrl-or-cmd (= key "m"))
+      (do
+        (.preventDefault e)
+        (editor/open-context-menu-for-selection!))
+
       ;; Escape closes settings, export dropdown, editor search, and global filter
       (= key "escape")
       (do
@@ -1559,6 +1565,8 @@
           (reset! export-dropdown-open? false))
         (when (:visible @editor/editor-search-state)
           (editor/hide-editor-search!))
+        ;; Also close context menu
+        (context-menu/hide-menu!)
         ;; Clear global outline filter
         (outline/clear-filter!)))))
 
@@ -1734,7 +1742,9 @@
         [:div#app {:style {:background (:background colors)
                            :color (:text colors)
                            :display "flex"
-                           :flex-direction "column"}}
+                           :flex-direction "column"}
+                   ;; Prevent browser context menu everywhere in the app
+                   :on-context-menu #(.preventDefault %)}
          [header]
          ;; Main content area - adjusts height based on AI panel
          [:div.main-container {:style {:flex 1

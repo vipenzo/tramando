@@ -146,14 +146,14 @@ When proposing alternatives, present them clearly and numbered.")
                             (clj->js {:model model
                                       :max_tokens 4096
                                       :messages formatted-messages}))}))
-        (.then (fn [response]
+        (.then (fn [^js response]
                  (let [status (.-status response)]
                    (-> (.json response)
-                       (.then (fn [data]
+                       (.then (fn [^js data]
                                 (if (.-error data)
                                   (on-error (parse-error (-> data .-error .-message) status))
                                   (on-success (-> data .-choices first .-message .-content)))))))))
-        (.catch (fn [err]
+        (.catch (fn [^js err]
                   (on-error (parse-error (.-message err) nil)))))))
 
 ;; =============================================================================
@@ -172,14 +172,14 @@ When proposing alternatives, present them clearly and numbered.")
                             (clj->js {:model model
                                       :max_tokens 4096
                                       :messages formatted-messages}))}))
-        (.then (fn [response]
+        (.then (fn [^js response]
                  (let [status (.-status response)]
                    (-> (.json response)
-                       (.then (fn [data]
+                       (.then (fn [^js data]
                                 (if (.-error data)
                                   (on-error (parse-error (-> data .-error .-message) status))
                                   (on-success (-> data .-choices first .-message .-content)))))))))
-        (.catch (fn [err]
+        (.catch (fn [^js err]
                   (on-error (parse-error (.-message err) nil)))))))
 
 ;; =============================================================================

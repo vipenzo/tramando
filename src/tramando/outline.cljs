@@ -212,9 +212,7 @@
                :border-left (str "2px solid " (if selected? (:accent colors) "transparent"))}
        :on-click (fn [e]
                    (.stopPropagation e)
-                   (model/select-chunk! id))
-       :on-context-menu (fn [e]
-                          (context-menu/handle-context-menu e chunk nil))}
+                   (model/select-chunk! id))}
       (when has-children?
         [:span {:style {:cursor "pointer" :margin-right "4px" :font-size "0.7rem" :color (:text-muted colors)}
                 :on-click (fn [e]
@@ -279,9 +277,7 @@
                :border-left (str "2px solid " (if selected? color "transparent"))}
        :on-click (fn [e]
                    (.stopPropagation e)
-                   (model/select-chunk! id))
-       :on-context-menu (fn [e]
-                          (context-menu/handle-context-menu e chunk nil))}
+                   (model/select-chunk! id))}
       (when has-children?
         [:span {:style {:cursor "pointer" :margin-right "4px" :font-size "0.7rem" :color (:text-muted colors)}
                 :on-click (fn [e]

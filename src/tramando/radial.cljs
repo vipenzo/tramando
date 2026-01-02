@@ -650,7 +650,7 @@
      {:display-name "radial-view"
 
       :component-did-mount
-      (fn [this]
+      (fn [^js this]
         (when-let [el @container-ref]
           (let [rect (.getBoundingClientRect el)]
             (reset! size {:width (.-width rect) :height (.-height rect)})))
@@ -663,7 +663,7 @@
           (set! (.-radialResizeHandler this) handle-resize)))
 
       :component-will-unmount
-      (fn [this]
+      (fn [^js this]
         (when-let [handler (.-radialResizeHandler this)]
           (.removeEventListener js/window "resize" handler))
         ;; Clean up wheel listener

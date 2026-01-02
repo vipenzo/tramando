@@ -327,12 +327,12 @@
   (let [url (get-ai-setting :ollama-url)]
     (reset! ollama-status {:checking true :connected nil :models []})
     (-> (js/fetch (str url "/api/tags"))
-        (.then (fn [response]
+        (.then (fn [^js response]
                  (if (.-ok response)
                    (.json response)
                    (throw (js/Error. "Not OK")))))
-        (.then (fn [data]
-                 (let [models (mapv #(.-name %) (.-models data))]
+        (.then (fn [^js data]
+                 (let [models (mapv #(.-name ^js %) (.-models data))]
                    (reset! ollama-status {:checking false :connected true :models models}))))
         (.catch (fn [_]
                   (reset! ollama-status {:checking false :connected false :models []}))))))
