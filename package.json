@@ -1,6 +1,6 @@
 {
   "name": "tramando",
-  "version": "0.1.0",
+  "version": "1.4.1",
   "description": "A writer's tool for organizing stories with chunks",
   "scripts": {
     "dev": "shadow-cljs watch app",
