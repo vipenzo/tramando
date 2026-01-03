@@ -1,0 +1,12 @@
+# Data directory (created at runtime)
+data/
+
+# Clojure
+.cpcache/
+.nrepl-port
+*.class
+
+# IDE
+.idea/
+*.iml
+.vscode/

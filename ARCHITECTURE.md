@@ -252,11 +252,25 @@ WebSocket per notifiche push:
 permettendo una migrazione graduale. I componenti possono continuare a usare
 `tramando.model` oppure passare a `tramando.store`.
 
-### Fase 5: Backend base + DB
-- Setup progetto Clojure
+### Fase 5: Backend base + DB ✅
+- Setup progetto Clojure in `server/`
 - SQLite: tabelle users, projects, permissions
-- API auth e progetti
+- API auth (register, login, me) con JWT
+- API progetti (CRUD + collaboratori)
 - Dockerfile
+
+**Implementato:**
+- `server/deps.edn` - Dipendenze: Ring, Reitit, SQLite, Buddy (auth)
+- `server/src/tramando/server/`:
+  - `config.clj` - Configurazione da environment
+  - `db.clj` - Connessione SQLite, tabelle, query
+  - `auth.clj` - Password hashing (bcrypt), JWT, middleware auth
+  - `storage.clj` - Salvataggio file .trmd su filesystem
+  - `routes.clj` - API REST complete
+  - `core.clj` - Entry point server Jetty
+- `server/Dockerfile` - Build multi-stage con Temurin 21
+
+**Avvio:** `cd server && clojure -M:run`
 
 ### Fase 6: UI Amministrazione
 - Super-admin: gestione utenti
