@@ -272,10 +272,20 @@ permettendo una migrazione graduale. I componenti possono continuare a usare
 
 **Avvio:** `cd server && clojure -M:run`
 
-### Fase 6: UI Amministrazione
+### Fase 6: UI Amministrazione ✅
 - Super-admin: gestione utenti
 - Project-admin: inviti, ruoli, ownership chunk
 - Creazione progetti
+
+**Implementato:**
+- `tramando.api` - Client HTTP per tutte le API server
+- `tramando.auth` - Stato autenticazione con persistenza token
+- `tramando.server-ui` - Componenti UI:
+  - `login-form` - Login/registrazione
+  - `projects-list` - Lista progetti con creazione
+  - `collaborators-panel` - Gestione collaboratori
+  - `mode-selector` - Scelta modalità locale/server
+  - `user-menu` - Menu utente con logout
 
 ### Fase 7: RemoteStore + sync
 - Implementazione RemoteStore
