@@ -535,9 +535,9 @@
   "Go to previous state. Returns true if successful."
   []
   (when (can-undo?)
-    (swap! history update :current dec)
     (let [snapshot (nth (:states @history) (:current @history))]
       (restore-snapshot! snapshot))
+    (swap! history update :current dec)
     true))
 
 (defn redo!

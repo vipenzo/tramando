@@ -215,26 +215,42 @@ WebSocket per notifiche push:
 
 ## Piano di lavoro
 
-### Fase 0: Preparazione
+### Fase 0: Preparazione ✅
 - Branch `feature/collaborative`
 - Questo file ARCHITECTURE.md
 
-### Fase 1: Estensione formato .trmd (solo locale)
+### Fase 1: Estensione formato .trmd (solo locale) ✅
 - Campi ownership e discussion nei chunk
 - Compatibilità retroattiva
 
-### Fase 2: UI Discussion (solo locale)
+### Fase 2: UI Discussion (solo locale) ✅
 - Tab Discussion nell'editor
 - Commenti leggibili e scrivibili
 
-### Fase 3: Proposte inline (solo locale)
+### Fase 3: Proposte inline (solo locale) ✅
 - Annotazioni :proposal nel markdown
 - UI per creare/accettare/rifiutare
 - Migrazione in Discussion quando risolte
 
-### Fase 4: Protocol IStateStore (refactoring)
+### Fase 4: Protocol IStateStore (refactoring) ✅
 - Separare accesso stato da implementazione
 - LocalStore che wrappa comportamento attuale
+
+**Implementato:**
+- `tramando.store.protocol` - Definizione protocol `IStateStore` con operazioni:
+  - Gestione progetto: `load-project`, `save-project`, `save-project-as`
+  - Accesso stato: `get-state`, `get-chunks`, `get-chunk`, `get-selected-id`, etc.
+  - Mutazione: `select-chunk!`, `update-chunk!`, `add-chunk!`, `delete-chunk!`
+  - History: `can-undo?`, `can-redo?`, `undo!`, `redo!`
+  - Subscription: `subscribe` per reattività
+  - Ownership: `get-current-user`, `is-owner?`, `can-edit?`
+- `tramando.store.local` - Implementazione `LocalStore` che delega a `model.cljs`
+- `tramando.store` - Facade con funzioni di convenienza
+- Inizializzazione in `core.cljs`
+
+**Note:** L'approccio è stato di wrappare il codice esistente senza modificarlo,
+permettendo una migrazione graduale. I componenti possono continuare a usare
+`tramando.model` oppure passare a `tramando.store`.
 
 ### Fase 5: Backend base + DB
 - Setup progetto Clojure

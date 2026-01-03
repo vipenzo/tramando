@@ -724,21 +724,31 @@
      [menu-separator]
 
      ;; Confirm button (applies the current selection - original or proposed)
+     ;; Re-read fresh annotation at click time to get current sel state
      [menu-item {:label (if (pos? current-sel)
                           (t :proposal-accept)      ; Proposed selected
                           (t :proposal-reject))     ; Original selected (reject proposal)
                  :icon "✓"
                  :color (if (pos? current-sel) "#4CAF50" (settings/get-color :text))
                  :on-click (fn []
-                             (if (pos? current-sel)
-                               ;; Apply proposed text
-                               (do
-                                 (model/accept-proposal! chunk-id annotation)
-                                 (events/show-toast! (t :discussion-proposal-accepted)))
-                               ;; Keep original (reject)
-                               (do
-                                 (model/reject-proposal! chunk-id annotation)
-                                 (events/show-toast! (t :discussion-proposal-rejected))))
+                             ;; Get fresh annotation at click time (sel may have changed)
+                             (let [chunk (model/get-chunk chunk-id)
+                                   content (:content chunk)
+                                   current-annotation (first (filter #(and (= (:selected-text %) original-text)
+                                                                           (annotations/is-proposal? %))
+                                                                     (annotations/parse-annotations content)))
+                                   ann (or current-annotation annotation)
+                                   sel-data (annotations/parse-proposal-data (:comment ann))
+                                   sel-now (or (:sel sel-data) 0)]
+                               (if (pos? sel-now)
+                                 ;; Apply proposed text
+                                 (do
+                                   (model/accept-proposal! chunk-id ann)
+                                   (events/show-toast! (t :discussion-proposal-accepted)))
+                                 ;; Keep original (reject)
+                                 (do
+                                   (model/reject-proposal! chunk-id ann)
+                                   (events/show-toast! (t :discussion-proposal-rejected)))))
                              (events/refresh-editor!)
                              (hide-menu!))}]]))
 

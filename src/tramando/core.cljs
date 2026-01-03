@@ -3,7 +3,8 @@
             [reagent.dom.client :as rdom]
             [tramando.model :as model]
             [tramando.views :as views]
-            [tramando.settings :as settings]))
+            [tramando.settings :as settings]
+            [tramando.store.local :as local-store]))
 
 (defonce root (atom nil))
 
@@ -16,6 +17,9 @@
 
   ;; Initialize settings
   (settings/init!)
+
+  ;; Initialize state store (LocalStore for now)
+  (local-store/init!)
 
   ;; Don't auto-restore or init data here - splash screen handles it
 
