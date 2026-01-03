@@ -15,7 +15,21 @@
             [tramando.ai.ui :as ai-ui]
             [tramando.chunk-selector :as selector]
             [tramando.versioning :as versioning]
-            [tramando.platform :as platform]))
+            [tramando.platform :as platform]
+            [tramando.auth :as auth]
+            [tramando.api :as api]
+            [tramando.server-ui :as server-ui]))
+
+;; =============================================================================
+;; App Mode State (for webapp routing)
+;; =============================================================================
+
+;; :local - working with local files
+;; :login - showing login (unused now, login is in splash)
+;; :projects - showing server projects list
+;; :editor-remote - editing a server project
+(defonce app-mode (r/atom nil))
+(defonce current-server-project (r/atom nil))
 
 ;; =============================================================================
 ;; View Mode State
@@ -1579,21 +1593,218 @@
 ;; =============================================================================
 
 (defn- start-app! [action]
-  "Start the app with the given action"
+  "Start the app with the given action (local mode)"
   (case action
     :continue (model/restore-autosave!)
     :new (model/init-sample-data!)
     :open nil) ; file will be loaded via file input
   (reset! show-splash? false)
+  (reset! app-mode :local)
   ;; Show tutorial on first launch
   (when-not (settings/tutorial-completed?)
     (open-tutorial!)))
+
+;; Login form state for splash screen (webapp only)
+(defonce splash-login-username (r/atom ""))
+(defonce splash-login-password (r/atom ""))
+(defonce splash-login-error (r/atom nil))
+(defonce splash-login-loading? (r/atom false))
+(defonce splash-register-mode? (r/atom false))
+
+(defn- splash-local-panel
+  "Left panel: local mode options"
+  [colors has-autosave]
+  [:div {:style {:flex "1"
+                 :min-width "260px"
+                 :max-width "300px"
+                 :padding "20px"
+                 :border (str "1px solid " (:border colors))
+                 :border-radius "12px"
+                 :background (str (:background colors) "80")
+                 :text-align "left"}}
+   ;; Header
+   [:div {:style {:margin-bottom "20px"}}
+    [:h3 {:style {:margin "0 0 6px 0"
+                  :color (:text colors)
+                  :font-weight "500"
+                  :font-size "1.1rem"}}
+     "Lavora in locale"]
+    [:p {:style {:margin 0
+                 :font-size "0.8rem"
+                 :color (:text-muted colors)}}
+     "Crea, modifica e salva progetti direttamente sul tuo computer"]]
+   ;; Buttons
+   [:div {:style {:display "flex"
+                  :flex-direction "column"
+                  :gap "10px"}}
+    (when has-autosave
+      [:button {:style {:background (:accent colors)
+                        :color "white"
+                        :border "none"
+                        :padding "12px 20px"
+                        :border-radius "6px"
+                        :font-size "0.95rem"
+                        :cursor "pointer"
+                        :transition "transform 0.2s"}
+                :on-mouse-over #(set! (.. % -target -style -transform) "scale(1.02)")
+                :on-mouse-out #(set! (.. % -target -style -transform) "scale(1)")
+                :on-click #(start-app! :continue)}
+       (t :continue-work)])
+    [:button {:style {:background (if has-autosave "transparent" (:accent colors))
+                      :color (if has-autosave (:text colors) "white")
+                      :border (str "1px solid " (if has-autosave (:border colors) (:accent colors)))
+                      :padding "12px 20px"
+                      :border-radius "6px"
+                      :font-size "0.95rem"
+                      :cursor "pointer"
+                      :transition "transform 0.2s"}
+              :on-mouse-over #(set! (.. % -target -style -transform) "scale(1.02)")
+              :on-mouse-out #(set! (.. % -target -style -transform) "scale(1)")
+              :on-click #(start-app! :new)}
+     (t :new-project)]
+    [:button {:style {:background "transparent"
+                      :color (:text-muted colors)
+                      :border (str "1px solid " (:border colors))
+                      :padding "10px 20px"
+                      :border-radius "6px"
+                      :font-size "0.85rem"
+                      :cursor "pointer"
+                      :transition "transform 0.2s"}
+              :on-mouse-over #(set! (.. % -target -style -transform) "scale(1.02)")
+              :on-mouse-out #(set! (.. % -target -style -transform) "scale(1)")
+              :on-click #(when @splash-file-input-ref (.click @splash-file-input-ref))}
+     (t :open-file)]
+    [:input {:type "file"
+             :accept ".trmd,.md,.txt"
+             :style {:display "none"}
+             :ref #(reset! splash-file-input-ref %)
+             :on-change (fn [e]
+                          (when-let [file (-> e .-target .-files (aget 0))]
+                            (let [reader (js/FileReader.)]
+                              (set! (.-onload reader)
+                                    (fn [evt]
+                                      (let [content (-> evt .-target .-result)]
+                                        (model/load-file-content! content (.-name file))
+                                        (reset! show-splash? false)
+                                        (reset! app-mode :local)
+                                        (when-not (settings/tutorial-completed?)
+                                          (open-tutorial!)))))
+                              (.readAsText reader file))))}]]])
+
+(defn- splash-server-panel
+  "Right panel: server login (webapp only)"
+  [colors]
+  [:div {:style {:flex "1"
+                 :min-width "260px"
+                 :max-width "300px"
+                 :padding "20px"
+                 :border (str "1px solid " (:border colors))
+                 :border-radius "12px"
+                 :background (str (:background colors) "80")
+                 :text-align "left"}}
+   ;; Header
+   [:div {:style {:margin-bottom "20px"}}
+    [:h3 {:style {:margin "0 0 6px 0"
+                  :color (:text colors)
+                  :font-weight "500"
+                  :font-size "1.1rem"}}
+     "Accedi al server"]
+    [:p {:style {:margin 0
+                 :font-size "0.8rem"
+                 :color (:text-muted colors)}}
+     "Lavora in team e sincronizza i tuoi progetti"]]
+   ;; Error
+   (when @splash-login-error
+     [:div {:style {:background "#ff5252"
+                    :color "white"
+                    :padding "8px 12px"
+                    :border-radius "4px"
+                    :margin-bottom "15px"
+                    :font-size "0.85rem"}}
+      @splash-login-error])
+   ;; Form
+   [:form {:on-submit (fn [e]
+                        (.preventDefault e)
+                        (reset! splash-login-error nil)
+                        (cond
+                          (< (count @splash-login-username) 3)
+                          (reset! splash-login-error "Username: almeno 3 caratteri")
+                          (< (count @splash-login-password) 6)
+                          (reset! splash-login-error "Password: almeno 6 caratteri")
+                          :else
+                          (do
+                            (reset! splash-login-loading? true)
+                            (-> (if @splash-register-mode?
+                                  (auth/register! @splash-login-username @splash-login-password)
+                                  (auth/login! @splash-login-username @splash-login-password))
+                                (.then (fn [result]
+                                         (reset! splash-login-loading? false)
+                                         (if (:ok result)
+                                           (do
+                                             (reset! show-splash? false)
+                                             (reset! app-mode :projects))
+                                           (reset! splash-login-error (:error result)))))))))}
+    [:input {:type "text"
+             :placeholder "Username"
+             :value @splash-login-username
+             :on-change #(reset! splash-login-username (-> % .-target .-value))
+             :disabled @splash-login-loading?
+             :style {:width "100%"
+                     :padding "10px 12px"
+                     :margin-bottom "10px"
+                     :border (str "1px solid " (:border colors))
+                     :border-radius "6px"
+                     :background (:background colors)
+                     :color (:text colors)
+                     :font-size "0.95rem"
+                     :box-sizing "border-box"}}]
+    [:input {:type "password"
+             :placeholder "Password"
+             :value @splash-login-password
+             :on-change #(reset! splash-login-password (-> % .-target .-value))
+             :disabled @splash-login-loading?
+             :style {:width "100%"
+                     :padding "10px 12px"
+                     :margin-bottom "15px"
+                     :border (str "1px solid " (:border colors))
+                     :border-radius "6px"
+                     :background (:background colors)
+                     :color (:text colors)
+                     :font-size "0.95rem"
+                     :box-sizing "border-box"}}]
+    [:button {:type "submit"
+              :disabled @splash-login-loading?
+              :style {:width "100%"
+                      :padding "12px"
+                      :background (:accent colors)
+                      :color "white"
+                      :border "none"
+                      :border-radius "6px"
+                      :font-size "0.95rem"
+                      :cursor (if @splash-login-loading? "wait" "pointer")
+                      :opacity (if @splash-login-loading? 0.7 1)}}
+     (cond
+       @splash-login-loading? "..."
+       @splash-register-mode? "Registrati"
+       :else "Accedi")]]
+   ;; Toggle
+   [:div {:style {:text-align "center" :margin-top "12px"}}
+    [:span {:style {:color (:text-muted colors) :font-size "0.85rem"}}
+     (if @splash-register-mode? "Hai un account? " "Non hai un account? ")]
+    [:a {:href "#"
+         :on-click (fn [e]
+                     (.preventDefault e)
+                     (swap! splash-register-mode? not)
+                     (reset! splash-login-error nil))
+         :style {:color (:accent colors)
+                 :text-decoration "none"
+                 :font-size "0.85rem"}}
+     (if @splash-register-mode? "Accedi" "Registrati")]]])
 
 (defn splash-screen []
   (r/create-class
    {:component-did-mount
     (fn [_]
-      ;; Trigger fade-in animation
       (js/setTimeout #(reset! splash-fade-in? true) 50))
 
     :reagent-render
@@ -1602,7 +1813,8 @@
             current-theme (:theme @settings/settings)
             has-autosave (model/has-autosave?)
             use-texture (or (get colors :background-texture) (= current-theme :tessuto))
-            _ @i18n/current-lang] ; subscribe to language changes
+            is-webapp? (not (platform/tauri?))
+            _ @i18n/current-lang]
         [:div {:style {:position "fixed"
                        :top 0 :left 0 :right 0 :bottom 0
                        :background (:background colors)
@@ -1614,11 +1826,11 @@
                        :align-items "center"
                        :justify-content "center"
                        :z-index 2000}}
-         ;; Overlay to soften the background
+         ;; Overlay
          [:div {:style {:position "absolute"
                         :top 0 :left 0 :right 0 :bottom 0
                         :background (str (:background colors) "e8")}}]
-         ;; Full-screen logo background (aligned top-left to keep "Tramando" text visible)
+         ;; Logo background
          [:div {:style {:position "absolute"
                         :top 0 :left 0 :right 0 :bottom 0
                         :background-image "url('/images/logo_tramando_transparent.png')"
@@ -1626,7 +1838,7 @@
                         :background-position "top left"
                         :opacity (if @splash-fade-in? 1 0)
                         :transition "opacity 0.8s ease-out"}}]
-         ;; Content container with fade-in
+         ;; Content
          [:div {:style {:position "relative"
                         :z-index 1
                         :text-align "center"
@@ -1634,87 +1846,30 @@
                         :transform (if @splash-fade-in? "translateY(0)" "translateY(20px)")
                         :transition "opacity 0.5s ease-out 0.3s, transform 0.5s ease-out 0.3s"
                         :background (str (:background colors) "cc")
-                        :padding "40px 60px"
+                        :padding "40px"
                         :border-radius "16px"
-                        :box-shadow "0 8px 32px rgba(0,0,0,0.3)"}}
+                        :box-shadow "0 8px 32px rgba(0,0,0,0.3)"
+                        :max-width (if is-webapp? "700px" "400px")}}
           ;; Title
           [:h1 {:style {:color (:accent colors)
-                        :font-size "3.5rem"
+                        :font-size "3rem"
                         :margin "0 0 8px 0"
                         :font-weight "300"
                         :letter-spacing "0.15em"}}
            (t :app-name)]
-          ;; Subtitle
           [:p {:style {:color (:text-muted colors)
-                       :font-size "1.2rem"
-                       :margin "0 0 40px 0"
+                       :font-size "1.1rem"
+                       :margin "0 0 30px 0"
                        :font-style "italic"}}
            (t :tagline)]
-          ;; Buttons
+          ;; Two-column layout
           [:div {:style {:display "flex"
-                         :flex-direction "column"
-                         :gap "12px"
-                         :min-width "280px"}}
-           ;; Continue button (only if autosave exists)
-           (when has-autosave
-             [:button {:style {:background (:accent colors)
-                               :color "white"
-                               :border "none"
-                               :padding "14px 28px"
-                               :border-radius "8px"
-                               :font-size "1rem"
-                               :cursor "pointer"
-                               :transition "transform 0.2s, box-shadow 0.2s"
-                               :box-shadow "0 4px 12px rgba(0,0,0,0.15)"}
-                       :on-mouse-over #(set! (.. % -target -style -transform) "scale(1.02)")
-                       :on-mouse-out #(set! (.. % -target -style -transform) "scale(1)")
-                       :on-click #(start-app! :continue)}
-              (t :continue-work)])
-           ;; New project button
-           [:button {:style {:background (if has-autosave "transparent" (:accent colors))
-                             :color (if has-autosave (:text colors) "white")
-                             :border (str "2px solid " (if has-autosave (:border colors) (:accent colors)))
-                             :padding "14px 28px"
-                             :border-radius "8px"
-                             :font-size "1rem"
-                             :cursor "pointer"
-                             :transition "transform 0.2s, box-shadow 0.2s"
-                             :box-shadow (when-not has-autosave "0 4px 12px rgba(0,0,0,0.15)")}
-                     :on-mouse-over #(set! (.. % -target -style -transform) "scale(1.02)")
-                     :on-mouse-out #(set! (.. % -target -style -transform) "scale(1)")
-                     :on-click #(start-app! :new)}
-            (t :new-project)]
-           ;; Open file button
-           [:button {:style {:background "transparent"
-                             :color (:text-muted colors)
-                             :border (str "1px solid " (:border colors))
-                             :padding "12px 24px"
-                             :border-radius "8px"
-                             :font-size "0.9rem"
-                             :cursor "pointer"
-                             :transition "transform 0.2s"}
-                     :on-mouse-over #(set! (.. % -target -style -transform) "scale(1.02)")
-                     :on-mouse-out #(set! (.. % -target -style -transform) "scale(1)")
-                     :on-click #(when @splash-file-input-ref
-                                  (.click @splash-file-input-ref))}
-            (t :open-file)]
-           ;; Hidden file input
-           [:input {:type "file"
-                    :accept ".trmd,.md,.txt"
-                    :style {:display "none"}
-                    :ref #(reset! splash-file-input-ref %)
-                    :on-change (fn [e]
-                                 (when-let [file (-> e .-target .-files (aget 0))]
-                                   (let [reader (js/FileReader.)]
-                                     (set! (.-onload reader)
-                                           (fn [evt]
-                                             (let [content (-> evt .-target .-result)]
-                                               (model/load-file-content! content (.-name file))
-                                               (reset! show-splash? false)
-                                               ;; Show tutorial on first launch
-                                               (when-not (settings/tutorial-completed?)
-                                                 (open-tutorial!)))))
-                                     (.readAsText reader file))))}]]]]))}))
+                         :gap "30px"
+                         :justify-content "center"
+                         :flex-wrap "wrap"}}
+           [splash-local-panel colors has-autosave]
+           (when is-webapp?
+             [splash-server-panel colors])]]]))}))
 
 ;; =============================================================================
 ;; Main Layout
@@ -1785,10 +1940,97 @@
                                      (model/load-version-copy! content filename))}]]))}))
 
 ;; =============================================================================
+;; Server Project Helpers
+;; =============================================================================
+
+(defn- server-project-header
+  "Header for server project mode"
+  []
+  [:div {:style {:display "flex"
+                 :justify-content "space-between"
+                 :align-items "center"
+                 :padding "8px 15px"
+                 :background (settings/get-color :sidebar)
+                 :border-bottom (str "1px solid " (settings/get-color :border))}}
+   [:button {:on-click #(reset! app-mode :projects)
+             :style {:background "transparent"
+                     :border "none"
+                     :color (settings/get-color :text-muted)
+                     :cursor "pointer"
+                     :font-size "0.9rem"
+                     :padding "6px 10px"
+                     :border-radius "4px"}
+             :on-mouse-over #(set! (.. % -currentTarget -style -color) (settings/get-color :text))
+             :on-mouse-out #(set! (.. % -currentTarget -style -color) (settings/get-color :text-muted))}
+    "<- Progetti"]
+   [:span {:style {:color (settings/get-color :text) :font-weight "500"}}
+    (:name @current-server-project)]
+   [server-ui/user-menu]])
+
+(defn- open-server-project! [project]
+  (reset! current-server-project project)
+  (-> (api/get-project (:id project))
+      (.then (fn [result]
+               (when (:ok result)
+                 (model/load-file-content! (get-in result [:data :content]) (:name project) nil)
+                 (reset! app-mode :editor-remote))))))
+
+;; =============================================================================
 ;; App Root
 ;; =============================================================================
 
+(defn- determine-initial-mode! []
+  (when-not (platform/tauri?)
+    (auth/check-auth!)
+    (js/setTimeout
+      (fn []
+        (when (auth/logged-in?)
+          (reset! show-splash? false)
+          (reset! app-mode :projects)))
+      100)))
+
 (defn app []
-  (if @show-splash?
+  ;; Check auth on first render
+  (when (nil? @app-mode)
+    (determine-initial-mode!))
+
+  (cond
+    ;; Splash screen
+    @show-splash?
     [splash-screen]
+
+    ;; Local mode
+    (= @app-mode :local)
+    [main-layout]
+
+    ;; Projects list
+    (= @app-mode :projects)
+    [:div {:style {:min-height "100vh"
+                   :background (settings/get-color :bg)}}
+     [:div {:style {:display "flex"
+                    :justify-content "space-between"
+                    :align-items "center"
+                    :padding "15px 20px"
+                    :border-bottom (str "1px solid " (settings/get-color :border))}}
+      [:h1 {:style {:margin 0
+                    :font-size "1.5rem"
+                    :font-weight "300"
+                    :color (settings/get-color :text)}}
+       "Tramando"]
+      [server-ui/user-menu]]
+     [server-ui/projects-list
+      {:on-open open-server-project!
+       :on-create open-server-project!}]]
+
+    ;; Editor with server project
+    (= @app-mode :editor-remote)
+    [:div {:style {:display "flex"
+                   :flex-direction "column"
+                   :height "100vh"}}
+     [server-project-header]
+     [:div {:style {:flex 1 :overflow "hidden"}}
+      [main-layout]]]
+
+    ;; Fallback
+    :else
     [main-layout]))
