@@ -57,27 +57,62 @@
     (if-not (db/user-can-access-project? user-id project-id)
       {:status 403 :body {:error "Access denied"}}
       (let [project (db/find-project-by-id project-id)
-            content (storage/load-project-content project-id)]
+            content (storage/load-project-content project-id)
+            content-hash (storage/content-hash content)
+            role (db/get-user-project-role user-id project-id)]
         {:status 200
          :body {:project project
-                :content (or content "")}}))))
+                :content (or content "")
+                :content-hash content-hash
+                :role (when role (name role))}}))))
+
+(defn get-project-hash-handler
+  "Returns only the content-hash for polling - lightweight endpoint"
+  [request]
+  (let [user-id (get-in request [:user :id])
+        project-id (-> request :path-params :id Integer/parseInt)]
+    (if-not (db/user-can-access-project? user-id project-id)
+      {:status 403 :body {:error "Access denied"}}
+      (let [content (storage/load-project-content project-id)
+            content-hash (storage/content-hash content)]
+        {:status 200
+         :body {:content-hash content-hash}}))))
 
 (defn update-project-handler [request]
   (let [user-id (get-in request [:user :id])
         project-id (-> request :path-params :id Integer/parseInt)
-        {:keys [name content]} (:body-params request)]
-    (if-not (db/user-can-access-project? user-id project-id)
+        {:keys [name content base-hash]} (:body-params request)
+        role (db/get-user-project-role user-id project-id)]
+    (cond
+      ;; No access at all
+      (nil? role)
       {:status 403 :body {:error "Access denied"}}
+
+      ;; Trying to change name without admin/owner privileges
+      (and name (not (#{:owner :admin} role)))
+      {:status 403 :body {:error "Only owner or admin can rename project"}}
+
+      :else
       (do
-        ;; Update metadata if name provided
+        ;; Update metadata if name provided (already checked permission above)
         (when name
           (db/update-project! project-id {:name name}))
-        ;; Save content if provided
-        (when content
-          (storage/save-project-content! project-id content))
-        (let [project (db/find-project-by-id project-id)]
-          {:status 200
-           :body {:project project}})))))
+        ;; Save content if provided (all roles can edit content)
+        (if content
+          (let [save-result (storage/save-project-content-if-matches! project-id content base-hash)]
+            (if (:ok save-result)
+              (let [project (db/find-project-by-id project-id)]
+                {:status 200
+                 :body {:project project
+                        :content-hash (:hash save-result)}})
+              ;; Conflict - return 409 with current hash so client can retry
+              {:status 409
+               :body {:error "Conflict: content was modified by another user"
+                      :current-hash (:current-hash save-result)}}))
+          ;; No content change, just metadata update
+          (let [project (db/find-project-by-id project-id)]
+            {:status 200
+             :body {:project project}}))))))
 
 (defn delete-project-handler [request]
   (let [user-id (get-in request [:user :id])
@@ -140,14 +175,86 @@
         (db/remove-collaborator! project-id target-user-id)
         {:status 200 :body {:success true}}))))
 
+(defn update-collaborator-role-handler [request]
+  (let [user-id (get-in request [:user :id])
+        project-id (-> request :path-params :id Integer/parseInt)
+        target-user-id (-> request :path-params :user-id Integer/parseInt)
+        {:keys [role]} (:body-params request)]
+    (cond
+      (not (db/user-is-project-admin? user-id project-id))
+      {:status 403 :body {:error "Admin access required"}}
+
+      (not (#{"admin" "collaborator"} role))
+      {:status 400 :body {:error "Invalid role"}}
+
+      :else
+      (do
+        (db/add-collaborator! project-id target-user-id role)
+        {:status 200 :body {:success true}}))))
+
 ;; =============================================================================
 ;; Admin Handlers
 ;; =============================================================================
 
 (defn list-users-handler [_request]
-  (let [users (db/query ["SELECT id, username, is_super_admin, created_at FROM users"])]
+  (let [users (db/list-all-users)]
     {:status 200
      :body {:users users}}))
+
+(defn create-user-handler [request]
+  (let [{:keys [username password is-super-admin]} (:body-params request)]
+    (cond
+      (< (count username) 3)
+      {:status 400 :body {:error "Username must be at least 3 characters"}}
+
+      (< (count password) 6)
+      {:status 400 :body {:error "Password must be at least 6 characters"}}
+
+      (db/find-user-by-username username)
+      {:status 400 :body {:error "Username already exists"}}
+
+      :else
+      (let [password-hash (auth/hash-password password)
+            user (db/create-user! {:username username
+                                   :password-hash password-hash
+                                   :is-super-admin is-super-admin})]
+        {:status 201
+         :body {:user (dissoc user :password_hash)}}))))
+
+(defn delete-user-handler [request]
+  (let [current-user-id (get-in request [:user :id])
+        target-user-id (-> request :path-params :id Integer/parseInt)]
+    (cond
+      ;; Cannot delete yourself
+      (= current-user-id target-user-id)
+      {:status 400 :body {:error "Cannot delete yourself"}}
+
+      ;; User doesn't exist
+      (nil? (db/find-user-by-id target-user-id))
+      {:status 404 :body {:error "User not found"}}
+
+      :else
+      (do
+        (db/delete-user! target-user-id)
+        {:status 200 :body {:success true}}))))
+
+(defn update-user-admin-handler [request]
+  (let [current-user-id (get-in request [:user :id])
+        target-user-id (-> request :path-params :id Integer/parseInt)
+        {:keys [is-super-admin]} (:body-params request)]
+    (cond
+      ;; Cannot change your own admin status
+      (= current-user-id target-user-id)
+      {:status 400 :body {:error "Cannot change your own admin status"}}
+
+      ;; User doesn't exist
+      (nil? (db/find-user-by-id target-user-id))
+      {:status 404 :body {:error "User not found"}}
+
+      :else
+      (do
+        (db/update-user-super-admin! target-user-id is-super-admin)
+        {:status 200 :body {:success true}}))))
 
 ;; =============================================================================
 ;; Router
@@ -172,17 +279,26 @@
                  :middleware [auth/require-auth]}
            :delete {:handler delete-project-handler
                     :middleware [auth/require-auth]}}]
+      ["/hash" {:get {:handler get-project-hash-handler
+                      :middleware [auth/require-auth]}}]
       ["/collaborators"
        ["" {:get {:handler list-collaborators-handler
                   :middleware [auth/require-auth]}
             :post {:handler add-collaborator-handler
                    :middleware [auth/require-auth]}}]
        ["/:user-id" {:delete {:handler remove-collaborator-handler
-                              :middleware [auth/require-auth]}}]]]]
+                              :middleware [auth/require-auth]}
+                     :put {:handler update-collaborator-role-handler
+                           :middleware [auth/require-auth]}}]]]]
 
-    ["/admin"
-     ["/users" {:get {:handler list-users-handler
-                      :middleware [auth/require-auth auth/require-super-admin]}}]]]])
+    ["/admin/users" {:get {:handler list-users-handler
+                           :middleware [auth/require-auth auth/require-super-admin]}
+                     :post {:handler create-user-handler
+                            :middleware [auth/require-auth auth/require-super-admin]}}]
+    ["/admin/users/:id" {:delete {:handler delete-user-handler
+                                  :middleware [auth/require-auth auth/require-super-admin]}
+                         :put {:handler update-user-admin-handler
+                               :middleware [auth/require-auth auth/require-super-admin]}}]]])
 
 (def router
   (ring/router

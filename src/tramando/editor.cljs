@@ -9,6 +9,10 @@
             [tramando.context-menu :as context-menu]
             [tramando.events :as events]
             [tramando.chunk-selector :as selector]
+            [tramando.auth :as auth]
+            [tramando.api :as api]
+            [tramando.store.protocol :as protocol]
+            [tramando.store.remote :as remote-store]
             ["@codemirror/state" :refer [EditorState StateField StateEffect RangeSetBuilder]]
             ["@codemirror/view" :refer [EditorView keymap lineNumbers highlightActiveLine
                                         highlightActiveLineGutter drawSelection
@@ -845,8 +849,17 @@
   (.of (.-updateListener EditorView)
        (fn [^js update]
          (when (.-docChanged update)
-           (let [content (.. update -state -doc (toString))]
-             (model/update-chunk! chunk-id {:content content})))
+           (let [content (.. update -state -doc (toString))
+                 chunk (model/get-chunk chunk-id)
+                 owner (:owner chunk)
+                 current-user (model/get-current-owner)
+                 ;; Assign ownership if chunk has no real owner yet (legacy chunks with "local")
+                 should-claim? (and (= "local" owner)
+                                    (not= "local" current-user))
+                 changes (if should-claim?
+                           {:content content :owner current-user}
+                           {:content content})]
+             (model/update-chunk! chunk-id changes)))
          js/undefined)))
 
 ;; Forward declarations for functions defined later in the file
@@ -1138,28 +1151,36 @@
                      (prev-match!)
                      true))}])
 
-(defn create-editor-state [content chunk-id]
-  (.create EditorState
-           #js {:doc content
-                :extensions #js [tramando-theme
-                                 (lineNumbers)
-                                 (highlightActiveLine)
-                                 (highlightActiveLineGutter)
-                                 (drawSelection)
-                                 (.-lineWrapping EditorView)
-                                 (history)
-                                 (indentOnInput)
-                                 (bracketMatching)
-                                 (highlightSelectionMatches)
-                                 (syntaxHighlighting defaultHighlightStyle)
-                                 (markdown)
-                                 annotation-highlight
-                                 search-highlight-plugin
-                                 flash-highlight-plugin
-                                 (.of keymap search-keymap)  ;; Our search keymap first (higher priority)
-                                 (.of keymap (.concat defaultKeymap historyKeymap searchKeymap #js [indentWithTab]))
-                                 (make-update-listener chunk-id)
-                                 (make-contextmenu-extension chunk-id)]}))
+(defn create-editor-state
+  "Create CodeMirror editor state. If read-only? is true, editor will be non-editable."
+  ([content chunk-id]
+   (create-editor-state content chunk-id false))
+  ([content chunk-id read-only?]
+   (let [base-extensions #js [tramando-theme
+                              (lineNumbers)
+                              (highlightActiveLine)
+                              (highlightActiveLineGutter)
+                              (drawSelection)
+                              (.-lineWrapping EditorView)
+                              (history)
+                              (indentOnInput)
+                              (bracketMatching)
+                              (highlightSelectionMatches)
+                              (syntaxHighlighting defaultHighlightStyle)
+                              (markdown)
+                              annotation-highlight
+                              search-highlight-plugin
+                              flash-highlight-plugin
+                              (.of keymap search-keymap)
+                              (.of keymap (.concat defaultKeymap historyKeymap searchKeymap #js [indentWithTab]))
+                              (make-update-listener chunk-id)
+                              (make-contextmenu-extension chunk-id)]
+         extensions (if read-only?
+                      (.concat base-extensions #js [(.of (.-readOnly EditorState) true)])
+                      base-extensions)]
+     (.create EditorState
+              #js {:doc content
+                   :extensions extensions}))))
 
 (defn create-editor-view [parent-element state]
   (EditorView. #js {:state state
@@ -1285,6 +1306,14 @@
 ;; Editor Component
 ;; =============================================================================
 
+(defn- can-edit-chunk?
+  "Check if current user can edit the given chunk's main text.
+   In local mode, always true. In remote mode, only if user is owner."
+  [chunk-id]
+  (if-let [store (protocol/get-store)]
+    (protocol/can-edit? store chunk-id)
+    true)) ;; Default to editable if no store
+
 (defn editor-component []
   (let [editor-view (r/atom nil)
         editor-ref (r/atom nil)
@@ -1297,7 +1326,8 @@
       :component-did-mount
       (fn [this]
         (when-let [chunk (model/get-selected-chunk)]
-          (let [state (create-editor-state (:content chunk) (:id chunk))
+          (let [read-only? (not (can-edit-chunk? (:id chunk)))
+                state (create-editor-state (:content chunk) (:id chunk) read-only?)
                 view (create-editor-view @editor-ref state)]
             (reset! editor-view view)
             (reset! editor-view-ref view) ;; Store in global ref for search
@@ -1323,7 +1353,8 @@
             (when (and chunk (not= (:id chunk) @last-chunk-id))
               (update-search!))
             (when chunk
-              (let [state (create-editor-state (:content chunk) (:id chunk))
+              (let [read-only? (not (can-edit-chunk? (:id chunk)))
+                    state (create-editor-state (:content chunk) (:id chunk) read-only?)
                     view (create-editor-view @editor-ref state)
                     chunk-changed? (not= (:id chunk) @last-chunk-id)]
                 (reset! editor-view view)
@@ -1345,11 +1376,26 @@
 
       :reagent-render
       (fn []
-        (let [_selected (model/get-selected-id) ; trigger re-render on selection change
+        (let [selected-id (model/get-selected-id) ; trigger re-render on selection change
               _show-markup @annotations/show-markup? ; trigger re-render on toggle
-              _refresh @events/editor-refresh-counter] ; trigger re-render on external content change
-          [:div.editor-container
-           {:ref #(reset! editor-ref %)}]))})))
+              _refresh @events/editor-refresh-counter ; trigger re-render on external content change
+              read-only? (and selected-id (not (can-edit-chunk? selected-id)))
+              colors (:colors @settings/settings)]
+          [:div {:style {:display "flex" :flex-direction "column" :height "100%"}}
+           (when read-only?
+             [:div {:style {:background-color "rgba(255, 193, 7, 0.15)"
+                            :border-bottom (str "1px solid " (:border colors))
+                            :padding "6px 12px"
+                            :font-size "0.85rem"
+                            :color (:text-muted colors)
+                            :display "flex"
+                            :align-items "center"
+                            :gap "8px"}}
+              [:span {:style {:font-size "1rem"}} "🔒"]
+              [:span (t :read-only-not-owner)]])
+           [:div.editor-container
+            {:ref #(reset! editor-ref %)
+             :style {:flex "1"}}]]))})))
 
 ;; =============================================================================
 ;; ID Input Component
@@ -1564,15 +1610,17 @@
              ;; Normal state - both buttons on same line
              [:div
               [:div {:style {:display "flex" :gap "8px"}}
-               [:button {:style {:background "transparent"
-                                 :color (:accent colors)
-                                 :border (str "1px solid " (:accent colors))
-                                 :padding "6px 12px"
-                                 :border-radius "4px"
-                                 :cursor "pointer"
-                                 :font-size "0.85rem"}
-                         :on-click #(model/add-chunk! :parent-id (:id chunk))}
-                (t :create-child)]
+               ;; Only show create-child if user can create at this parent
+               (when (model/can-create-chunk-at? (:id chunk))
+                 [:button {:style {:background "transparent"
+                                   :color (:accent colors)
+                                   :border (str "1px solid " (:accent colors))
+                                   :padding "6px 12px"
+                                   :border-radius "4px"
+                                   :cursor "pointer"
+                                   :font-size "0.85rem"}
+                           :on-click #(model/add-chunk! :parent-id (:id chunk))}
+                  (t :create-child)])
                [:button {:style {:background "transparent"
                                  :color "#ff6b6b"
                                  :border "1px solid #ff6b6b"
@@ -1776,16 +1824,17 @@
               ;; Separator
               [:span {:style {:color (:border colors)}} "|"]
 
-              ;; Create child button
-              [:button {:style {:background "transparent"
-                                :color (:accent colors)
-                                :border (str "1px solid " (:accent colors))
-                                :padding "2px 8px"
-                                :border-radius "3px"
-                                :font-size "0.8rem"
-                                :cursor "pointer"}
-                        :on-click #(model/add-chunk! :parent-id (:id chunk))}
-               (t :create-child)]
+              ;; Create child button - only if user can create at this parent
+              (when (model/can-create-chunk-at? (:id chunk))
+                [:button {:style {:background "transparent"
+                                  :color (:accent colors)
+                                  :border (str "1px solid " (:accent colors))
+                                  :padding "2px 8px"
+                                  :border-radius "3px"
+                                  :font-size "0.8rem"
+                                  :cursor "pointer"}
+                          :on-click #(model/add-chunk! :parent-id (:id chunk))}
+                 (t :create-child)])
 
               ;; Show in hierarchy button
               [:button {:style {:background "transparent"
@@ -2465,12 +2514,30 @@
         (:text entry)])]))
 
 (defn discussion-view []
-  (let [new-comment (r/atom "")]
+  (let [new-comment (r/atom "")
+        show-transfer? (r/atom false)
+        transfer-to (r/atom "")
+        collaborators (r/atom nil)
+        load-collaborators! (fn [project-id]
+                              (when project-id
+                                (-> (api/list-collaborators project-id)
+                                    (.then (fn [result]
+                                             (when (:ok result)
+                                               (reset! collaborators (:data result))))))))]
     (fn []
       (let [chunk (model/get-selected-chunk)
             discussion (or (:discussion chunk) [])
             colors (:colors @settings/settings)
-            chunk-id (:id chunk)]
+            chunk-id (:id chunk)
+            current-owner (or (:owner chunk) "local")
+            previous-owner (:previous-owner chunk)
+            current-user (auth/get-username)
+            is-owner? (or (= current-owner "local")
+                          (= current-owner current-user))
+            can-return? (and is-owner?
+                             previous-owner
+                             (not= previous-owner "local")
+                             (not= previous-owner current-owner))]
         [:div {:style {:display "flex"
                        :flex-direction "column"
                        :height "100%"
@@ -2480,23 +2547,119 @@
                         :border-bottom (str "1px solid " (:border colors))
                         :display "flex"
                         :justify-content "space-between"
-                        :align-items "center"}}
+                        :align-items "center"
+                        :flex-wrap "wrap"
+                        :gap "8px"}}
           [:div {:style {:font-size "0.85rem" :color (:text-muted colors)}}
            (str (t :discussion-owner) ": ")
            [:span {:style {:color (:text colors) :font-weight "500"}}
-            (or (:owner chunk) "local")]]
-          ;; Clear button (only if there are entries)
-          (when (seq discussion)
-            [:button {:style {:background "transparent"
+            current-owner]
+           (when previous-owner
+             [:span {:style {:margin-left "8px" :font-size "0.8rem"}}
+              (str "(da " previous-owner ")")])]
+          [:div {:style {:display "flex" :gap "8px" :align-items "center"}}
+           ;; Return ownership button (when there's a previous owner)
+           (when can-return?
+             [:button {:style {:background "transparent"
+                               :border (str "1px solid " (:border colors))
+                               :color (:text-muted colors)
+                               :padding "4px 8px"
+                               :border-radius "4px"
+                               :font-size "0.75rem"
+                               :cursor "pointer"}
+                       :on-click #(do
+                                    (model/update-chunk! chunk-id {:owner previous-owner
+                                                                   :previous-owner current-owner})
+                                    (events/show-toast! (str "Ownership restituita a " previous-owner)))}
+              "Restituisci"])
+           ;; Transfer ownership button (only for owner in remote mode)
+           (when (and is-owner? (auth/logged-in?))
+             [:button {:style {:background "transparent"
+                               :border (str "1px solid " (:border colors))
+                               :color (:text-muted colors)
+                               :padding "4px 8px"
+                               :border-radius "4px"
+                               :font-size "0.75rem"
+                               :cursor "pointer"}
+                       :on-click #(do
+                                    (reset! show-transfer? true)
+                                    (load-collaborators! (remote-store/get-project-id)))}
+              "Trasferisci"])
+           ;; Clear button (only if there are entries)
+           (when (seq discussion)
+             [:button {:style {:background "transparent"
+                               :border (str "1px solid " (:border colors))
+                               :color (:text-muted colors)
+                               :padding "4px 8px"
+                               :border-radius "4px"
+                               :font-size "0.75rem"
+                               :cursor "pointer"}
+                       :on-click #(when (js/confirm (t :discussion-clear-confirm))
+                                    (model/clear-discussion! chunk-id))}
+              (t :discussion-clear)])]]
+
+         ;; Transfer ownership form
+         (when @show-transfer?
+           [:div {:style {:padding "12px 16px"
+                          :background (:sidebar colors)
+                          :border-bottom (str "1px solid " (:border colors))}}
+            [:div {:style {:font-size "0.85rem"
+                           :color (:text colors)
+                           :margin-bottom "8px"}}
+             "Trasferisci ownership a:"]
+            [:div {:style {:display "flex" :gap "8px" :flex-wrap "wrap"}}
+             [:input {:type "text"
+                      :placeholder "Username collaboratore"
+                      :value @transfer-to
+                      :on-change #(reset! transfer-to (-> % .-target .-value))
+                      :style {:flex "1"
+                              :min-width "150px"
+                              :padding "6px 10px"
                               :border (str "1px solid " (:border colors))
-                              :color (:text-muted colors)
-                              :padding "4px 8px"
                               :border-radius "4px"
-                              :font-size "0.75rem"
-                              :cursor "pointer"}
-                      :on-click #(when (js/confirm (t :discussion-clear-confirm))
-                                   (model/clear-discussion! chunk-id))}
-             (t :discussion-clear)])]
+                              :background (:editor-bg colors)
+                              :color (:text colors)
+                              :font-size "0.85rem"}}]
+             [:button {:on-click (fn []
+                                   (when (seq @transfer-to)
+                                     (model/update-chunk! chunk-id {:owner @transfer-to
+                                                                    :previous-owner current-owner})
+                                     (events/show-toast! (str "Ownership trasferita a " @transfer-to))
+                                     (reset! transfer-to "")
+                                     (reset! show-transfer? false)))
+                       :disabled (empty? @transfer-to)
+                       :style {:padding "6px 12px"
+                               :background (:accent colors)
+                               :color "white"
+                               :border "none"
+                               :border-radius "4px"
+                               :cursor "pointer"
+                               :font-size "0.85rem"
+                               :opacity (if (empty? @transfer-to) 0.5 1)}}
+              "Trasferisci"]
+             [:button {:on-click #(do (reset! show-transfer? false)
+                                      (reset! transfer-to ""))
+                       :style {:padding "6px 12px"
+                               :background "transparent"
+                               :color (:text-muted colors)
+                               :border (str "1px solid " (:border colors))
+                               :border-radius "4px"
+                               :cursor "pointer"
+                               :font-size "0.85rem"}}
+              "Annulla"]]
+            ;; Show collaborators if loaded
+            (when (and @collaborators (seq (:collaborators @collaborators)))
+              [:div {:style {:margin-top "8px"
+                             :font-size "0.8rem"
+                             :color (:text-muted colors)}}
+               "Collaboratori: "
+               (for [collab (:collaborators @collaborators)]
+                 ^{:key (:id collab)}
+                 [:span {:style {:margin-right "8px"
+                                 :cursor "pointer"
+                                 :color (:accent colors)}
+                         :on-click #(reset! transfer-to (:username collab))}
+                  (:username collab)])])])
          ;; Scrollable content (discussion entries)
          [:div {:style {:flex 1
                         :overflow-y "auto"

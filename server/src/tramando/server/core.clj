@@ -13,13 +13,29 @@
 ;; Ring Application
 ;; =============================================================================
 
+;; Middleware to handle OPTIONS preflight requests
+(defn wrap-preflight [handler]
+  (fn [request]
+    (if (= :options (:request-method request))
+      {:status 200
+       :headers {"Access-Control-Allow-Origin" "*"
+                 "Access-Control-Allow-Methods" "GET, POST, PUT, DELETE, OPTIONS"
+                 "Access-Control-Allow-Headers" "Content-Type, Authorization"
+                 "Access-Control-Max-Age" "86400"}
+       :body ""}
+      (handler request))))
+
 (def app
   (-> (ring/ring-handler
         routes/router
-        (ring/create-default-handler
-          {:not-found (constantly {:status 404 :body {:error "Not found"}})}))
+        (ring/routes
+          (ring/create-resource-handler {:path "/"})
+          (ring/create-default-handler
+            {:not-found (constantly {:status 404 :body {:error "Not found"}})
+             :method-not-allowed (constantly {:status 405 :body {:error "Method not allowed"}})})))
       (auth/wrap-auth)
       (wrap-json-response)
+      (wrap-preflight)
       (wrap-cors :access-control-allow-origin [#".*"]
                  :access-control-allow-methods [:get :post :put :delete :options]
                  :access-control-allow-headers [:content-type :authorization])))

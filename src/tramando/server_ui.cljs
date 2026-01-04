@@ -15,6 +15,10 @@
   "Login or registration form"
   [{:keys [on-success]}]
   (let [mode (r/atom :login)  ;; :login or :register
+        ;; Auto-detect server URL from current page location
+        auto-server-url (let [loc js/window.location]
+                          (str (.-protocol loc) "//" (.-hostname loc) ":3000"))
+        server-url (r/atom auto-server-url)
         username (r/atom "")
         password (r/atom "")
         password2 (r/atom "")
@@ -64,6 +68,8 @@
                               :else
                               (do
                                 (reset! loading? true)
+                                ;; Set server URL before login
+                                (api/set-server-url! @server-url)
                                 (-> (if (= @mode :login)
                                       (auth/login! @username @password)
                                       (auth/register! @username @password))
@@ -72,6 +78,26 @@
                                              (if (:ok result)
                                                (when on-success (on-success))
                                                (reset! error (:error result)))))))))}
+        ;; Server URL
+        [:div {:style {:margin-bottom "15px"}}
+         [:label {:style {:display "block"
+                          :margin-bottom "5px"
+                          :font-size "0.85rem"
+                          :color (settings/get-color :text-muted)}}
+          "Server"]
+         [:input {:type "text"
+                  :value @server-url
+                  :on-change #(reset! server-url (-> % .-target .-value))
+                  :disabled @loading?
+                  :style {:width "100%"
+                          :padding "10px 12px"
+                          :border (str "1px solid " (settings/get-color :border))
+                          :border-radius "4px"
+                          :background (settings/get-color :editor-bg)
+                          :color (settings/get-color :text)
+                          :font-size "0.9rem"
+                          :box-sizing "border-box"}}]]
+
         ;; Username
         [:div {:style {:margin-bottom "15px"}}
          [:label {:style {:display "block"
@@ -592,14 +618,304 @@
       "Accedi per lavorare in team e sincronizzare i progetti."]]]])
 
 ;; =============================================================================
+;; Collaborators Modal (wraps collaborators-panel in a modal)
+;; =============================================================================
+
+(defn collaborators-modal
+  "Modal wrapper for collaborators panel"
+  [{:keys [project-id on-close]}]
+  [:div {:style {:position "fixed"
+                 :top 0 :left 0 :right 0 :bottom 0
+                 :background "rgba(0,0,0,0.5)"
+                 :display "flex"
+                 :align-items "center"
+                 :justify-content "center"
+                 :z-index 2000}
+         :on-click (fn [e]
+                     (when (= (.-target e) (.-currentTarget e))
+                       (on-close)))}
+   [:div {:style {:background (settings/get-color :bg)
+                  :border-radius "8px"
+                  :width "450px"
+                  :max-height "80vh"
+                  :overflow "auto"
+                  :box-shadow "0 8px 32px rgba(0,0,0,0.3)"}}
+    ;; Header
+    [:div {:style {:display "flex"
+                   :justify-content "space-between"
+                   :align-items "center"
+                   :padding "15px 20px"
+                   :border-bottom (str "1px solid " (settings/get-color :border))}}
+     [:h2 {:style {:margin 0
+                   :font-weight "400"
+                   :font-size "1.2rem"
+                   :color (settings/get-color :text)}}
+      "Collaboratori"]
+     [:button {:on-click on-close
+               :style {:background "transparent"
+                       :border "none"
+                       :font-size "1.5rem"
+                       :cursor "pointer"
+                       :color (settings/get-color :text-muted)}}
+      "×"]]
+    ;; Content
+    [collaborators-panel {:project-id project-id}]]])
+
+;; =============================================================================
+;; Admin Users Panel (Super Admin only)
+;; =============================================================================
+
+(defn admin-users-panel
+  "Panel for super-admin to manage all users"
+  [{:keys [on-close]}]
+  (let [users (r/atom nil)
+        loading? (r/atom true)
+        error (r/atom nil)
+        ;; Create user form
+        show-create? (r/atom false)
+        new-username (r/atom "")
+        new-password (r/atom "")
+        new-is-admin? (r/atom false)
+        creating? (r/atom false)
+        ;; Delete confirmation
+        confirm-delete-id (r/atom nil)
+        load-users! (fn []
+                      (reset! loading? true)
+                      (-> (api/list-users)
+                          (.then (fn [result]
+                                   (reset! loading? false)
+                                   (if (:ok result)
+                                     (reset! users (get-in result [:data :users]))
+                                     (reset! error (:error result)))))))]
+    (load-users!)
+    (fn [{:keys [on-close]}]
+      [:div {:style {:position "fixed"
+                     :top 0 :left 0 :right 0 :bottom 0
+                     :background "rgba(0,0,0,0.5)"
+                     :display "flex"
+                     :align-items "center"
+                     :justify-content "center"
+                     :z-index 2000}
+             :on-click (fn [e]
+                         (when (= (.-target e) (.-currentTarget e))
+                           (on-close)))}
+       [:div {:style {:background (settings/get-color :bg)
+                      :border-radius "8px"
+                      :width "600px"
+                      :max-height "80vh"
+                      :overflow "auto"
+                      :box-shadow "0 8px 32px rgba(0,0,0,0.3)"}}
+        ;; Header
+        [:div {:style {:display "flex"
+                       :justify-content "space-between"
+                       :align-items "center"
+                       :padding "20px"
+                       :border-bottom (str "1px solid " (settings/get-color :border))}}
+         [:h2 {:style {:margin 0
+                       :font-weight "400"
+                       :color (settings/get-color :text)}}
+          "Gestione Utenti"]
+         [:button {:on-click on-close
+                   :style {:background "transparent"
+                           :border "none"
+                           :font-size "1.5rem"
+                           :cursor "pointer"
+                           :color (settings/get-color :text-muted)}}
+          "×"]]
+
+        [:div {:style {:padding "20px"}}
+         ;; Error
+         (when @error
+           [:div {:style {:background "#ff5252"
+                          :color "white"
+                          :padding "10px 15px"
+                          :border-radius "4px"
+                          :margin-bottom "15px"}}
+            @error])
+
+         ;; Create user button/form
+         (if @show-create?
+           [:div {:style {:background (settings/get-color :sidebar)
+                          :padding "15px"
+                          :border-radius "6px"
+                          :margin-bottom "20px"}}
+            [:div {:style {:font-weight "500"
+                           :margin-bottom "10px"
+                           :color (settings/get-color :text)}}
+             "Nuovo utente"]
+            [:div {:style {:display "flex" :flex-direction "column" :gap "10px"}}
+             [:input {:type "text"
+                      :placeholder "Username (min 3 caratteri)"
+                      :value @new-username
+                      :on-change #(reset! new-username (-> % .-target .-value))
+                      :style {:padding "8px 12px"
+                              :border (str "1px solid " (settings/get-color :border))
+                              :border-radius "4px"
+                              :background (settings/get-color :editor-bg)
+                              :color (settings/get-color :text)}}]
+             [:input {:type "password"
+                      :placeholder "Password (min 6 caratteri)"
+                      :value @new-password
+                      :on-change #(reset! new-password (-> % .-target .-value))
+                      :style {:padding "8px 12px"
+                              :border (str "1px solid " (settings/get-color :border))
+                              :border-radius "4px"
+                              :background (settings/get-color :editor-bg)
+                              :color (settings/get-color :text)}}]
+             [:label {:style {:display "flex"
+                              :align-items "center"
+                              :gap "8px"
+                              :color (settings/get-color :text)}}
+              [:input {:type "checkbox"
+                       :checked @new-is-admin?
+                       :on-change #(reset! new-is-admin? (-> % .-target .-checked))}]
+              "Super Admin"]
+             [:div {:style {:display "flex" :gap "10px" :margin-top "5px"}}
+              [:button {:on-click (fn []
+                                    (reset! creating? true)
+                                    (reset! error nil)
+                                    (-> (api/create-user! @new-username @new-password @new-is-admin?)
+                                        (.then (fn [result]
+                                                 (reset! creating? false)
+                                                 (if (:ok result)
+                                                   (do
+                                                     (reset! show-create? false)
+                                                     (reset! new-username "")
+                                                     (reset! new-password "")
+                                                     (reset! new-is-admin? false)
+                                                     (load-users!))
+                                                   (reset! error (:error result)))))))
+                        :disabled (or @creating?
+                                      (< (count @new-username) 3)
+                                      (< (count @new-password) 6))
+                        :style {:padding "8px 16px"
+                                :background (settings/get-color :accent)
+                                :color "white"
+                                :border "none"
+                                :border-radius "4px"
+                                :cursor "pointer"
+                                :opacity (if (or @creating?
+                                                 (< (count @new-username) 3)
+                                                 (< (count @new-password) 6)) 0.5 1)}}
+               (if @creating? "..." "Crea")]
+              [:button {:on-click #(do (reset! show-create? false)
+                                       (reset! new-username "")
+                                       (reset! new-password "")
+                                       (reset! new-is-admin? false))
+                        :style {:padding "8px 16px"
+                                :background "transparent"
+                                :color (settings/get-color :text-muted)
+                                :border (str "1px solid " (settings/get-color :border))
+                                :border-radius "4px"
+                                :cursor "pointer"}}
+               "Annulla"]]]]
+           [:button {:on-click #(reset! show-create? true)
+                     :style {:padding "10px 20px"
+                             :background (settings/get-color :accent)
+                             :color "white"
+                             :border "none"
+                             :border-radius "4px"
+                             :cursor "pointer"
+                             :margin-bottom "20px"}}
+            "+ Nuovo utente"])
+
+         ;; Loading
+         (when @loading?
+           [:div {:style {:text-align "center"
+                          :padding "20px"
+                          :color (settings/get-color :text-muted)}}
+            "Caricamento..."])
+
+         ;; Users list
+         (when (and (not @loading?) @users)
+           [:div
+            (for [user @users]
+              ^{:key (:id user)}
+              [:div {:style {:display "flex"
+                             :justify-content "space-between"
+                             :align-items "center"
+                             :padding "12px 15px"
+                             :background (settings/get-color :sidebar)
+                             :border-radius "6px"
+                             :margin-bottom "8px"}}
+               [:div
+                [:span {:style {:color (settings/get-color :text)
+                                :font-weight "500"}}
+                 (:username user)]
+                (when (= 1 (:is_super_admin user))
+                  [:span {:style {:margin-left "10px"
+                                  :padding "2px 8px"
+                                  :background (settings/get-color :accent)
+                                  :color "white"
+                                  :border-radius "10px"
+                                  :font-size "0.75rem"}}
+                   "Super Admin"])
+                [:div {:style {:font-size "0.8rem"
+                               :color (settings/get-color :text-muted)
+                               :margin-top "2px"}}
+                 (str "Creato: " (when-let [d (:created_at user)] (subs d 0 10)))]]
+               ;; Actions (only for non-self users)
+               (when (not= (:id user) (:id (auth/get-user)))
+                 [:div {:style {:display "flex" :gap "8px"}}
+                  ;; Toggle admin
+                  [:button {:on-click (fn []
+                                        (-> (api/update-user-admin! (:id user) (zero? (:is_super_admin user)))
+                                            (.then (fn [result]
+                                                     (when (:ok result)
+                                                       (load-users!))))))
+                            :style {:padding "4px 10px"
+                                    :background "transparent"
+                                    :color (settings/get-color :text-muted)
+                                    :border (str "1px solid " (settings/get-color :border))
+                                    :border-radius "4px"
+                                    :cursor "pointer"
+                                    :font-size "0.8rem"}}
+                   (if (= 1 (:is_super_admin user)) "Rimuovi Admin" "Rendi Admin")]
+                  ;; Delete
+                  (if (= @confirm-delete-id (:id user))
+                    [:<>
+                     [:button {:on-click (fn []
+                                           (-> (api/delete-user! (:id user))
+                                               (.then (fn [result]
+                                                        (reset! confirm-delete-id nil)
+                                                        (when (:ok result)
+                                                          (load-users!))))))
+                               :style {:padding "4px 10px"
+                                       :background "#ff5252"
+                                       :color "white"
+                                       :border "none"
+                                       :border-radius "4px"
+                                       :cursor "pointer"
+                                       :font-size "0.8rem"}}
+                      "Conferma"]
+                     [:button {:on-click #(reset! confirm-delete-id nil)
+                               :style {:padding "4px 10px"
+                                       :background "transparent"
+                                       :color (settings/get-color :text-muted)
+                                       :border (str "1px solid " (settings/get-color :border))
+                                       :border-radius "4px"
+                                       :cursor "pointer"
+                                       :font-size "0.8rem"}}
+                      "No"]]
+                    [:button {:on-click #(reset! confirm-delete-id (:id user))
+                              :style {:padding "4px 10px"
+                                      :background "transparent"
+                                      :color "#ff5252"
+                                      :border "1px solid #ff5252"
+                                      :border-radius "4px"
+                                      :cursor "pointer"
+                                      :font-size "0.8rem"}}
+                     "Elimina"])])])])]]])))
+
+;; =============================================================================
 ;; User Menu (header dropdown)
 ;; =============================================================================
 
 (defn user-menu
   "Dropdown menu showing current user and logout option"
-  [{:keys [on-logout]}]
+  [{:keys [on-logout on-admin-users]}]
   (let [open? (r/atom false)]
-    (fn [{:keys [on-logout]}]
+    (fn [{:keys [on-logout on-admin-users]}]
       (when (auth/logged-in?)
         [:div {:style {:position "relative"}}
          ;; Trigger
@@ -628,17 +944,28 @@
                           :border (str "1px solid " (settings/get-color :border))
                           :border-radius "6px"
                           :box-shadow "0 4px 12px rgba(0,0,0,0.3)"
-                          :min-width "150px"
+                          :min-width "180px"
                           :z-index 1000}}
             (when (auth/super-admin?)
-              [:div {:style {:padding "10px 15px"
-                             :font-size "0.8rem"
-                             :color (settings/get-color :accent)
-                             :border-bottom (str "1px solid " (settings/get-color :border))}}
-               "⭐ Super Admin"])
+              [:<>
+               [:div {:style {:padding "10px 15px"
+                              :font-size "0.8rem"
+                              :color (settings/get-color :accent)
+                              :border-bottom (str "1px solid " (settings/get-color :border))}}
+                "⭐ Super Admin"]
+               [:div {:style {:padding "10px 15px"
+                              :cursor "pointer"
+                              :color (settings/get-color :text)}
+                      :on-mouse-over #(set! (.. % -currentTarget -style -background) (settings/get-color :editor-bg))
+                      :on-mouse-out #(set! (.. % -currentTarget -style -background) "transparent")
+                      :on-click (fn []
+                                  (reset! open? false)
+                                  (when on-admin-users (on-admin-users)))}
+                "Gestione Utenti"]])
             [:div {:style {:padding "10px 15px"
                            :cursor "pointer"
-                           :color (settings/get-color :text)}
+                           :color (settings/get-color :text)
+                           :border-top (when (auth/super-admin?) (str "1px solid " (settings/get-color :border)))}
                    :on-mouse-over #(set! (.. % -currentTarget -style -background) (settings/get-color :editor-bg))
                    :on-mouse-out #(set! (.. % -currentTarget -style -background) "transparent")
                    :on-click (fn []

@@ -820,19 +820,21 @@
             {:style {:color (:text-muted colors) :font-size "0.85rem" :padding "8px 0"}}
             (t :no-chunk)])
 
-         [:div {:style {:margin-top "12px"}}
-          [:button
-           {:style {:background (:accent colors)
-                    :color "white"
-                    :border "none"
-                    :padding "8px 16px"
-                    :border-radius "4px"
-                    :cursor "pointer"
-                    :width "100%"
-                    :font-size "0.9rem"}
-            :on-click (fn []
-                        (model/add-chunk!))}
-           (t :new-chunk)]]
+         ;; Show "+ Nuovo Chunk" only if user can create at root level
+         (when (model/can-create-chunk-at? nil)
+           [:div {:style {:margin-top "12px"}}
+            [:button
+             {:style {:background (:accent colors)
+                      :color "white"
+                      :border "none"
+                      :padding "8px 16px"
+                      :border-radius "4px"
+                      :cursor "pointer"
+                      :width "100%"
+                      :font-size "0.9rem"}
+              :on-click (fn []
+                          (model/add-chunk!))}
+             (t :new-chunk)]])
 
          ;; ASPETTI section
          [:div {:style {:margin-top "24px" :padding-top "16px" :border-top (str "1px solid " (:border colors))}}

@@ -287,14 +287,135 @@ permettendo una migrazione graduale. I componenti possono continuare a usare
   - `mode-selector` - Scelta modalità locale/server
   - `user-menu` - Menu utente con logout
 
-### Fase 7: RemoteStore + sync
+### Fase 7: RemoteStore + sync ✅
 - Implementazione RemoteStore
 - Caricamento/salvataggio da server
 - Switch locale/remoto
 
-### Fase 8: Multi-utente
-- WebSocket per notifiche real-time
-- Ownership enforced
+**Implementato:**
+- `tramando.store.remote` - Implementazione `RemoteStore` del protocol `IStateStore`:
+  - `load-project` - Carica progetto da server, inizializza stato locale
+  - `save-project` - Salva con optimistic locking (content-hash)
+  - Delega a `model.cljs` per stato locale (chunks, metadata, history)
+  - Sync automatico con debounce 3s
+  - Gestione conflitti 409 con dialog sovrascrivi/ricarica
+- `cleanup!` - Pulizia stato quando si esce da modalità remota
+- `get-project-name`, `get-sync-status` - Accessori per UI
+- `views.cljs` semplificato - usa `RemoteStore` invece di codice ad-hoc
+
+**Architettura:**
+```
+┌─────────────────┐     ┌─────────────────┐
+│   views.cljs    │────▶│  IStateStore    │
+│  (componenti)   │     │   (protocol)    │
+└─────────────────┘     └────────┬────────┘
+                                 │
+                    ┌────────────┴────────────┐
+                    │                         │
+              ┌─────▼─────┐           ┌───────▼───────┐
+              │LocalStore │           │ RemoteStore   │
+              │(file I/O) │           │ (API + sync)  │
+              └───────────┘           └───────┬───────┘
+                                              │
+                                      ┌───────▼───────┐
+                                      │  model.cljs   │
+                                      │ (stato locale)│
+                                      └───────────────┘
+```
+
+### Fase 8: Multi-utente ✅ (ownership enforced)
+- Ownership enforced lato server
+
+**Implementato:**
+- Funzioni granulari per controllo permessi in `db.clj`:
+  - `get-user-project-role` - Ritorna ruolo `:owner`, `:admin`, `:collaborator`, o `nil`
+  - `user-can-edit-content?` - Tutti i ruoli possono editare contenuto
+  - `user-can-edit-metadata?` - Solo owner e admin possono rinominare
+  - `user-is-project-owner?` - Controllo owner
+- `update-project-handler` rafforzato:
+  - Cambio nome: solo owner o admin
+  - Cambio contenuto: qualsiasi ruolo con accesso
+- Nuovo endpoint `PUT /api/projects/:id/collaborators/:user-id` per cambiare ruolo
+
+**Modello permessi progetto:**
+
+| Azione | Owner | Admin | Collaborator |
+|--------|-------|-------|--------------|
+| Leggere progetto | ✓ | ✓ | ✓ |
+| Modificare contenuto | ✓ | ✓ | ✓ |
+| Rinominare progetto | ✓ | ✓ | ✗ |
+| Eliminare progetto | ✓ | ✗ | ✗ |
+| Gestire collaboratori | ✓ | ✓ | ✗ |
+| Cambiare ruoli | ✓ | ✓ | ✗ |
+
+**Nota:** I controlli sono enforced lato server - la UI può nascondere i bottoni, ma anche se un utente malevolo facesse chiamate API dirette, il server rifiuterebbe con 403.
+
+**Controllo concorrenza (Optimistic Locking):**
+
+Il server protegge da sovrascritture accidentali quando due utenti modificano lo stesso progetto:
+
+1. `GET /api/projects/:id` ritorna `content-hash` (SHA-256 del contenuto)
+2. `PUT /api/projects/:id` accetta `base-hash` (l'hash ricevuto al caricamento)
+3. Se `base-hash` non corrisponde al contenuto attuale → 409 Conflict
+
+Flusso:
+```
+Client A: GET project → content-hash: "abc123"
+Client B: GET project → content-hash: "abc123"
+Client A: PUT content + base-hash="abc123" → OK, nuovo hash: "def456"
+Client B: PUT content + base-hash="abc123" → 409 Conflict!
+```
+
+In caso di conflitto, l'utente può:
+- **Sovrascrivi**: forza il salvataggio (perde le modifiche dell'altro)
+- **Ricarica**: scarica la versione server (perde le proprie modifiche)
+
+Questo approccio (optimistic locking) funziona bene per editing collaborativo asincrono, dove i conflitti sono rari. Per real-time editing simultaneo servirebbe CRDT o OT.
+
+**Testing:**
+Il controllo concorrenza richiede test di integrazione che simulino due client:
+```clojure
+;; Pseudocodice test
+(let [hash1 (get-project-hash 1)
+      hash2 hash1]  ;; Secondo client legge stesso hash
+  (save-project! 1 "content-A" hash1)  ;; → OK
+  (save-project! 1 "content-B" hash2)) ;; → 409 Conflict
+```
+Da implementare con test automatici lato server (clojure.test) che verifichino:
+- Salvataggio con hash corretto → 200
+- Salvataggio con hash sbagliato → 409
+- Salvataggio senza hash (force) → 200
+
+### Fase 8b: UI Amministrazione completa ✅
+
+**Implementato:**
+
+1. **Super Admin - Gestione Utenti**
+   - API backend: `POST/DELETE/PUT /api/admin/users`
+   - Funzioni DB: `list-all-users`, `delete-user!`, `update-user-super-admin!`
+   - UI: Pannello modale accessibile dal menu utente (solo per super admin)
+   - Funzionalità: creare utenti, eliminare utenti, promuovere/degradare admin
+
+2. **Gestione Collaboratori Progetto**
+   - Bottone "👥 Collaboratori" nell'header del progetto
+   - Pannello modale per aggiungere/rimuovere collaboratori
+   - Selezione ruolo: admin o collaborator
+
+3. **Trasferimento Ownership Chunk**
+   - Bottone "Trasferisci" nella tab Discussion (solo per owner)
+   - Form per inserire username destinatario
+   - Lista collaboratori cliccabile per selezione rapida
+   - Aggiorna i campi `:owner` e `:previous-owner` nel chunk
+
+**Flusso trasferimento ownership:**
+```
+Owner corrente → clicca "Trasferisci" → inserisce username → conferma
+                                         ↓
+                 Chunk aggiornato con :owner = nuovo-utente
+                                     :previous-owner = vecchio-owner
+                                         ↓
+                 Auto-sync al server (RemoteStore)
+```
 
 ### Fase 9: Polish e deploy
 - Edge case, conflitti

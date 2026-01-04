@@ -5,4 +5,5 @@
                 :asset-path "/js"
                 :modules {:main {:init-fn tramando.core/init}}
                 :devtools {:http-root "public"
-                           :http-port 8080}}}}
+                           :http-port 8080
+                           :http-host "0.0.0.0"}}}}

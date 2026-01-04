@@ -5,6 +5,7 @@
             [tramando.settings :as settings]
             [tramando.versioning :as versioning]
             [tramando.platform :as platform]
+            [tramando.events :as events]
             ["js-yaml" :as yaml]))
 
 ;; =============================================================================
@@ -28,9 +29,21 @@
 (def aspect-container-ids
   (set (map :id aspect-containers)))
 
+;; =============================================================================
+;; Collaborative Mode State (defined early for cross-namespace access)
+;; =============================================================================
+
+;; Current user for collaborative mode (set by RemoteStore)
+(defonce current-user (atom nil))
+
+;; User's role in current project: :owner, :admin, :collaborator, or nil (local mode)
+(defonce user-role (atom nil))
+
 ;; Forward declaration for functions used before definition
 (declare ensure-aspect-containers!)
 (declare load-file-content!)
+(declare can-create-chunk-at?)
+(declare get-chunk)
 
 (defn make-chunk
   "Create a new chunk with the given properties"
@@ -96,14 +109,15 @@
 
 (defn new-chunk
   "Create a new chunk with auto-generated id"
-  [& {:keys [summary content parent-id aspects ordered-refs existing-chunks]
-      :or {summary "Nuovo chunk" content "" parent-id nil aspects #{} ordered-refs [] existing-chunks []}}]
+  [& {:keys [summary content parent-id aspects ordered-refs existing-chunks owner]
+      :or {summary "Nuovo chunk" content "" parent-id nil aspects #{} ordered-refs [] existing-chunks [] owner "local"}}]
   (make-chunk {:id (generate-id parent-id existing-chunks)
                :summary summary
                :content content
                :parent-id parent-id
                :aspects aspects
-               :ordered-refs ordered-refs}))
+               :ordered-refs ordered-refs
+               :owner owner}))
 
 ;; =============================================================================
 ;; Parsing
@@ -482,6 +496,43 @@
            :filepath nil  ;; Full path to current file (nil if never saved)
            :metadata default-metadata}))
 
+;; Collaborative mode state functions (atoms defined at top of file)
+
+(defn set-current-user! [username]
+  (reset! current-user username))
+
+(defn set-user-role! [role]
+  (reset! user-role role))
+
+(defn get-user-role []
+  @user-role)
+
+(defn is-project-owner?
+  "Check if current user is the project owner (or in local mode)"
+  []
+  (or (nil? @user-role)  ;; local mode
+      (= @user-role :owner)))
+
+(defn can-edit-chunk?
+  "Check if current user can edit a specific chunk.
+   - Project owners can edit all chunks
+   - Collaborators can only edit chunks they own"
+  [chunk-id]
+  (if (is-project-owner?)
+    true
+    ;; Collaborator: check if they own this chunk
+    (let [chunk (get-chunk chunk-id)
+          chunk-owner (:owner chunk)]
+      ;; Can edit if: no owner yet, owner is 'local', or owner matches current user
+      (or (nil? chunk-owner)
+          (= "local" chunk-owner)
+          (= chunk-owner @current-user)))))
+
+(defn get-current-owner
+  "Get the owner to use for new chunks. Returns username if in collaborative mode, 'local' otherwise."
+  []
+  (or @current-user "local"))
+
 ;; =============================================================================
 ;; History (Undo/Redo)
 ;; =============================================================================
@@ -846,23 +897,32 @@
 (defn add-chunk!
   "Add a new chunk, optionally with a parent, summary, and content.
    If :id is provided, uses that ID instead of auto-generating.
-   If :select? is false, doesn't select the new chunk (default true)."
+   If :select? is false, doesn't select the new chunk (default true).
+   Owner is automatically set to current user in collaborative mode.
+   Returns nil if user doesn't have permission to create at parent-id."
   [& {:keys [id parent-id summary content select?]
       :or {id nil parent-id nil summary nil content nil select? true}}]
-  (push-history!)
-  (let [base-chunk (new-chunk :parent-id parent-id
-                              :summary (or summary "Nuovo chunk")
-                              :content (or content "")
-                              :existing-chunks (get-chunks))
-        ;; Override ID if provided
-        chunk (if id
-                (assoc base-chunk :id id)
-                base-chunk)]
-    (swap! app-state update :chunks conj chunk)
-    (when select?
-      (select-chunk! (:id chunk)))
-    (mark-modified!)
-    chunk))
+  ;; Check permission - collaborators can only create under aspects
+  (if (and @user-role (not (can-create-chunk-at? parent-id)))
+    (do
+      (js/console.warn "Permission denied: collaborators can only create chunks under aspects")
+      nil)
+    (do
+      (push-history!)
+      (let [base-chunk (new-chunk :parent-id parent-id
+                                  :summary (or summary "Nuovo chunk")
+                                  :content (or content "")
+                                  :existing-chunks (get-chunks)
+                                  :owner (get-current-owner))
+            ;; Override ID if provided
+            chunk (if id
+                    (assoc base-chunk :id id)
+                    base-chunk)]
+        (swap! app-state update :chunks conj chunk)
+        (when select?
+          (select-chunk! (:id chunk)))
+        (mark-modified!)
+        chunk))))
 
 (defn delete-chunk! [id]
   (push-history!)
@@ -1195,6 +1255,54 @@
    ;; Mark as clean (no unsaved changes)
    (versioning/mark-clean!)))
 
+(defn reload-from-remote!
+  "Reload content from server during polling.
+   Preserves current selection and doesn't trigger modified callback."
+  [content filename]
+  (js/console.log "reload-from-remote! called, content length:" (count content))
+  (let [current-selected-id (get-selected-id)
+        saved-callback @on-modified-callback]
+    ;; Temporarily disable modified callback to avoid sync loop
+    (reset! on-modified-callback nil)
+    ;; Parse the new content
+    (let [{:keys [metadata chunks]} (parse-file content)
+          ;; Get current aspect containers
+          current-aspects (filter #(contains? aspect-container-ids (:id %)) (get-chunks))
+          parsed-ids (set (map :id chunks))
+          ;; Keep aspect containers that aren't in parsed content
+          extra-aspects (remove #(contains? parsed-ids (:id %)) current-aspects)
+          final-chunks (vec (concat extra-aspects chunks))]
+      (js/console.log "Updating chunks, new count:" (count final-chunks))
+      ;; Clear selection first to force re-render
+      (swap! app-state assoc :selected-id nil)
+      ;; Update state with new chunks
+      (swap! app-state assoc
+             :chunks final-chunks
+             :metadata metadata))
+    ;; Set filename
+    (set-filename! filename)
+    ;; Restore selection
+    (let [new-chunks (get-chunks)
+          structural (filter #(not (contains? aspect-container-ids (:id %))) new-chunks)
+          new-selected (if (and current-selected-id
+                                (some #(= (:id %) current-selected-id) new-chunks))
+                         current-selected-id
+                         (when (seq structural)
+                           (:id (first structural))))]
+      (when new-selected
+        (swap! app-state assoc :selected-id new-selected)))
+    ;; Reset history with new state
+    (reset! history {:states [] :current -1 :checkpoints []})
+    (push-history!)
+    (reset! save-status :idle)
+    ;; Restore callback
+    (reset! on-modified-callback saved-callback)
+    ;; Force editor to refresh (triggers CodeMirror re-render)
+    (events/refresh-editor!)
+    ;; Force Reagent to flush pending updates
+    (r/flush)
+    (js/console.log "reload-from-remote! complete")))
+
 (defn open-file!
   "Show open dialog and load selected file (works on both Tauri and webapp)"
   []
@@ -1277,6 +1385,30 @@
         ;; Keep walking up
         :else (let [parent (first (filter #(= (:id %) current-parent-id) chunks))]
                 (recur (:parent-id parent)))))))
+
+(defn is-under-aspects?
+  "Check if a parent-id is under the aspects hierarchy (can create children there)"
+  [parent-id]
+  (or (is-aspect-container? parent-id)
+      (when-let [parent (get-chunk parent-id)]
+        (is-aspect-chunk? parent))))
+
+(defn can-create-chunk-at?
+  "Check if current user can create a chunk at the given parent-id.
+   - Project owners can create anywhere
+   - Collaborators can create:
+     1. Under aspects hierarchy (always)
+     2. Under chunks they own (transferred ownership)"
+  [parent-id]
+  (or (is-project-owner?)
+      (is-under-aspects? parent-id)
+      ;; Collaborator can create under chunks they own
+      (when parent-id
+        (let [parent (get-chunk parent-id)
+              parent-owner (:owner parent)]
+          (and parent-owner
+               (not= "local" parent-owner)
+               (= parent-owner @current-user))))))
 
 (defn get-aspect-container-children
   "Get children of a specific aspect container"

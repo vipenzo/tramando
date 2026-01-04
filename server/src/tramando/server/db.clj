@@ -154,6 +154,32 @@
         (= "admin" (:role (query-one ["SELECT role FROM permissions WHERE user_id = ? AND project_id = ?"
                                        user-id project-id]))))))
 
+(defn get-user-project-role
+  "Returns the user's role for a project: :owner, :admin, :collaborator, or nil"
+  [user-id project-id]
+  (let [project (find-project-by-id project-id)]
+    (cond
+      (nil? project) nil
+      (= (:owner_id project) user-id) :owner
+      :else (when-let [perm (query-one ["SELECT role FROM permissions WHERE user_id = ? AND project_id = ?"
+                                         user-id project-id])]
+              (keyword (:role perm))))))
+
+(defn user-can-edit-content?
+  "Returns true if user can edit project content (owner, admin, or collaborator)"
+  [user-id project-id]
+  (some? (get-user-project-role user-id project-id)))
+
+(defn user-can-edit-metadata?
+  "Returns true if user can edit project metadata like name (owner or admin only)"
+  [user-id project-id]
+  (#{:owner :admin} (get-user-project-role user-id project-id)))
+
+(defn user-is-project-owner?
+  "Returns true if user is the project owner"
+  [user-id project-id]
+  (= :owner (get-user-project-role user-id project-id)))
+
 ;; =============================================================================
 ;; Permission Operations
 ;; =============================================================================
@@ -174,3 +200,34 @@
            FROM users u
            JOIN permissions pm ON pm.user_id = u.id
            WHERE pm.project_id = ?" project-id]))
+
+;; =============================================================================
+;; Admin User Operations
+;; =============================================================================
+
+(defn list-all-users
+  "List all users with basic info (for super admin)"
+  []
+  (query ["SELECT id, username, is_super_admin, created_at FROM users ORDER BY id"]))
+
+(defn delete-user!
+  "Delete a user and all their related data"
+  [user-id]
+  (let [ds (get-datasource)]
+    ;; Remove from all permissions
+    (jdbc/execute! ds ["DELETE FROM permissions WHERE user_id = ?" user-id])
+    ;; Delete projects owned by this user
+    (let [owned-projects (query ["SELECT id FROM projects WHERE owner_id = ?" user-id])]
+      (doseq [p owned-projects]
+        (jdbc/execute! ds ["DELETE FROM permissions WHERE project_id = ?" (:id p)])
+        (jdbc/execute! ds ["DELETE FROM projects WHERE id = ?" (:id p)])))
+    ;; Delete the user
+    (jdbc/execute! ds ["DELETE FROM users WHERE id = ?" user-id])))
+
+(defn update-user-super-admin!
+  "Update user's super admin status"
+  [user-id is-super-admin?]
+  (let [ds (get-datasource)]
+    (jdbc/execute! ds
+      ["UPDATE users SET is_super_admin = ? WHERE id = ?"
+       (if is-super-admin? 1 0) user-id])))

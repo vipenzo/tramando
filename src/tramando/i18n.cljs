@@ -98,6 +98,7 @@
     :modified "Modificato"
     :saving "Salvataggio..."
     :saved "Salvato"
+    :read-only-not-owner "Sola lettura - non sei il proprietario di questo chunk"
 
     ;; Settings modal
     :settings "Impostazioni"
@@ -560,6 +561,7 @@
     :modified "Modified"
     :saving "Saving..."
     :saved "Saved"
+    :read-only-not-owner "Read-only - you are not the owner of this chunk"
 
     ;; Settings modal
     :settings "Settings"

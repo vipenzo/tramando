@@ -18,7 +18,9 @@
             [tramando.platform :as platform]
             [tramando.auth :as auth]
             [tramando.api :as api]
-            [tramando.server-ui :as server-ui]))
+            [tramando.server-ui :as server-ui]
+            [tramando.store.remote :as remote-store]
+            [tramando.store.protocol :as store]))
 
 ;; =============================================================================
 ;; App Mode State (for webapp routing)
@@ -29,47 +31,6 @@
 ;; :projects - showing server projects list
 ;; :editor-remote - editing a server project
 (defonce app-mode (r/atom nil))
-(defonce current-server-project (r/atom nil))
-
-;; =============================================================================
-;; Server Autosave (3s debounce)
-;; =============================================================================
-
-(defonce ^:private server-autosave-timer (atom nil))
-(def ^:private server-autosave-delay-ms 3000)
-
-(defn- do-server-autosave!
-  "Perform autosave to server"
-  []
-  (when (and (= @app-mode :editor-remote)
-             @current-server-project)
-    (reset! model/save-status :saving)
-    (let [content (model/serialize-file (model/get-chunks) (model/get-metadata))]
-      (-> (api/save-project! (:id @current-server-project) content)
-          (.then (fn [result]
-                   (if (:ok result)
-                     (do
-                       (reset! model/save-status :saved)
-                       (js/setTimeout #(reset! model/save-status :idle) 2000))
-                     (do
-                       (js/console.error "Server save failed:" (:error result))
-                       (reset! model/save-status :modified)))))
-          (.catch (fn [err]
-                    (js/console.error "Server save error:" err)
-                    (reset! model/save-status :modified)))))))
-
-(defn schedule-server-autosave!
-  "Schedule a server autosave after 3s debounce"
-  []
-  (when (= @app-mode :editor-remote)
-    ;; Cancel any pending autosave
-    (when @server-autosave-timer
-      (js/clearTimeout @server-autosave-timer))
-    ;; Mark as modified
-    (reset! model/save-status :modified)
-    ;; Schedule new autosave
-    (reset! server-autosave-timer
-            (js/setTimeout do-server-autosave! server-autosave-delay-ms))))
 
 ;; =============================================================================
 ;; View Mode State
@@ -97,6 +58,13 @@
 
 (defonce settings-file-input-ref (r/atom nil))
 (defonce show-api-key? (r/atom false))
+
+;; =============================================================================
+;; Admin Panel State
+;; =============================================================================
+
+(defonce show-admin-users? (r/atom false))
+(defonce show-collaborators? (r/atom false))
 
 ;; =============================================================================
 ;; Metadata Modal State
@@ -1672,6 +1640,9 @@
 (defonce splash-login-error (r/atom nil))
 (defonce splash-login-loading? (r/atom false))
 (defonce splash-register-mode? (r/atom false))
+;; Auto-detect server URL from current page location
+(defonce splash-server-url (r/atom (let [loc js/window.location]
+                                     (str (.-protocol loc) "//" (.-hostname loc) ":3000"))))
 
 (defn- splash-local-panel
   "Left panel: local mode options"
@@ -1796,6 +1767,8 @@
                           :else
                           (do
                             (reset! splash-login-loading? true)
+                            ;; Set server URL before login
+                            (api/set-server-url! @splash-server-url)
                             (-> (if @splash-register-mode?
                                   (auth/register! @splash-login-username @splash-login-password)
                                   (auth/login! @splash-login-username @splash-login-password))
@@ -1806,6 +1779,21 @@
                                              (reset! show-splash? false)
                                              (reset! app-mode :projects))
                                            (reset! splash-login-error (:error result)))))))))}
+    ;; Server URL field
+    [:input {:type "text"
+             :placeholder "Server URL"
+             :value @splash-server-url
+             :on-change #(reset! splash-server-url (-> % .-target .-value))
+             :disabled @splash-login-loading?
+             :style {:width "100%"
+                     :padding "8px 12px"
+                     :margin-bottom "10px"
+                     :border (str "1px solid " (:border colors))
+                     :border-radius "6px"
+                     :background (:background colors)
+                     :color (:text-muted colors)
+                     :font-size "0.85rem"
+                     :box-sizing "border-box"}}]
     [:input {:type "text"
              :placeholder "Username"
              :value @splash-login-username
@@ -2008,14 +1996,8 @@
 (defn- back-to-projects!
   "Return to projects list, clearing server mode state"
   []
-  ;; Cancel any pending server autosave
-  (when @server-autosave-timer
-    (js/clearTimeout @server-autosave-timer)
-    (reset! server-autosave-timer nil))
-  ;; Clear callback so local mode uses localStorage autosave
-  (reset! model/on-modified-callback nil)
-  ;; Clear current project
-  (reset! current-server-project nil)
+  ;; Cleanup RemoteStore state
+  (remote-store/cleanup!)
   ;; Navigate to projects
   (reset! app-mode :projects))
 
@@ -2040,19 +2022,35 @@
              :on-mouse-out #(set! (.. % -currentTarget -style -color) (settings/get-color :text-muted))}
     "<- Progetti"]
    [:span {:style {:color (settings/get-color :text) :font-weight "500"}}
-    (:name @current-server-project)]
-   [server-ui/user-menu {:on-logout #(do (reset! app-mode nil)
-                                         (reset! show-splash? true))}]])
+    (remote-store/get-project-name)]
+   [:div {:style {:display "flex" :align-items "center" :gap "10px"}}
+    [:button {:on-click #(reset! show-collaborators? true)
+              :style {:background "transparent"
+                      :border (str "1px solid " (settings/get-color :border))
+                      :color (settings/get-color :text-muted)
+                      :cursor "pointer"
+                      :font-size "0.85rem"
+                      :padding "5px 12px"
+                      :border-radius "4px"
+                      :display "flex"
+                      :align-items "center"
+                      :gap "5px"}
+              :on-mouse-over #(set! (.. % -currentTarget -style -borderColor) (settings/get-color :text))
+              :on-mouse-out #(set! (.. % -currentTarget -style -borderColor) (settings/get-color :border))}
+     "👥 Collaboratori"]
+    [server-ui/user-menu {:on-logout #(do (remote-store/cleanup!)
+                                          (reset! app-mode nil)
+                                          (reset! show-splash? true))
+                          :on-admin-users #(reset! show-admin-users? true)}]]])
 
 (defn- open-server-project! [project]
-  (reset! current-server-project project)
-  ;; Set server autosave callback
-  (reset! model/on-modified-callback schedule-server-autosave!)
-  (-> (api/get-project (:id project))
-      (.then (fn [result]
-               (when (:ok result)
-                 (model/load-file-content! (get-in result [:data :content]) (:name project) nil)
-                 (reset! app-mode :editor-remote))))))
+  ;; Initialize RemoteStore and load project
+  (remote-store/init!)
+  (-> (store/load-project (store/get-store) (:id project))
+      (.then (fn [_result]
+               (reset! app-mode :editor-remote)))
+      (.catch (fn [err]
+                (js/console.error "Failed to load project:" err)))))
 
 ;; =============================================================================
 ;; App Root
@@ -2073,44 +2071,55 @@
   (when (nil? @app-mode)
     (determine-initial-mode!))
 
-  (cond
-    ;; Splash screen
-    @show-splash?
-    [splash-screen]
+  [:<>
+   (cond
+     ;; Splash screen
+     @show-splash?
+     [splash-screen]
 
-    ;; Local mode
-    (= @app-mode :local)
-    [main-layout]
+     ;; Local mode
+     (= @app-mode :local)
+     [main-layout]
 
-    ;; Projects list
-    (= @app-mode :projects)
-    [:div {:style {:min-height "100vh"
-                   :background (settings/get-color :bg)}}
+     ;; Projects list
+     (= @app-mode :projects)
+     [:div {:style {:min-height "100vh"
+                    :background (settings/get-color :bg)}}
+      [:div {:style {:display "flex"
+                     :justify-content "space-between"
+                     :align-items "center"
+                     :padding "15px 20px"
+                     :border-bottom (str "1px solid " (settings/get-color :border))}}
+       [:h1 {:style {:margin 0
+                     :font-size "1.5rem"
+                     :font-weight "300"
+                     :color (settings/get-color :text)}}
+        "Tramando"]
+       [server-ui/user-menu {:on-logout #(do (reset! app-mode nil)
+                                               (reset! show-splash? true))
+                             :on-admin-users #(reset! show-admin-users? true)}]]
+      [server-ui/projects-list
+       {:on-open open-server-project!
+        :on-create open-server-project!}]]
+
+     ;; Editor with server project
+     (= @app-mode :editor-remote)
      [:div {:style {:display "flex"
-                    :justify-content "space-between"
-                    :align-items "center"
-                    :padding "15px 20px"
-                    :border-bottom (str "1px solid " (settings/get-color :border))}}
-      [:h1 {:style {:margin 0
-                    :font-size "1.5rem"
-                    :font-weight "300"
-                    :color (settings/get-color :text)}}
-       "Tramando"]
-      [server-ui/user-menu {:on-logout #(do (reset! app-mode nil)
-                                              (reset! show-splash? true))}]]
-     [server-ui/projects-list
-      {:on-open open-server-project!
-       :on-create open-server-project!}]]
+                    :flex-direction "column"
+                    :height "100vh"}}
+      [server-project-header]
+      [:div {:style {:flex 1 :overflow "hidden"}}
+       [main-layout]]]
 
-    ;; Editor with server project
-    (= @app-mode :editor-remote)
-    [:div {:style {:display "flex"
-                   :flex-direction "column"
-                   :height "100vh"}}
-     [server-project-header]
-     [:div {:style {:flex 1 :overflow "hidden"}}
-      [main-layout]]]
+     ;; Fallback
+     :else
+     [main-layout])
 
-    ;; Fallback
-    :else
-    [main-layout]))
+   ;; Admin users panel overlay (shown when show-admin-users? is true)
+   (when @show-admin-users?
+     [server-ui/admin-users-panel {:on-close #(reset! show-admin-users? false)}])
+
+   ;; Collaborators modal (shown when show-collaborators? is true)
+   (when @show-collaborators?
+     [server-ui/collaborators-modal {:project-id (remote-store/get-project-id)
+                                     :on-close #(reset! show-collaborators? false)}])])

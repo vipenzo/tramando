@@ -114,22 +114,36 @@
   (api-get (str "/api/projects/" project-id)))
 
 (defn save-project!
-  "Save project content"
-  [project-id content]
-  (api-put (str "/api/projects/" project-id) {:content content}))
+  "Save project content with optimistic concurrency control.
+   base-hash is the hash received when loading the project.
+   Returns {:ok true :data {:content-hash new-hash}} on success,
+   {:ok false :status 409 :data {:current-hash hash}} on conflict."
+  ([project-id content]
+   (save-project! project-id content nil))
+  ([project-id content base-hash]
+   (api-put (str "/api/projects/" project-id)
+            (cond-> {:content content}
+              base-hash (assoc :base-hash base-hash)))))
 
 (defn update-project!
-  "Update project metadata and/or content"
-  [project-id {:keys [name content]}]
+  "Update project metadata and/or content.
+   Include :base-hash when updating content for conflict detection."
+  [project-id {:keys [name content base-hash]}]
   (api-put (str "/api/projects/" project-id)
            (cond-> {}
              name (assoc :name name)
-             content (assoc :content content))))
+             content (assoc :content content)
+             base-hash (assoc :base-hash base-hash))))
 
 (defn delete-project!
   "Delete a project"
   [project-id]
   (api-delete (str "/api/projects/" project-id)))
+
+(defn get-project-hash
+  "Get only the content-hash of a project (for polling)"
+  [project-id]
+  (api-get (str "/api/projects/" project-id "/hash")))
 
 ;; =============================================================================
 ;; Collaborators API
@@ -160,11 +174,29 @@
   []
   (api-get "/api/admin/users"))
 
+(defn create-user!
+  "Create a new user (super-admin only)"
+  [username password is-super-admin]
+  (api-post "/api/admin/users" {:username username
+                                 :password password
+                                 :is-super-admin is-super-admin}))
+
+(defn delete-user!
+  "Delete a user (super-admin only)"
+  [user-id]
+  (api-delete (str "/api/admin/users/" user-id)))
+
+(defn update-user-admin!
+  "Update user's super-admin status (super-admin only)"
+  [user-id is-super-admin]
+  (api-put (str "/api/admin/users/" user-id) {:is-super-admin is-super-admin}))
+
 ;; =============================================================================
-;; Token Persistence
+;; Token and Server URL Persistence
 ;; =============================================================================
 
 (def ^:private token-storage-key "tramando-auth-token")
+(def ^:private server-url-storage-key "tramando-server-url")
 
 (defn save-token-to-storage!
   "Save token to localStorage for persistence across sessions"
@@ -172,11 +204,23 @@
   (when-let [token (:token @config)]
     (.setItem js/localStorage token-storage-key token)))
 
+(defn save-server-url-to-storage!
+  "Save server URL to localStorage for persistence"
+  []
+  (when-let [url (:server-url @config)]
+    (.setItem js/localStorage server-url-storage-key url)))
+
 (defn load-token-from-storage!
   "Load token from localStorage"
   []
   (when-let [token (.getItem js/localStorage token-storage-key)]
     (set-token! token)))
+
+(defn load-server-url-from-storage!
+  "Load server URL from localStorage"
+  []
+  (when-let [url (.getItem js/localStorage server-url-storage-key)]
+    (set-server-url! url)))
 
 (defn clear-token-from-storage!
   "Clear token from localStorage"

@@ -40,6 +40,7 @@
                (if (:ok result)
                  (do
                    (api/save-token-to-storage!)
+                   (api/save-server-url-to-storage!)
                    (swap! auth-state assoc
                           :user (get-in result [:data :user])
                           :loading? false
@@ -59,6 +60,7 @@
                (if (:ok result)
                  (do
                    (api/save-token-to-storage!)
+                   (api/save-server-url-to-storage!)
                    (swap! auth-state assoc
                           :user (get-in result [:data :user])
                           :loading? false
@@ -76,6 +78,7 @@
 (defn check-auth!
   "Check if there's a valid token and load user. Call on app startup."
   []
+  (api/load-server-url-from-storage!)
   (api/load-token-from-storage!)
   (if (api/get-token)
     (-> (api/get-current-user)
