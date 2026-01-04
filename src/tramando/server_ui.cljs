@@ -169,6 +169,109 @@
 ;; Projects List
 ;; =============================================================================
 
+(defn- project-card
+  "Single project card with duplicate/delete actions"
+  [{:keys [project on-open duplicating-id confirm-delete-id load-projects!]}]
+  [:div {:style {:background (settings/get-color :sidebar)
+                 :border (str "1px solid " (settings/get-color :border))
+                 :border-radius "6px"
+                 :padding "15px"
+                 :transition "border-color 0.2s"}}
+   ;; Project name (clickable)
+   [:div {:style {:font-weight "500"
+                  :color (settings/get-color :text)
+                  :margin-bottom "8px"
+                  :cursor "pointer"}
+          :on-click #(when on-open (on-open project))}
+    (:name project)]
+   ;; Role and date
+   [:div {:style {:display "flex"
+                  :justify-content "space-between"
+                  :font-size "0.8rem"
+                  :color (settings/get-color :text-muted)}}
+    [:span (case (:user_role project)
+             "owner" "Proprietario"
+             "admin" "Admin"
+             "collaborator" "Collaboratore"
+             (:user_role project))]
+    [:span (when-let [date (:updated_at project)]
+             (subs date 0 10))]]
+   ;; Buttons for owners
+   (when (= (:user_role project) "owner")
+     [:div {:style {:display "flex"
+                    :gap "8px"
+                    :margin-top "12px"
+                    :padding-top "12px"
+                    :border-top (str "1px solid " (settings/get-color :border))}}
+      ;; Duplicate button
+      [:button {:on-click (fn [e]
+                            (.stopPropagation e)
+                            (reset! duplicating-id (:id project))
+                            (-> (api/get-project (:id project))
+                                (.then (fn [result]
+                                         (when (:ok result)
+                                           (-> (api/create-project! (str (:name project) " (copia)")
+                                                                    (get-in result [:data :content]))
+                                               (.then (fn [cr]
+                                                        (reset! duplicating-id nil)
+                                                        (when (:ok cr)
+                                                          (events/show-toast! "Progetto duplicato")
+                                                          (load-projects!))))))))))
+                :disabled (= @duplicating-id (:id project))
+                :style {:flex 1
+                        :padding "6px 10px"
+                        :background "transparent"
+                        :color (settings/get-color :text-muted)
+                        :border (str "1px solid " (settings/get-color :border))
+                        :border-radius "4px"
+                        :cursor "pointer"
+                        :font-size "0.8rem"}}
+       (if (= @duplicating-id (:id project)) "..." "Duplica")]
+      ;; Delete button (or confirm/cancel)
+      (if (= @confirm-delete-id (:id project))
+        [:<>
+         [:button {:on-click (fn [e]
+                               (.stopPropagation e)
+                               (-> (api/delete-project! (:id project))
+                                   (.then (fn [result]
+                                            (reset! confirm-delete-id nil)
+                                            (when (:ok result)
+                                              (events/show-toast! "Progetto eliminato")
+                                              (load-projects!))))))
+                   :style {:flex 1
+                           :padding "6px 10px"
+                           :background "#ff5252"
+                           :color "white"
+                           :border "none"
+                           :border-radius "4px"
+                           :cursor "pointer"
+                           :font-size "0.8rem"}}
+          "Conferma"]
+         [:button {:on-click (fn [e]
+                               (.stopPropagation e)
+                               (reset! confirm-delete-id nil))
+                   :style {:flex 1
+                           :padding "6px 10px"
+                           :background "transparent"
+                           :color (settings/get-color :text-muted)
+                           :border (str "1px solid " (settings/get-color :border))
+                           :border-radius "4px"
+                           :cursor "pointer"
+                           :font-size "0.8rem"}}
+          "Annulla"]]
+        [:button {:on-click (fn [e]
+                              (.stopPropagation e)
+                              (reset! confirm-delete-id (:id project)))
+                  :style {:flex 1
+                          :padding "6px 10px"
+                          :background "transparent"
+                          :color "#ff5252"
+                          :border "1px solid #ff5252"
+                          :border-radius "4px"
+                          :cursor "pointer"
+                          :font-size "0.8rem"}}
+         "Elimina"])])])
+
 (defn projects-list
   "List of server projects with create/open/delete actions"
   [{:keys [on-open on-create]}]
@@ -178,6 +281,8 @@
         new-project-name (r/atom "")
         creating? (r/atom false)
         show-create-form? (r/atom false)
+        duplicating-id (r/atom nil)
+        confirm-delete-id (r/atom nil)
         load-projects! (fn []
                          (reset! loading? true)
                          (-> (api/list-projects)
@@ -282,30 +387,12 @@
                           :gap "15px"}}
             (for [project @projects]
               ^{:key (:id project)}
-              [:div {:style {:background (settings/get-color :sidebar)
-                             :border (str "1px solid " (settings/get-color :border))
-                             :border-radius "6px"
-                             :padding "15px"
-                             :cursor "pointer"
-                             :transition "border-color 0.2s"}
-                     :on-mouse-over #(set! (.. % -currentTarget -style -borderColor) (settings/get-color :accent))
-                     :on-mouse-out #(set! (.. % -currentTarget -style -borderColor) (settings/get-color :border))
-                     :on-click #(when on-open (on-open project))}
-               [:div {:style {:font-weight "500"
-                              :color (settings/get-color :text)
-                              :margin-bottom "8px"}}
-                (:name project)]
-               [:div {:style {:display "flex"
-                              :justify-content "space-between"
-                              :font-size "0.8rem"
-                              :color (settings/get-color :text-muted)}}
-                [:span (case (:user_role project)
-                         "owner" "👤 Proprietario"
-                         "admin" "🔧 Admin"
-                         "collaborator" "✏️ Collaboratore"
-                         "")]
-                [:span (when-let [date (:updated_at project)]
-                         (subs date 0 10))]]])]))])))
+              [project-card {:project project
+                             :on-open on-open
+                             :duplicating-id duplicating-id
+                             :confirm-delete-id confirm-delete-id
+                             :load-projects! load-projects!}])]))])))
+
 
 ;; =============================================================================
 ;; Collaborators Panel
@@ -510,9 +597,9 @@
 
 (defn user-menu
   "Dropdown menu showing current user and logout option"
-  []
+  [{:keys [on-logout]}]
   (let [open? (r/atom false)]
-    (fn []
+    (fn [{:keys [on-logout]}]
       (when (auth/logged-in?)
         [:div {:style {:position "relative"}}
          ;; Trigger
@@ -556,5 +643,6 @@
                    :on-mouse-out #(set! (.. % -currentTarget -style -background) "transparent")
                    :on-click (fn []
                                (reset! open? false)
-                               (auth/logout!))}
+                               (auth/logout!)
+                               (when on-logout (on-logout)))}
              "Esci"]])]))))

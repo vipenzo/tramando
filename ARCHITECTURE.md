@@ -301,3 +301,27 @@ permettendo una migrazione graduale. I componenti possono continuare a usare
 - Notifiche UI
 - Documentazione
 - Deploy
+
+## Considerazioni future
+
+### Supporto mobile
+
+La webapp deve essere responsive e funzionare su tablet e smartphone. Casi d'uso prioritari:
+
+- Lettura del testo
+- Visualizzazione e gestione proposte (accetta/rifiuta)
+- Partecipazione alle discussioni
+- Scrittura di draft veloci
+- Consultazione schede (personaggi, luoghi, timeline)
+
+L'architettura (frontend unico + backend via API REST/WebSocket) si presta a un eventuale client mobile nativo in futuro. L'ordine di priorità è:
+
+1. Webapp collaborativa funzionante
+2. Webapp responsive (usabile da mobile browser)
+3. Eventuale app nativa (React Native, Flutter, o altro) che usa le stesse API
+
+Il passo 2 va considerato fin da subito nello sviluppo della UI. Il passo 3 è un progetto separato, da valutare in base alla domanda reale.
+
+### Note
+
+Alcune funzionalità potrebbero avere un'esperienza ridotta su schermi piccoli (es. mappe radiali), ma le funzioni core di lettura, commento e gestione proposte devono funzionare bene anche su smartphone.

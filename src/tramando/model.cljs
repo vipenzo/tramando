@@ -556,6 +556,9 @@
 ;; :saved, :modified, :saving
 (defonce save-status (r/atom :saved))
 
+;; Optional external callback for modifications (used by server mode)
+(defonce on-modified-callback (atom nil))
+
 ;; Timer ID for debounced autosave
 (defonce ^:private autosave-timer (atom nil))
 
@@ -616,7 +619,9 @@
   "Mark the document as modified and schedule autosave"
   []
   (versioning/mark-dirty!)
-  (schedule-autosave!))
+  (if @on-modified-callback
+    (@on-modified-callback)
+    (schedule-autosave!)))
 
 (defn get-chunks []
   (:chunks @app-state))
@@ -1132,6 +1137,20 @@
   (let [content (serialize-chunks (get-chunks))
         filename (str/replace (get-filename) #"\.trmd$" ".md")
         blob (js/Blob. #js [content] #js {:type "text/markdown"})
+        url (js/URL.createObjectURL blob)
+        a (js/document.createElement "a")]
+    (set! (.-href a) url)
+    (set! (.-download a) filename)
+    (.click a)
+    (js/URL.revokeObjectURL url)))
+
+(defn export-trmd!
+  "Export as .trmd file (with frontmatter) - downloads the file locally"
+  []
+  (let [content (serialize-file (get-chunks) (:metadata @app-state))
+        filename (let [f (get-filename)]
+                   (if (str/ends-with? f ".trmd") f (str f ".trmd")))
+        blob (js/Blob. #js [content] #js {:type "text/plain"})
         url (js/URL.createObjectURL blob)
         a (js/document.createElement "a")]
     (set! (.-href a) url)

@@ -32,6 +32,46 @@
 (defonce current-server-project (r/atom nil))
 
 ;; =============================================================================
+;; Server Autosave (3s debounce)
+;; =============================================================================
+
+(defonce ^:private server-autosave-timer (atom nil))
+(def ^:private server-autosave-delay-ms 3000)
+
+(defn- do-server-autosave!
+  "Perform autosave to server"
+  []
+  (when (and (= @app-mode :editor-remote)
+             @current-server-project)
+    (reset! model/save-status :saving)
+    (let [content (model/serialize-file (model/get-chunks) (model/get-metadata))]
+      (-> (api/save-project! (:id @current-server-project) content)
+          (.then (fn [result]
+                   (if (:ok result)
+                     (do
+                       (reset! model/save-status :saved)
+                       (js/setTimeout #(reset! model/save-status :idle) 2000))
+                     (do
+                       (js/console.error "Server save failed:" (:error result))
+                       (reset! model/save-status :modified)))))
+          (.catch (fn [err]
+                    (js/console.error "Server save error:" err)
+                    (reset! model/save-status :modified)))))))
+
+(defn schedule-server-autosave!
+  "Schedule a server autosave after 3s debounce"
+  []
+  (when (= @app-mode :editor-remote)
+    ;; Cancel any pending autosave
+    (when @server-autosave-timer
+      (js/clearTimeout @server-autosave-timer))
+    ;; Mark as modified
+    (reset! model/save-status :modified)
+    ;; Schedule new autosave
+    (reset! server-autosave-timer
+            (js/setTimeout do-server-autosave! server-autosave-delay-ms))))
+
+;; =============================================================================
 ;; View Mode State
 ;; =============================================================================
 
@@ -1287,6 +1327,23 @@
                        :box-shadow "0 4px 12px rgba(0,0,0,0.3)"
                        :min-width "140px"
                        :z-index 200}}
+         ;; Export .trmd
+         [:button {:style {:display "block"
+                           :width "100%"
+                           :text-align "left"
+                           :background "transparent"
+                           :border "none"
+                           :color (:text colors)
+                           :padding "10px 14px"
+                           :cursor "pointer"
+                           :font-size "0.85rem"}
+                   :on-click (fn []
+                               (model/export-trmd!)
+                               (reset! export-dropdown-open? false))}
+          (t :export-trmd)]
+         [:div {:style {:height "1px"
+                        :background (:border colors)}}]
+         ;; Export .md
          [:button {:style {:display "block"
                            :width "100%"
                            :text-align "left"
@@ -1326,7 +1383,8 @@
   (let [colors (:colors @settings/settings)
         current-theme (:theme @settings/settings)
         ;; Show texture if explicitly set, or if using tessuto theme (for backwards compatibility)
-        use-texture (or (get colors :background-texture) (= current-theme :tessuto))]
+        use-texture (or (get colors :background-texture) (= current-theme :tessuto))
+        server-mode? (= @app-mode :editor-remote)]
     [:div.header {:style {:background-color (:sidebar colors)
                           :border-bottom (str "1px solid " (:border colors))
                           :position "relative"
@@ -1364,62 +1422,65 @@
      [:div {:style {:position "relative" :z-index 1}}
       [save-status-indicator]]
      [:div {:style {:display "flex" :gap "8px" :align-items "center" :margin-left "12px" :position "relative" :z-index 1}}
-      ;; Hidden file input for loading
-      [:input {:type "file"
-               :accept ".trmd,.md,.txt"
-               :style {:display "none"}
-               :ref #(reset! file-input-ref %)
-               :on-change (fn [e]
-                            (when-let [file (-> e .-target .-files (aget 0))]
-                              (let [reader (js/FileReader.)]
-                                (set! (.-onload reader)
-                                      (fn [evt]
-                                        (let [content (-> evt .-target .-result)]
-                                          (model/load-file-content! content (.-name file)))))
-                                (.readAsText reader file))
-                              ;; Reset input so same file can be loaded again
-                              (set! (-> e .-target .-value) "")))}]
-      ;; Load button (uses native Tauri dialog)
-      [:button
-       {:style {:background "transparent"
-                :color (:text-muted colors)
-                :border (str "1px solid " (:border colors))
-                :padding "6px 12px"
-                :border-radius "4px"
-                :cursor "pointer"
-                :font-size "0.85rem"}
-        :title (t :help-carica)
-        :on-click #(model/open-file!)}
-       (t :load)]
-      ;; Save button
-      [:button
-       {:style {:background (:accent colors)
-                :color "white"
-                :border "none"
-                :padding "6px 12px"
-                :border-radius "4px"
-                :cursor "pointer"
-                :font-size "0.85rem"}
-        :title (t :help-salva)
-        :on-click #(model/save-file!)}
-       (t :save)]
-      ;; Save As button
-      [:button
-       {:style {:background "transparent"
-                :color (:text-muted colors)
-                :border (str "1px solid " (:border colors))
-                :padding "6px 12px"
-                :border-radius "4px"
-                :cursor "pointer"
-                :font-size "0.85rem"}
-        :on-click #(model/save-file-as!)}
-       (t :save-as)]
-      ;; Version dropdown
-      [versioning/version-dropdown
-       {:on-save-version #(versioning/open-save-version-dialog!)
-        :on-list-versions #(versioning/open-version-list-dialog!)
-        :on-restore-backup #(versioning/open-restore-backup-dialog! model/reload-file!)}]
-      ;; Export dropdown
+      ;; Local mode: file operations
+      (when-not server-mode?
+        [:<>
+         ;; Hidden file input for loading
+         [:input {:type "file"
+                  :accept ".trmd,.md,.txt"
+                  :style {:display "none"}
+                  :ref #(reset! file-input-ref %)
+                  :on-change (fn [e]
+                               (when-let [file (-> e .-target .-files (aget 0))]
+                                 (let [reader (js/FileReader.)]
+                                   (set! (.-onload reader)
+                                         (fn [evt]
+                                           (let [content (-> evt .-target .-result)]
+                                             (model/load-file-content! content (.-name file)))))
+                                   (.readAsText reader file))
+                                 ;; Reset input so same file can be loaded again
+                                 (set! (-> e .-target .-value) "")))}]
+         ;; Load button (uses native Tauri dialog)
+         [:button
+          {:style {:background "transparent"
+                   :color (:text-muted colors)
+                   :border (str "1px solid " (:border colors))
+                   :padding "6px 12px"
+                   :border-radius "4px"
+                   :cursor "pointer"
+                   :font-size "0.85rem"}
+           :title (t :help-carica)
+           :on-click #(model/open-file!)}
+          (t :load)]
+         ;; Save button
+         [:button
+          {:style {:background (:accent colors)
+                   :color "white"
+                   :border "none"
+                   :padding "6px 12px"
+                   :border-radius "4px"
+                   :cursor "pointer"
+                   :font-size "0.85rem"}
+           :title (t :help-salva)
+           :on-click #(model/save-file!)}
+          (t :save)]
+         ;; Save As button
+         [:button
+          {:style {:background "transparent"
+                   :color (:text-muted colors)
+                   :border (str "1px solid " (:border colors))
+                   :padding "6px 12px"
+                   :border-radius "4px"
+                   :cursor "pointer"
+                   :font-size "0.85rem"}
+           :on-click #(model/save-file-as!)}
+          (t :save-as)]
+         ;; Version dropdown (local only)
+         [versioning/version-dropdown
+          {:on-save-version #(versioning/open-save-version-dialog!)
+           :on-list-versions #(versioning/open-version-list-dialog!)
+           :on-restore-backup #(versioning/open-restore-backup-dialog! model/reload-file!)}]])
+      ;; Export dropdown (both modes)
       [export-dropdown]
       ;; Project info button
       [:button
@@ -1433,27 +1494,28 @@
         :title (t :help-metadata)
         :on-click #(reset! metadata-open? true)}
        "📄"]
-      ;; Filename display (editable) with dirty indicator
-      [:div {:style {:display "flex"
-                     :align-items "center"
-                     :gap "4px"}}
-       [:input {:type "text"
-                :value (:filename @model/app-state)
-                :style {:background "transparent"
-                        :border (str "1px solid " (:border colors))
-                        :border-radius "4px"
-                        :color (:text-muted colors)
-                        :padding "4px 8px"
-                        :font-size "0.85rem"
-                        :width "150px"}
-                :on-change #(model/set-filename! (-> % .-target .-value))}]
-       ;; Dirty indicator (unsaved changes)
-       (when @versioning/dirty?
-         [:span {:style {:color (:accent colors)
-                         :font-size "1.2rem"
-                         :line-height "1"}
-                 :title (t :unsaved-changes)}
-          "•"])]
+      ;; Filename display (editable) with dirty indicator - local mode only
+      (when-not server-mode?
+        [:div {:style {:display "flex"
+                       :align-items "center"
+                       :gap "4px"}}
+         [:input {:type "text"
+                  :value (:filename @model/app-state)
+                  :style {:background "transparent"
+                          :border (str "1px solid " (:border colors))
+                          :border-radius "4px"
+                          :color (:text-muted colors)
+                          :padding "4px 8px"
+                          :font-size "0.85rem"
+                          :width "150px"}
+                  :on-change #(model/set-filename! (-> % .-target .-value))}]
+         ;; Dirty indicator (unsaved changes)
+         (when @versioning/dirty?
+           [:span {:style {:color (:accent colors)
+                           :font-size "1.2rem"
+                           :line-height "1"}
+                   :title (t :unsaved-changes)}
+            "•"])])
       ;; Annotation counter
       (let [ann-count (annotations/count-annotations)]
         (when (pos? ann-count)
@@ -1943,6 +2005,20 @@
 ;; Server Project Helpers
 ;; =============================================================================
 
+(defn- back-to-projects!
+  "Return to projects list, clearing server mode state"
+  []
+  ;; Cancel any pending server autosave
+  (when @server-autosave-timer
+    (js/clearTimeout @server-autosave-timer)
+    (reset! server-autosave-timer nil))
+  ;; Clear callback so local mode uses localStorage autosave
+  (reset! model/on-modified-callback nil)
+  ;; Clear current project
+  (reset! current-server-project nil)
+  ;; Navigate to projects
+  (reset! app-mode :projects))
+
 (defn- server-project-header
   "Header for server project mode"
   []
@@ -1952,7 +2028,7 @@
                  :padding "8px 15px"
                  :background (settings/get-color :sidebar)
                  :border-bottom (str "1px solid " (settings/get-color :border))}}
-   [:button {:on-click #(reset! app-mode :projects)
+   [:button {:on-click back-to-projects!
              :style {:background "transparent"
                      :border "none"
                      :color (settings/get-color :text-muted)
@@ -1965,10 +2041,13 @@
     "<- Progetti"]
    [:span {:style {:color (settings/get-color :text) :font-weight "500"}}
     (:name @current-server-project)]
-   [server-ui/user-menu]])
+   [server-ui/user-menu {:on-logout #(do (reset! app-mode nil)
+                                         (reset! show-splash? true))}]])
 
 (defn- open-server-project! [project]
   (reset! current-server-project project)
+  ;; Set server autosave callback
+  (reset! model/on-modified-callback schedule-server-autosave!)
   (-> (api/get-project (:id project))
       (.then (fn [result]
                (when (:ok result)
@@ -2017,7 +2096,8 @@
                     :font-weight "300"
                     :color (settings/get-color :text)}}
        "Tramando"]
-      [server-ui/user-menu]]
+      [server-ui/user-menu {:on-logout #(do (reset! app-mode nil)
+                                              (reset! show-splash? true))}]]
      [server-ui/projects-list
       {:on-open open-server-project!
        :on-create open-server-project!}]]
