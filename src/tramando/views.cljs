@@ -7,7 +7,6 @@
             [tramando.settings :as settings]
             [tramando.radial :as radial]
             [tramando.export-pdf :as export-pdf]
-            [tramando.annotations :as annotations]
             [tramando.help :as help]
             [tramando.i18n :as i18n :refer [t]]
             [tramando.ai-panel :as ai-panel]
@@ -20,7 +19,8 @@
             [tramando.api :as api]
             [tramando.server-ui :as server-ui]
             [tramando.store.remote :as remote-store]
-            [tramando.store.protocol :as store]))
+            [tramando.store.protocol :as store]
+            [tramando.annotations :as annotations]))
 
 ;; =============================================================================
 ;; App Mode State (for webapp routing)
@@ -86,48 +86,11 @@
   (reset! tutorial-open? true))
 
 ;; =============================================================================
-;; Color Picker Component
-;; =============================================================================
-
-(defn color-picker [label color-key]
-  (let [colors (:colors @settings/settings)]
-    [:div {:style {:display "flex"
-                   :align-items "center"
-                   :justify-content "space-between"
-                   :padding "6px 0"}}
-     [:label {:style {:color (settings/get-color :text)
-                      :font-size "0.85rem"}}
-      label]
-     [:div {:style {:display "flex" :gap "8px" :align-items "center"}}
-      [:input {:type "color"
-               :value (get colors color-key)
-               :style {:width "40px"
-                       :height "28px"
-                       :border "none"
-                       :cursor "pointer"
-                       :background "transparent"}
-               :on-change #(settings/set-color! color-key (-> % .-target .-value))}]
-      [:input {:type "text"
-               :value (get colors color-key)
-               :style {:width "80px"
-                       :background (settings/get-color :editor-bg)
-                       :border (str "1px solid " (settings/get-color :border))
-                       :border-radius "3px"
-                       :color (settings/get-color :text)
-                       :padding "4px 6px"
-                       :font-size "0.75rem"
-                       :font-family "monospace"}
-               :on-change #(let [v (-> % .-target .-value)]
-                             (when (re-matches #"^#[0-9a-fA-F]{6}$" v)
-                               (settings/set-color! color-key v)))}]]]))
-
-;; =============================================================================
 ;; Settings Modal
 ;; =============================================================================
 
 (defn settings-modal []
   (let [colors (:colors @settings/settings)
-        current-theme (:theme @settings/settings)
         current-lang (:language @settings/settings)
         autosave-delay (/ (:autosave-delay-ms @settings/settings) 1000)
         _ @i18n/current-lang] ; subscribe to language changes
@@ -194,30 +157,6 @@
           ^{:key lang-key}
           [:option {:value (name lang-key)} lang-name])]]
 
-      ;; Theme Selector
-      [:div {:style {:margin-bottom "20px"}}
-       [:label {:style {:color (settings/get-color :text)
-                        :font-size "0.9rem"
-                        :font-weight "600"
-                        :display "block"
-                        :margin-bottom "8px"}}
-        (t :default-theme)]
-       [:select {:value (name (if (= current-theme :custom) :tessuto current-theme))
-                 :style {:width "100%"
-                         :background (settings/get-color :editor-bg)
-                         :color (settings/get-color :text)
-                         :border (str "1px solid " (settings/get-color :border))
-                         :border-radius "4px"
-                         :padding "8px 12px"
-                         :font-size "0.9rem"
-                         :cursor "pointer"}
-                 :on-change #(settings/set-theme! (keyword (-> % .-target .-value)))}
-        [:option {:value "tessuto"} "Tessuto"]
-        [:option {:value "dark"} "Dark"]
-        [:option {:value "light"} "Light"]
-        [:option {:value "sepia"} "Sepia"]
-        [:option {:value "ulysses"} "Ulysses"]]]
-
       ;; Autosave Delay
       [:div {:style {:margin-bottom "20px"}}
        [:label {:style {:color (settings/get-color :text)
@@ -234,50 +173,6 @@
                         :cursor "pointer"}
                 :on-change #(settings/set-autosave-delay!
                              (* 1000 (js/parseInt (-> % .-target .-value))))}]]
-
-      ;; Colors Section
-      [:div {:style {:margin-bottom "20px"}}
-       [:label {:style {:color (settings/get-color :text)
-                        :font-size "0.9rem"
-                        :font-weight "600"
-                        :display "block"
-                        :margin-bottom "12px"}}
-        (t :custom-colors)]
-
-       [:div {:style {:background (settings/get-color :background)
-                      :border-radius "6px"
-                      :padding "12px"}}
-        ;; UI Colors
-        [:div {:style {:margin-bottom "12px"
-                       :padding-bottom "12px"
-                       :border-bottom (str "1px solid " (settings/get-color :border))}}
-         [:span {:style {:color (settings/get-color :text-muted)
-                         :font-size "0.75rem"
-                         :text-transform "uppercase"
-                         :letter-spacing "0.5px"}}
-          (t :interface)]
-         [color-picker (t :color-background) :background]
-         [color-picker (t :color-sidebar) :sidebar]
-         [color-picker (t :color-editor) :editor-bg]
-         [color-picker (t :color-ai-panel) :ai-panel]
-         [color-picker (t :color-border) :border]
-         [color-picker (t :color-text) :text]
-         [color-picker (t :color-text-secondary) :text-muted]
-         [color-picker (t :color-accent) :accent]]
-
-        ;; Category Colors
-        [:div
-         [:span {:style {:color (settings/get-color :text-muted)
-                         :font-size "0.75rem"
-                         :text-transform "uppercase"
-                         :letter-spacing "0.5px"}}
-          (t :categories)]
-         [color-picker (t :color-structure) :structure]
-         [color-picker (t :personaggi) :personaggi]
-         [color-picker (t :luoghi) :luoghi]
-         [color-picker (t :temi) :temi]
-         [color-picker (t :sequenze) :sequenze]
-         [color-picker (t :timeline) :timeline]]]]
 
       ;; Projects Section
       [:div {:style {:margin-bottom "20px"
@@ -631,20 +526,18 @@
                (when (some? (:connected ollama-status))
                  [:div {:style {:margin-bottom "12px"
                                 :padding "8px 12px"
-                                :background (if (:connected ollama-status)
-                                              "rgba(80, 200, 120, 0.2)"
-                                              "rgba(233, 69, 96, 0.2)")
+                                :background (settings/get-color :accent-muted)
                                 :border-radius "4px"
                                 :font-size "0.85rem"
                                 :color (settings/get-color :text)}}
                   (if (:connected ollama-status)
                     [:<>
-                     [:span {:style {:color "#50c878"}} "✓ "]
+                     [:span {:style {:color (settings/get-color :accent)}} "✓ "]
                      (t :ai-ollama-connected)
                      " - "
                      (t :ai-ollama-models-found (count (:models ollama-status)))]
                     [:<>
-                     [:span {:style {:color "#e94560"}} "✗ "]
+                     [:span {:style {:color (settings/get-color :danger)}} "✗ "]
                      (t :ai-ollama-not-connected)])])
                ;; Model selection for Ollama
                [:div {:style {:margin-bottom "12px"}}
@@ -774,15 +667,6 @@
 
       ;; Action Buttons
       [:div {:style {:display "flex" :gap "8px" :justify-content "flex-end"}}
-       [:button {:style {:background "transparent"
-                         :color (settings/get-color :text-muted)
-                         :border (str "1px solid " (settings/get-color :border))
-                         :padding "8px 16px"
-                         :border-radius "4px"
-                         :cursor "pointer"
-                         :font-size "0.85rem"}
-                 :on-click #(settings/reset-to-theme!)}
-        (t :reset-theme)]
        [:button {:style {:background (settings/get-color :accent)
                          :color "white"
                          :border "none"
@@ -1240,9 +1124,9 @@
                       :font-size "0.8rem"
                       :transition "opacity 0.3s"
                       :background (case status
-                                    :modified "#f5a623"
-                                    :saving "#f5a623"
-                                    :saved "#4caf50"
+                                    :modified (settings/get-color :accent)
+                                    :saving (settings/get-color :accent)
+                                    :saved (settings/get-color :accent)
                                     "transparent")
                       :color "#fff"}}
        (case status
@@ -1267,21 +1151,26 @@
               :on-click #(reset! export-dropdown-open? false)}])
 
      [:div {:style {:position "relative" :z-index 150}}
-      ;; Export button
+      ;; Export button - icon style
       [:button
        {:style {:background "transparent"
                 :color (:text-muted colors)
-                :border (str "1px solid " (:border colors))
-                :padding "6px 12px"
+                :border "none"
+                :padding "6px 10px"
                 :border-radius "4px"
                 :cursor "pointer"
-                :font-size "0.85rem"
+                :font-size "18px"
+                :line-height "1"
+                :min-width "32px"
+                :height "32px"
                 :display "flex"
                 :align-items "center"
-                :gap "4px"}
+                :justify-content "center"
+                :gap "2px"}
+        :title (t :export)
         :on-click #(swap! export-dropdown-open? not)}
-       (t :export)
-       [:span {:style {:font-size "0.6rem"}} "▼"]]
+       "⬆"
+       [:span {:style {:font-size "10px" :margin-left "2px"}} "▾"]]
 
       ;; Dropdown menu
       (when @export-dropdown-open?
@@ -1347,179 +1236,307 @@
 
 (defonce file-input-ref (r/atom nil))
 
+;; Header button styles - VSCode-like uniform icons
+(defn- header-icon-style
+  "Base style for icon-only header buttons (18px icons)"
+  [colors & {:keys [active? large?]}]
+  {:background (if active? (:accent-muted colors) "transparent")
+   :color (if active? (:accent colors) (:text-muted colors))
+   :border "none"
+   :padding "6px 10px"
+   :border-radius "4px"
+   :cursor "pointer"
+   :font-size (if large? "24px" "18px")
+   :line-height "1"
+   :min-width "32px"
+   :height "32px"
+   :display "flex"
+   :align-items "center"
+   :justify-content "center"})
+
+(defn- header-separator
+  "Vertical separator between button groups"
+  [colors]
+  [:div {:style {:width "1px"
+                 :height "16px"
+                 :background (:border colors)
+                 :margin "0 8px"}}])
+
+(defn- autosave-indicator
+  "Progressive autosave indicator - 4 bars that light up toward save"
+  [colors]
+  (let [progress @model/autosave-progress
+        bar-style (fn [level]
+                    {:width "3px"
+                     :height "12px"
+                     :border-radius "1px"
+                     :transition "background 0.2s ease"
+                     :background (if (>= progress level)
+                                   (case level
+                                     1 "rgba(74, 159, 142, 0.4)"
+                                     2 "rgba(74, 159, 142, 0.6)"
+                                     3 "rgba(74, 159, 142, 0.8)"
+                                     4 (:accent colors))
+                                   (:border colors))})]
+    [:div {:style {:display "flex"
+                   :align-items "center"
+                   :gap "1px"
+                   :margin-left "8px"}
+           :title (cond
+                    (zero? progress) (t :all-saved)
+                    :else (t :autosave-in-progress))}
+     [:div {:style (bar-style 1)}]
+     [:div {:style (bar-style 2)}]
+     [:div {:style (bar-style 3)}]
+     [:div {:style (bar-style 4)}]]))
+
 (defn header []
   (let [colors (:colors @settings/settings)
-        current-theme (:theme @settings/settings)
-        ;; Show texture if explicitly set, or if using tessuto theme (for backwards compatibility)
-        use-texture (or (get colors :background-texture) (= current-theme :tessuto))
-        server-mode? (= @app-mode :editor-remote)]
-    [:div.header {:style {:background-color (:sidebar colors)
-                          :border-bottom (str "1px solid " (:border colors))
-                          :position "relative"
-                          :z-index 10}}
-     ;; Logo with transparent background
-     (when use-texture
-       [:div {:style {:position "absolute"
-                      :top 0 :left 0 :bottom 0
-                      :width "220px"
-                      :background-image "url('/images/logo_tramando_transparent.png')"
-                      :background-size "auto 320%"
-                      :background-position "left top"
-                      :background-repeat "no-repeat"
-                      :pointer-events "none"}}])
-     ;; Logo area - only this opens splash
-     [:div {:style {:width "200px"
-                    :position "relative"
-                    :z-index 1
-                    :cursor (when use-texture "pointer")}
-            :on-click (when use-texture #(reset! show-splash? true))}]
-     ;; Project title
-     [:div {:style {:flex 1
-                    :display "flex"
+        server-mode? (= @app-mode :editor-remote)
+        file-dirty? @versioning/dirty?]
+    [:div.header {:style {:display "flex"
+                          :align-items "center"
+                          :justify-content "space-between"
+                          :padding "0 16px"
+                          :height "40px"
+                          :background (:sidebar colors)
+                          :border-bottom (str "1px solid " (:border colors))}}
+     ;; Left section: Logo + Project name
+     [:div {:style {:display "flex"
                     :align-items "center"
-                    :padding-left "20px"}}
-      [:span {:style {:color (:text colors)
-                      :font-size "1.1rem"
-                      :font-weight "500"
-                      :cursor "pointer"
-                      :position "relative"
-                      :z-index 1}
-              :title "Modifica informazioni progetto"
+                    :gap "16px"}}
+      ;; Logo
+      [:div {:style {:display "flex"
+                     :align-items "center"
+                     :gap "8px"
+                     :cursor "pointer"}
+             :on-click #(reset! show-splash? true)}
+       [:img {:src "/images/icon_32x32.png"
+              :style {:width "20px"
+                      :height "20px"}}]
+       [:span {:style {:font-family "'Georgia', serif"
+                       :font-style "italic"
+                       :font-weight "400"
+                       :font-size "16px"
+                       :letter-spacing "0.5px"
+                       :color (:text colors)}}
+        [:span {:style {:color (:logo-accent colors)}} "T"]
+        "ramando"]]
+      ;; Project name
+      [:span {:style {:color (:text-muted colors)
+                      :font-size "13px"
+                      :cursor "pointer"}
+              :title (t :help-metadata)
               :on-click #(reset! metadata-open? true)}
-       (model/get-title)]]
-     [:div {:style {:position "relative" :z-index 1}}
-      [save-status-indicator]]
-     [:div {:style {:display "flex" :gap "8px" :align-items "center" :margin-left "12px" :position "relative" :z-index 1}}
-      ;; Local mode: file operations
+       (model/get-title)]
+      ;; Dirty indicator
+      (when (and (not server-mode?) @versioning/dirty?)
+        [:span {:style {:color (:accent colors)
+                        :font-size "16px"
+                        :line-height "1"}
+                :title (t :unsaved-changes)}
+         "•"])]
+     ;; Right section: Actions - organized in logical groups
+     [:div {:style {:display "flex"
+                    :align-items "center"
+                    :gap "4px"}}
+      ;; Hidden file input for loading
+      (when-not server-mode?
+        [:input {:type "file"
+                 :accept ".trmd,.md,.txt"
+                 :style {:display "none"}
+                 :ref #(reset! file-input-ref %)
+                 :on-change (fn [e]
+                              (when-let [file (-> e .-target .-files (aget 0))]
+                                (let [reader (js/FileReader.)]
+                                  (set! (.-onload reader)
+                                        (fn [evt]
+                                          (let [content (-> evt .-target .-result)]
+                                            (model/load-file-content! content (.-name file)))))
+                                  (.readAsText reader file))
+                                (set! (-> e .-target .-value) "")))}])
+
+      ;; === GROUP 1: File operations + autosave indicator ===
       (when-not server-mode?
         [:<>
-         ;; Hidden file input for loading
-         [:input {:type "file"
-                  :accept ".trmd,.md,.txt"
-                  :style {:display "none"}
-                  :ref #(reset! file-input-ref %)
-                  :on-change (fn [e]
-                               (when-let [file (-> e .-target .-files (aget 0))]
-                                 (let [reader (js/FileReader.)]
-                                   (set! (.-onload reader)
-                                         (fn [evt]
-                                           (let [content (-> evt .-target .-result)]
-                                             (model/load-file-content! content (.-name file)))))
-                                   (.readAsText reader file))
-                                 ;; Reset input so same file can be loaded again
-                                 (set! (-> e .-target .-value) "")))}]
-         ;; Load button (uses native Tauri dialog)
+         ;; Open file
          [:button
-          {:style {:background "transparent"
-                   :color (:text-muted colors)
-                   :border (str "1px solid " (:border colors))
-                   :padding "6px 12px"
-                   :border-radius "4px"
-                   :cursor "pointer"
-                   :font-size "0.85rem"}
+          {:style (header-icon-style colors)
            :title (t :help-carica)
            :on-click #(model/open-file!)}
-          (t :load)]
-         ;; Save button
+          "📂"]
+         ;; Save (to current file or Save As if new)
          [:button
-          {:style {:background (:accent colors)
-                   :color "white"
-                   :border "none"
-                   :padding "6px 12px"
-                   :border-radius "4px"
-                   :cursor "pointer"
-                   :font-size "0.85rem"}
+          {:style (merge (header-icon-style colors)
+                         (when-not file-dirty?
+                           {:opacity "0.5"
+                            :cursor "default"}))
            :title (t :help-salva)
-           :on-click #(model/save-file!)}
-          (t :save)]
-         ;; Save As button
-         [:button
-          {:style {:background "transparent"
-                   :color (:text-muted colors)
-                   :border (str "1px solid " (:border colors))
-                   :padding "6px 12px"
-                   :border-radius "4px"
-                   :cursor "pointer"
-                   :font-size "0.85rem"}
-           :on-click #(model/save-file-as!)}
-          (t :save-as)]
-         ;; Version dropdown (local only)
+           :disabled (not file-dirty?)
+           :on-click #(when file-dirty? (model/save-file!))}
+          "💾"]
+         [autosave-indicator colors]])
+
+      ;; === GROUP 2: Versions + Export ===
+      (when-not server-mode?
+        [:<>
+         [header-separator colors]
+         ;; Version dropdown
          [versioning/version-dropdown
           {:on-save-version #(versioning/open-save-version-dialog!)
            :on-list-versions #(versioning/open-version-list-dialog!)
-           :on-restore-backup #(versioning/open-restore-backup-dialog! model/reload-file!)}]])
-      ;; Export dropdown (both modes)
-      [export-dropdown]
-      ;; Project info button
+           :on-restore-backup #(versioning/open-restore-backup-dialog! model/reload-file!)}]
+         ;; Export dropdown
+         [export-dropdown]])
+
+      ;; Export for server mode
+      (when server-mode?
+        [export-dropdown])
+
+      ;; === GROUP 3: View tools ===
+      [header-separator colors]
+      ;; View toggle (Mappa)
       [:button
-       {:style {:background "transparent"
-                :color (:text-muted colors)
-                :border (str "1px solid " (:border colors))
-                :padding "6px 10px"
-                :border-radius "4px"
-                :cursor "pointer"
-                :font-size "0.9rem"}
-        :title (t :help-metadata)
-        :on-click #(reset! metadata-open? true)}
-       "📄"]
-      ;; Filename display (editable) with dirty indicator - local mode only
-      (when-not server-mode?
-        [:div {:style {:display "flex"
-                       :align-items "center"
-                       :gap "4px"}}
-         [:input {:type "text"
-                  :value (:filename @model/app-state)
-                  :style {:background "transparent"
-                          :border (str "1px solid " (:border colors))
-                          :border-radius "4px"
-                          :color (:text-muted colors)
-                          :padding "4px 8px"
-                          :font-size "0.85rem"
-                          :width "150px"}
-                  :on-change #(model/set-filename! (-> % .-target .-value))}]
-         ;; Dirty indicator (unsaved changes)
-         (when @versioning/dirty?
-           [:span {:style {:color (:accent colors)
-                           :font-size "1.2rem"
-                           :line-height "1"}
-                   :title (t :unsaved-changes)}
-            "•"])])
-      ;; Annotation counter
-      (let [ann-count (annotations/count-annotations)]
-        (when (pos? ann-count)
-          [:span {:style {:color (:text-muted colors)
-                          :font-size "0.85rem"
-                          :display "flex"
-                          :align-items "center"
-                          :gap "4px"}
-                  :title "Annotazioni nel progetto"}
-           [:span "📝"]
-           [:span (str ann-count)]]))
-      ;; View toggle button (Mappa/Editor)
-      [:button
-       {:style {:background (if (= @view-mode :radial) (:accent colors) "transparent")
-                :color (if (= @view-mode :radial) "white" (:text-muted colors))
-                :border (str "1px solid " (if (= @view-mode :radial) (:accent colors) (:border colors)))
-                :padding "6px 12px"
-                :border-radius "4px"
-                :cursor "pointer"
-                :font-size "0.85rem"}
+       {:style (header-icon-style colors :active? (= @view-mode :radial))
+        :title (if (= @view-mode :radial) (t :editor) (t :map))
         :on-click #(swap! view-mode (fn [m] (if (= m :editor) :radial :editor)))}
-       (if (= @view-mode :radial) (t :editor) (t :map))]
+       "❃"]
       ;; AI Assistant button
       [ai-panel/toolbar-button]
-      ;; Settings button
+      ;; Project info button
       [:button
-       {:style {:background "transparent"
-                :color (:text-muted colors)
-                :border (str "1px solid " (:border colors))
-                :padding "6px 10px"
-                :border-radius "4px"
-                :cursor "pointer"
-                :font-size "1rem"}
+       {:style (header-icon-style colors)
+        :title (t :help-metadata)
+        :on-click #(reset! metadata-open? true)}
+       "≡"]
+
+      ;; === GROUP 4: Settings ===
+      [header-separator colors]
+      ;; Theme toggle button
+      [:button
+       {:style (header-icon-style colors)
+        :title (if (settings/is-light-theme?) (t :theme-dark) (t :theme-light))
+        :on-click settings/toggle-theme!}
+       (if (settings/is-light-theme?) "☽" "☀")]
+      ;; Settings button (larger icon)
+      [:button
+       {:style (header-icon-style colors :large? true)
         :title (t :help-settings)
         :on-click #(reset! settings/settings-open? true)}
        "⚙"]]]))
+
+;; =============================================================================
+;; Status Bar
+;; =============================================================================
+
+(defn- count-words
+  "Count words in a string"
+  [text]
+  (if (str/blank? text)
+    0
+    (count (re-seq #"\S+" text))))
+
+(defn- format-number
+  "Format number with thousand separators"
+  [n]
+  (let [s (str n)]
+    (loop [result ""
+           remaining s]
+      (if (<= (count remaining) 3)
+        (str remaining result)
+        (recur (str "." (subs remaining (- (count remaining) 3)) result)
+               (subs remaining 0 (- (count remaining) 3)))))))
+
+(defn count-words-recursive
+  "Count words in a chunk and all its descendants"
+  [chunk-id]
+  (let [chunk (model/get-chunk chunk-id)
+        own-words (if chunk (count-words (:content chunk)) 0)
+        children (model/get-children chunk-id)
+        children-words (reduce + 0 (map #(count-words-recursive (:id %)) children))]
+    (+ own-words children-words)))
+
+(defn- status-bar-autosave-indicator
+  "Compact autosave indicator with 4 bars for status bar"
+  []
+  (let [colors (:colors @settings/settings)
+        progress @model/autosave-progress
+        bar-style (fn [level]
+                    {:width "2px"
+                     :height "10px"
+                     :border-radius "1px"
+                     :transition "background 0.2s ease"
+                     :background (if (>= progress level)
+                                   (case level
+                                     1 "rgba(74, 159, 142, 0.4)"
+                                     2 "rgba(74, 159, 142, 0.6)"
+                                     3 "rgba(74, 159, 142, 0.8)"
+                                     4 (:accent colors))
+                                   (:border colors))})]
+    [:div {:style {:display "flex"
+                   :align-items "center"
+                   :gap "1px"}}
+     [:div {:style (bar-style 1)}]
+     [:div {:style (bar-style 2)}]
+     [:div {:style (bar-style 3)}]
+     [:div {:style (bar-style 4)}]]))
+
+(defn status-bar []
+  (let [chunk (model/get-selected-chunk)
+        save-status @model/save-status
+        autosave-progress @model/autosave-progress
+        file-dirty? @versioning/dirty?
+        show-markup? @annotations/show-markup?
+        own-words (when chunk (count-words (:content chunk)))
+        children (when chunk (model/get-children (:id chunk)))
+        has-children? (and children (seq children))
+        total-words (when (and chunk has-children?)
+                      (count-words-recursive (:id chunk)))
+        breadcrumb (when chunk (model/get-chunk-path chunk))
+        colors (:colors @settings/settings)
+        ;; Autosave status: pending while modifying, done after backup
+        backup-pending? (or (= save-status :modified) (> autosave-progress 0))
+        backup-saving? (= save-status :saving)]
+    [:div.status-bar
+     ;; Left side: breadcrumb and word count
+     [:div.status-item
+      (when breadcrumb
+        [:<>
+         [:span.status-breadcrumb {:title breadcrumb} breadcrumb]
+         [:span.status-separator "•"]])
+      (when own-words
+        [:span (if has-children?
+                 (str (format-number total-words) " (" (format-number own-words) ") " (t :ai-context-words))
+                 (str (format-number own-words) " " (t :ai-context-words)))])]
+     ;; Right side: markup toggle, autosave status, file status
+     [:div.status-item
+      ;; Markup toggle
+      [:div.toggle-switch {:on-click (fn []
+                                       (swap! annotations/show-markup? not)
+                                       (when (:visible @editor/editor-search-state)
+                                         (editor/update-search!)))}
+       [:span "Markup"]
+       [:div {:class (str "toggle" (when show-markup? " active"))}]]
+      [:span.status-separator "•"]
+      ;; Autosave status (localStorage backup)
+      [:div {:style {:display "flex" :align-items "center" :gap "4px"}}
+       [status-bar-autosave-indicator]
+       [:span {:style {:color (if backup-pending? (:text-muted colors) (:accent colors))
+                       :font-size "inherit"}}
+        (cond
+          backup-saving? (t :saving)
+          backup-pending? (t :backup-pending)
+          :else (t :backup-done))]]
+      [:span.status-separator "•"]
+      ;; File status (disk)
+      [:div {:style {:display "flex" :align-items "center" :gap "4px"}}
+       [:span {:style {:color (if file-dirty? (:danger colors) (:accent colors))
+                       :font-size "inherit"}}
+        (if file-dirty?
+          (t :file-dirty)
+          (t :file-clean))]
+       (when-not file-dirty?
+         [:span {:style {:color (:accent colors)}} "✓"])]]]))
 
 ;; =============================================================================
 ;; Editor Panel
@@ -1748,7 +1765,7 @@
      "Lavora in team e sincronizza i tuoi progetti"]]
    ;; Error
    (when @splash-login-error
-     [:div {:style {:background "#ff5252"
+     [:div {:style {:background (settings/get-color :danger)
                     :color "white"
                     :padding "8px 12px"
                     :border-radius "4px"
@@ -1955,14 +1972,18 @@
                    ;; Prevent browser context menu everywhere in the app
                    :on-context-menu #(.preventDefault %)}
          [header]
-         ;; Main content area - adjusts height based on AI panel
+         ;; Main content area - three column layout
          [:div.main-container {:style {:flex 1
                                        :display "flex"
                                        :overflow "hidden"}}
           [outline/outline-panel]
           (case current-view
             :radial [radial/radial-view]
-            [editor-panel])]
+            [editor-panel])
+          ;; Right panel (Annotations)
+          [outline/annotations-panel]]
+         ;; Status bar
+         [status-bar]
          ;; AI Assistant Panel
          [ai-panel/ai-panel]
          ;; Context Menu (for right-click on selection and annotations)

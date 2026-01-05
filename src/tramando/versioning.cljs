@@ -443,7 +443,7 @@
       [:div {:style {:display "flex"
                      :gap "8px"
                      :flex-wrap "wrap"}}
-       [:button {:style {:background "#ff6b6b"
+       [:button {:style {:background (settings/get-color :danger)
                          :color "white"
                          :border "none"
                          :padding "8px 16px"
@@ -696,7 +696,7 @@
                         :on-click #(on-restore filename)}
                (t :restore)]
               [:button {:style {:background "transparent"
-                                :color "#ff6b6b"
+                                :color (settings/get-color :danger)
                                 :border "none"
                                 :padding "4px 8px"
                                 :border-radius "4px"
@@ -750,7 +750,7 @@
       [:p {:style {:color (:muted colors)
                    :margin "0 0 20px 0"
                    :font-size "0.85rem"}}
-       [:span {:style {:color "#ff9800"}} "⚠️ "]
+       [:span {:style {:color (settings/get-color :accent)}} "⚠️ "]
        (t :backup-will-be-created)]
       [:div {:style {:display "flex"
                      :gap "8px"
@@ -812,7 +812,7 @@
                          :cursor "pointer"}
                  :on-click on-cancel}
         (t :cancel)]
-       [:button {:style {:background "#ff6b6b"
+       [:button {:style {:background (settings/get-color :danger)
                          :color "white"
                          :border "none"
                          :padding "8px 16px"
@@ -862,18 +862,22 @@
         [:div {:style {:position "relative"}}
          [:button {:style {:background "transparent"
                            :color (:muted colors)
-                           :border (str "1px solid " (:border colors))
-                           :padding "6px 12px"
+                           :border "none"
+                           :padding "6px 10px"
                            :border-radius "4px"
                            :cursor "pointer"
-                           :font-size "0.85rem"
+                           :font-size "18px"
+                           :line-height "1"
+                           :min-width "32px"
+                           :height "32px"
                            :display "flex"
                            :align-items "center"
-                           :gap "4px"}
+                           :justify-content "center"
+                           :gap "2px"}
+                   :title (t :version)
                    :on-click #(swap! open? not)}
-          [:span "📸"]
-          [:span (t :version)]
-          [:span {:style {:font-size "0.7rem"}} "▼"]]
+          "🕐"
+          [:span {:style {:font-size "10px" :margin-left "2px"}} "▾"]]
          (when @open?
            [:<>
             ;; Backdrop to close dropdown

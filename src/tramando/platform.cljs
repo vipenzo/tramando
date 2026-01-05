@@ -40,6 +40,10 @@
 (defonce ^:private file-input-element (atom nil))
 (defonce ^:private file-load-callback (atom nil))
 
+;; Persistent file handle for File System Access API (webapp)
+;; This allows saving to the same file without showing the dialog each time
+(defonce current-file-handle (atom nil))
+
 (defn- get-or-create-file-input!
   "Get or create a hidden file input element for file picking"
   []
@@ -66,11 +70,36 @@
       input)))
 
 (defn- webapp-open-file!
-  "Open file using browser file picker"
+  "Open file using File System Access API (if available) or fallback to file input.
+   Note: File System Access API is only supported in Chrome/Edge. Brave, Safari, and Firefox
+   use the fallback method which doesn't support persistent file handles (Save = download)."
   [callback]
-  (reset! file-load-callback callback)
-  (let [input (get-or-create-file-input!)]
-    (.click input)))
+  ;; Try File System Access API first (Chrome/Edge) - this gives us a handle for saving
+  (if (.-showOpenFilePicker js/window)
+    (-> (js/window.showOpenFilePicker
+          #js {:types #js [#js {:description "Tramando files"
+                                :accept #js {"text/plain" #js [".trmd" ".md" ".txt"]}}]
+               :multiple false})
+        (.then (fn [^js handles]
+                 (let [^js handle (aget handles 0)]
+                   ;; Store the handle for future saves
+                   (reset! current-file-handle handle)
+                   ;; Read the file content
+                   (-> (.getFile handle)
+                       (.then (fn [^js file]
+                                (-> (.text file)
+                                    (.then (fn [content]
+                                             (callback {:content content
+                                                        :filename (.-name file)}))))))))))
+        (.catch (fn [^js err]
+                  ;; User cancelled - don't show error
+                  (when (not= (.-name err) "AbortError")
+                    (js/console.warn "File System Access API failed:" err)))))
+    ;; Fallback to old file input method (no handle, Save will show dialog)
+    (do
+      (reset! file-load-callback callback)
+      (let [input (get-or-create-file-input!)]
+        (.click input)))))
 
 (defn- webapp-download-file!
   "Fallback: download file using blob and anchor trick"
@@ -87,23 +116,62 @@
     (when callback
       (callback {:success true :filename filename :downloaded true}))))
 
+(defn- webapp-save-to-handle!
+  "Save content to an existing file handle"
+  [^js handle content callback]
+  (-> (.createWritable handle)
+      (.then (fn [^js writable]
+               (-> (.write writable content)
+                   (.then #(.close writable))
+                   (.then #(when callback
+                             (callback {:success true
+                                        :filename (.-name handle)}))))))
+      (.catch (fn [^js err]
+                (js/console.error "Failed to save to file handle:" err)
+                ;; Handle might be invalid, clear it
+                (reset! current-file-handle nil)
+                (when callback
+                  (callback {:success false :error err}))))))
+
 (defn- webapp-save-file!
-  "Save file using browser download (fallback) or File System Access API"
+  "Save file using existing handle, File System Access API, or download fallback"
   [content filename callback]
-  ;; Try File System Access API first (Chrome/Edge)
+  ;; If we have a file handle, use it directly
+  (if @current-file-handle
+    (webapp-save-to-handle! @current-file-handle content callback)
+    ;; Otherwise try File System Access API (Chrome/Edge)
+    (if (.-showSaveFilePicker js/window)
+        (-> (js/window.showSaveFilePicker
+            #js {:suggestedName filename
+                 :types #js [#js {:description "Tramando files"
+                                  :accept #js {"text/plain" #js [".trmd" ".md" ".txt"]}}]})
+          (.then (fn [^js handle]
+                   ;; Store the handle for future saves
+                   (reset! current-file-handle handle)
+                   (webapp-save-to-handle! handle content callback)))
+          (.catch (fn [^js err]
+                    ;; User cancelled or error - fallback to download
+                    (when (not= (.-name err) "AbortError")
+                      (js/console.warn "File System Access API failed, using download fallback:" err)
+                      (webapp-download-file! content filename callback)))))
+      ;; Fallback: trigger download
+      (webapp-download-file! content filename callback))))
+
+(defn- webapp-save-file-as!
+  "Save file with 'save as' dialog - always shows picker"
+  [content filename callback]
+  ;; Clear existing handle to force showing the dialog
+  (reset! current-file-handle nil)
+  ;; Try File System Access API (Chrome/Edge)
   (if (.-showSaveFilePicker js/window)
     (-> (js/window.showSaveFilePicker
           #js {:suggestedName filename
                :types #js [#js {:description "Tramando files"
                                 :accept #js {"text/plain" #js [".trmd" ".md" ".txt"]}}]})
         (.then (fn [^js handle]
-                 (-> (.createWritable handle)
-                     (.then (fn [^js writable]
-                              (-> (.write writable content)
-                                  (.then #(.close writable))
-                                  (.then #(when callback
-                                            (callback {:success true
-                                                       :filename (.-name handle)})))))))))
+                 ;; Store the new handle for future saves
+                 (reset! current-file-handle handle)
+                 (webapp-save-to-handle! handle content callback)))
         (.catch (fn [^js err]
                   ;; User cancelled or error - fallback to download
                   (when (not= (.-name err) "AbortError")
@@ -111,11 +179,6 @@
                     (webapp-download-file! content filename callback)))))
     ;; Fallback: trigger download
     (webapp-download-file! content filename callback)))
-
-(defn- webapp-save-file-as!
-  "Save file with 'save as' dialog (same as save in webapp mode)"
-  [content filename callback]
-  (webapp-save-file! content filename callback))
 
 ;; =============================================================================
 ;; Tauri File Operations
@@ -283,3 +346,15 @@
   (if (tauri?)
     (tauri-get-file-info! filepath callback)
     (callback {:error "File info not available in webapp mode"})))
+
+(defn clear-file-handle!
+  "Clear the current file handle (webapp only).
+   Call this when creating a new project or opening a different file."
+  []
+  (reset! current-file-handle nil))
+
+(defn has-file-handle?
+  "Check if there's a current file handle (webapp only).
+   In Tauri, this always returns false (filepath is used instead)."
+  []
+  (boolean @current-file-handle))

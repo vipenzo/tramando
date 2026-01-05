@@ -607,11 +607,17 @@
 ;; :saved, :modified, :saving
 (defonce save-status (r/atom :saved))
 
+;; Autosave progress: 0 = idle/saved, 1-4 = progress toward autosave
+(defonce autosave-progress (r/atom 0))
+
 ;; Optional external callback for modifications (used by server mode)
 (defonce on-modified-callback (atom nil))
 
 ;; Timer ID for debounced autosave
 (defonce ^:private autosave-timer (atom nil))
+
+;; Timer ID for progress steps
+(defonce ^:private progress-timer (atom nil))
 
 ;; Timer ID for "Salvato" fade
 (defonce ^:private saved-fade-timer (atom nil))
@@ -619,10 +625,17 @@
 (def ^:private saved-fade-delay-ms 2000)
 
 (def ^:private localstorage-key "tramando-autosave")
+(def ^:private selected-chunk-key "tramando-selected-chunk")
 
 (defn- do-autosave!
   "Perform autosave to localStorage"
   []
+  ;; Clear progress timer
+  (when @progress-timer
+    (js/clearInterval @progress-timer)
+    (reset! progress-timer nil))
+  ;; Reset progress indicator
+  (reset! autosave-progress 0)
   (reset! save-status :saving)
   (let [content (serialize-file (:chunks @app-state) (:metadata @app-state))
         filename (:filename @app-state)
@@ -657,14 +670,27 @@
 (defn- schedule-autosave!
   "Schedule an autosave after the debounce delay"
   []
-  ;; Cancel any pending autosave
+  ;; Cancel any pending autosave and progress timer
   (when @autosave-timer
     (js/clearTimeout @autosave-timer))
-  ;; Mark as modified
+  (when @progress-timer
+    (js/clearInterval @progress-timer)
+    (reset! progress-timer nil))
+  ;; Mark as modified and start progress at 1
   (reset! save-status :modified)
-  ;; Schedule new autosave with delay from settings
-  (reset! autosave-timer
-          (js/setTimeout do-autosave! (settings/get-autosave-delay))))
+  (reset! autosave-progress 1)
+  ;; Start progress timer - advances every 25% of the delay
+  (let [delay-ms (settings/get-autosave-delay)
+        step-ms (/ delay-ms 4)]
+    (reset! progress-timer
+            (js/setInterval
+             (fn []
+               (when (< @autosave-progress 4)
+                 (swap! autosave-progress inc)))
+             step-ms))
+    ;; Schedule autosave
+    (reset! autosave-timer
+            (js/setTimeout do-autosave! delay-ms))))
 
 (defn mark-modified!
   "Mark the document as modified and schedule autosave"
@@ -695,8 +721,36 @@
         chunks (get-chunks)]
     (first (filter #(= (:id %) id) chunks))))
 
+(defn- get-file-key
+  "Get a unique key for the current file (for localStorage)"
+  []
+  (or (:filepath @app-state)
+      (:filename @app-state)
+      "untitled"))
+
+(defn- save-selected-chunk!
+  "Save selected chunk ID to localStorage for current file"
+  []
+  (when-let [id (get-selected-id)]
+    (let [file-key (get-file-key)
+          data (or (js/JSON.parse (or (.getItem js/localStorage selected-chunk-key) "{}")) #js {})
+          _ (aset data file-key id)]
+      (.setItem js/localStorage selected-chunk-key (js/JSON.stringify data)))))
+
+(defn- load-selected-chunk
+  "Load saved selected chunk ID for current file, returns nil if not found"
+  []
+  (try
+    (let [file-key (get-file-key)
+          data (js/JSON.parse (or (.getItem js/localStorage selected-chunk-key) "{}"))
+          saved-id (aget data file-key)]
+      (when (and saved-id (get-chunk saved-id))
+        saved-id))
+    (catch :default _ nil)))
+
 (defn select-chunk! [id]
-  (swap! app-state assoc :selected-id id))
+  (swap! app-state assoc :selected-id id)
+  (save-selected-chunk!))
 
 (defn update-chunk!
   "Update a chunk by id with the given changes"
@@ -1155,9 +1209,13 @@
           ;; Update state
           (swap! app-state assoc :filepath filepath :filename filename)
           ;; In Tauri, update file-info for conflict detection
-          (when (and (platform/tauri?) filepath)
-            (versioning/update-file-info! filepath content)
-            (versioning/mark-clean!))
+          (if (platform/tauri?)
+            (when filepath
+              (versioning/update-file-info! filepath content)
+              (versioning/mark-clean!))
+            ;; In webapp with File System Access API, mark clean
+            (when (platform/has-file-handle?)
+              (versioning/mark-clean!)))
           ;; Show "Salvato" then fade
           (reset! save-status :saved)
           (when @saved-fade-timer
@@ -1188,8 +1246,24 @@
                      (do-save-to-path! filepath)))))
       ;; New file, show save dialog
       (save-file-as!))
-    ;; Webapp mode: always use save-as (triggers download or File System Access)
-    (save-file-as!)))
+    ;; Webapp mode: use file handle if available, otherwise show dialog
+    (if (platform/has-file-handle?)
+      ;; File has been saved before, save directly to the same file
+      (let [content (get-file-content)
+            filename (get-filename)]
+        (platform/save-file!
+          content filename nil nil
+          (fn [{:keys [success]}]
+            (when success
+              (versioning/mark-clean!)
+              ;; Show "Salvato" then fade
+              (reset! save-status :saved)
+              (when @saved-fade-timer
+                (js/clearTimeout @saved-fade-timer))
+              (reset! saved-fade-timer
+                      (js/setTimeout #(reset! save-status :idle) saved-fade-delay-ms))))))
+      ;; New file, show save dialog
+      (save-file-as!))))
 
 (defn export-md!
   "Export as .md file (without frontmatter)"
@@ -1224,27 +1298,36 @@
   ([content filename]
    (load-file-content! content filename nil))
   ([content filename filepath]
-   ;; Clear current state and load new content
-   (swap! app-state assoc :chunks [] :selected-id nil :metadata default-metadata :filepath filepath)
-   ;; Reset history
-   (reset! history {:states [] :current -1 :checkpoints []})
-   ;; Ensure aspect containers exist
-   (ensure-aspect-containers!)
-   ;; Parse and load the file (now returns {:metadata ... :chunks ...})
+   ;; Clear autosave to avoid confusion with localStorage version
+   (clear-autosave!)
+   ;; Parse the file FIRST to get all chunks including aspect containers
    (let [{:keys [metadata chunks]} (parse-file content)
-         existing-ids (set (map :id (get-chunks)))]
-     ;; Set metadata
-     (swap! app-state assoc :metadata metadata)
-     ;; Add parsed chunks (skip if already exists - e.g. aspect containers)
+         ;; Build a map of parsed chunks by ID for quick lookup
+         parsed-by-id (into {} (map (juxt :id identity) chunks))]
+     ;; Clear current state
+     (swap! app-state assoc :chunks [] :selected-id nil :metadata metadata :filepath filepath)
+     ;; Reset history
+     (reset! history {:states [] :current -1 :checkpoints []})
+     ;; Add aspect containers - use parsed version if available, else create empty
+     (doseq [{:keys [id summary]} aspect-containers]
+       (let [parsed-container (get parsed-by-id id)]
+         (swap! app-state update :chunks conj
+                (if parsed-container
+                  parsed-container
+                  (make-chunk {:id id :summary summary})))))
+     ;; Add all other chunks (non-aspect-containers)
      (doseq [chunk chunks]
-       (when-not (contains? existing-ids (:id chunk))
+       (when-not (contains? aspect-container-ids (:id chunk))
          (swap! app-state update :chunks conj chunk))))
    ;; Set filename
    (set-filename! filename)
-   ;; Select first non-container chunk
-   (let [structural (filter #(not (contains? aspect-container-ids (:id %))) (get-chunks))]
-     (when (seq structural)
-       (select-chunk! (:id (first structural)))))
+   ;; Restore saved selection or select first non-container chunk
+   (let [saved-id (load-selected-chunk)
+         structural (filter #(not (contains? aspect-container-ids (:id %))) (get-chunks))
+         target-id (or saved-id
+                       (when (seq structural) (:id (first structural))))]
+     (when target-id
+       (select-chunk! target-id)))
    ;; Push initial state to history
    (push-history!)
    (reset! save-status :idle)
@@ -1253,7 +1336,9 @@
      (versioning/update-file-info! filepath content)
      (versioning/clear-file-info!))
    ;; Mark as clean (no unsaved changes)
-   (versioning/mark-clean!)))
+   (versioning/mark-clean!)
+   ;; Force editor to refresh (in case same chunk ID but different content)
+   (events/refresh-editor!)))
 
 (defn reload-from-remote!
   "Reload content from server during polling.
@@ -1300,8 +1385,7 @@
     ;; Force editor to refresh (triggers CodeMirror re-render)
     (events/refresh-editor!)
     ;; Force Reagent to flush pending updates
-    (r/flush)
-    (js/console.log "reload-from-remote! complete")))
+    (r/flush)))
 
 (defn open-file!
   "Show open dialog and load selected file (works on both Tauri and webapp)"
@@ -1538,6 +1622,10 @@
 
 ;; Initialize with sample data
 (defn init-sample-data! []
+  ;; Clear webapp file handle for new project
+  (platform/clear-file-handle!)
+  ;; Reset filepath (new project has no file yet)
+  (swap! app-state assoc :filepath nil)
   ;; First ensure aspect containers exist
   (ensure-aspect-containers!)
   ;; Reset history
@@ -1595,7 +1683,10 @@
 
   ;; Push initial state to history
   (push-history!)
-  (reset! save-status :idle))
+  (reset! save-status :idle)
+  ;; Clear versioning info and mark as dirty (new file not saved yet)
+  (versioning/clear-file-info!)
+  (versioning/mark-dirty!))
 
 ;; =============================================================================
 ;; Metadata Functions

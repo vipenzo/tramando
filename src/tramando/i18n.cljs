@@ -53,6 +53,8 @@
     :confirm "Confermi?"
     :close "Chiudi"
     :reset-theme "Reset tema"
+    :theme-light "Tema chiaro"
+    :theme-dark "Tema scuro"
 
     ;; Editor
     :edit "Modifica"
@@ -98,7 +100,14 @@
     :modified "Modificato"
     :saving "Salvataggio..."
     :saved "Salvato"
+    :all-saved "Tutto salvato"
+    :autosave-in-progress "Salvataggio automatico in corso..."
     :read-only-not-owner "Sola lettura - non sei il proprietario di questo chunk"
+    ;; Status bar - dual indicators
+    :backup-pending "Modifiche non salvate"
+    :backup-done "Backup eseguito"
+    :file-dirty "File non aggiornato"
+    :file-clean "File aggiornato"
 
     ;; Settings modal
     :settings "Impostazioni"
@@ -443,6 +452,11 @@
     :aspect-not-found "Aspetto non trovato"
     :annotation-updated "Annotazione aggiornata"
 
+    ;; Chunk Actions Menu
+    :edit-id "Modifica ID..."
+    :move-to "Sposta in..."
+    :aspect "Aspetto"
+
     ;; Versioning
     :version "Versione"
     :save-version "Salva versione..."
@@ -516,6 +530,8 @@
     :confirm "Confirm?"
     :close "Close"
     :reset-theme "Reset theme"
+    :theme-light "Light theme"
+    :theme-dark "Dark theme"
 
     ;; Editor
     :edit "Edit"
@@ -561,7 +577,14 @@
     :modified "Modified"
     :saving "Saving..."
     :saved "Saved"
+    :all-saved "All saved"
+    :autosave-in-progress "Autosave in progress..."
     :read-only-not-owner "Read-only - you are not the owner of this chunk"
+    ;; Status bar - dual indicators
+    :backup-pending "Unsaved changes"
+    :backup-done "Backup done"
+    :file-dirty "File not saved"
+    :file-clean "File saved"
 
     ;; Settings modal
     :settings "Settings"
@@ -905,6 +928,11 @@
     ;; Aspect Link Context Menu
     :go-to-aspect "Go to aspect"
     :aspect-not-found "Aspect not found"
+
+    ;; Chunk Actions Menu
+    :edit-id "Edit ID..."
+    :move-to "Move to..."
+    :aspect "Aspect"
 
     ;; Versioning
     :version "Version"

@@ -1037,11 +1037,9 @@
 
 (defn- word-count-color
   "Get color for word count indicator"
-  [word-count]
-  (cond
-    (< word-count 1000) "#50c878"  ; green
-    (< word-count 5000) "#ffd700"  ; yellow
-    :else "#e94560"))              ; red
+  [_word-count]
+  ;; All use accent color for consistency
+  (settings/get-color :accent))
 
 (defn- word-count-indicator []
   (let [{:keys [word-count]} @context-cache
@@ -1690,24 +1688,25 @@
 (defn toolbar-button []
   (when (settings/ai-enabled?)
     [:button {:style {:background (if (panel-visible?)
-                                    (settings/get-color :accent)
+                                    (settings/get-color :accent-muted)
                                     "transparent")
                       :color (if (panel-visible?)
-                               "#ffffff"
-                               (settings/get-color :text))
-                      :border (str "1px solid " (settings/get-color :border))
-                      :padding "6px 12px"
+                               (settings/get-color :accent)
+                               (settings/get-color :text-muted))
+                      :border "none"
+                      :padding "6px 10px"
                       :border-radius "4px"
                       :cursor "pointer"
-                      :font-size "0.9rem"
+                      :font-size "18px"
+                      :line-height "1"
+                      :min-width "32px"
+                      :height "32px"
                       :display "flex"
                       :align-items "center"
-                      :gap "6px"
-                      :transition "all 0.15s"}
+                      :justify-content "center"}
               :title (str (t :ai-panel-title) " (Ctrl+Shift+A)")
               :on-click toggle-panel!}
-     [:span "✨"]
-     [:span {:style {:font-size "0.85rem"}} "AI"]]))
+     "✦"]))
 
 ;; =============================================================================
 ;; Keyboard Shortcut Handler
