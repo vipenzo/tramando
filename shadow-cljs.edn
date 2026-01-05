@@ -1,4 +1,4 @@
-{:source-paths ["src"]
+{:source-paths ["src" "test"]
  :dependencies [[reagent/reagent "1.2.0"]]
  :builds {:app {:target :browser
                 :output-dir "public/js"
@@ -6,4 +6,8 @@
                 :modules {:main {:init-fn tramando.core/init}}
                 :devtools {:http-root "public"
                            :http-port 8080
-                           :http-host "0.0.0.0"}}}}
+                           :http-host "0.0.0.0"}}
+          :test {:target :node-test
+                 :output-to "out/test/test.js"
+                 :ns-regexp "-test$"
+                 :autorun true}}}
