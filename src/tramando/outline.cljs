@@ -8,7 +8,8 @@
             [tramando.i18n :as i18n :refer [t]]
             [tramando.editor :as editor]
             [tramando.context-menu :as context-menu]
-            [tramando.events :as events]))
+            [tramando.events :as events]
+            [tramando.chat :as chat]))
 
 ;; =============================================================================
 ;; Chunk Tree Item
@@ -214,18 +215,25 @@
         display-summary (model/expand-summary-macros summary chunk)]
     [:div
      [:div.chunk-item
-      {:style {:background (when selected? (:editor-bg colors))
-               :border-left (str "2px solid " (if selected? (:accent colors) "transparent"))}
+      {:style {:background (when selected? (:accent-muted colors))
+               :border-left (str "2px solid " (if selected? (:accent colors) "transparent"))
+               :color (if selected? (:accent colors) (:text-muted colors))}
        :on-click (fn [e]
                    (.stopPropagation e)
-                   (model/select-chunk! id))}
+                   (model/select-chunk! id))
+       :on-mouse-over (fn [e]
+                        (when-not selected?
+                          (set! (.. e -currentTarget -style -background) (:hover colors))))
+       :on-mouse-out (fn [e]
+                       (when-not selected?
+                         (set! (.. e -currentTarget -style -background) "transparent")))}
       (when has-children?
         [:span {:style {:cursor "pointer" :margin-right "4px" :font-size "0.7rem" :color (:text-muted colors)}
                 :on-click (fn [e]
                             (.stopPropagation e)
                             (toggle-expanded! id))}
          (if is-collapsed? "▶" "▼")])
-      [:span.chunk-summary {:style {:flex 1 :color (:text colors)}}
+      [:span.chunk-summary {:style {:flex 1 :color (if selected? (:accent colors) (:text colors))}}
        (or (when (seq display-summary) display-summary) (t :no-title))]
       (when selected?
         [:span {:style {:margin-left "auto" :display "flex" :gap "2px"}
@@ -250,17 +258,12 @@
 ;; =============================================================================
 
 (defn- aspect-color
-  "Get the color for an aspect based on its parent container"
-  [chunk]
-  (let [colors (:colors @settings/settings)
-        parent-id (:parent-id chunk)]
-    (case parent-id
-      "personaggi" (:personaggi colors)
-      "luoghi" (:luoghi colors)
-      "temi" (:temi colors)
-      "sequenze" (:sequenze colors)
-      "timeline" (:timeline colors)
-      (:accent colors))))
+  "Get the color for an aspect - neutral by default, accent when selected"
+  [selected?]
+  (let [colors (:colors @settings/settings)]
+    (if selected?
+      (:accent colors)
+      (:text-muted colors))))
 
 (defn aspect-item
   "Render a single aspect item with its children"
@@ -275,15 +278,22 @@
         can-move-up? (and idx (pos? idx))
         can-move-down? (and idx (< idx (dec (count siblings))))
         colors (:colors @settings/settings)
-        color (aspect-color chunk)
+        color (aspect-color selected?)
         display-summary (model/expand-summary-macros summary chunk)]
     [:div
      [:div.chunk-item
-      {:style {:background (when selected? (:editor-bg colors))
-               :border-left (str "2px solid " (if selected? color "transparent"))}
+      {:style {:background (when selected? (:accent-muted colors))
+               :border-left (str "2px solid " (if selected? (:accent colors) "transparent"))
+               :color (if selected? (:accent colors) (:text-muted colors))}
        :on-click (fn [e]
                    (.stopPropagation e)
-                   (model/select-chunk! id))}
+                   (model/select-chunk! id))
+       :on-mouse-over (fn [e]
+                        (when-not selected?
+                          (set! (.. e -currentTarget -style -background) (:hover colors))))
+       :on-mouse-out (fn [e]
+                       (when-not selected?
+                         (set! (.. e -currentTarget -style -background) "transparent")))}
       (when has-children?
         [:span {:style {:cursor "pointer" :margin-right "4px" :font-size "0.7rem" :color (:text-muted colors)}
                 :on-click (fn [e]
@@ -317,15 +327,20 @@
 ;; Aspect Container Section
 ;; =============================================================================
 
-(defn- container-color [id]
-  (let [colors (:colors @settings/settings)]
-    (case id
-      "personaggi" (:personaggi colors)
-      "luoghi" (:luoghi colors)
-      "temi" (:temi colors)
-      "sequenze" (:sequenze colors)
-      "timeline" (:timeline colors)
-      (:accent colors))))
+(defn- container-color [_id]
+  ;; All aspects use text-muted color (neutral), accent only when selected
+  (settings/get-color :text-muted))
+
+(defn- aspect-icon
+  "Get icon for aspect container"
+  [id]
+  (case id
+    "personaggi" "👤"
+    "luoghi" "📍"
+    "temi" "💡"
+    "sequenze" "🔗"
+    "timeline" "📅"
+    "📁"))
 
 (defn aspect-container-section
   "Render an expandable aspect container with its children"
@@ -335,6 +350,7 @@
         colors (:colors @settings/settings)
         color (container-color id)
         help-key (keyword id)
+        icon (aspect-icon id)
         ;; Use translated name if available
         display-name (t (keyword id))]
     [:div {:style {:margin-bottom "8px"}}
@@ -347,6 +363,7 @@
             :on-click #(toggle-expanded! id)}
       [:span {:style {:margin-right "4px" :font-size "0.7rem"}}
        (if is-collapsed? "▶" "▼")]
+      [:span {:style {:margin-right "6px"}} icon]
       display-name
       [help/help-icon help-key {:below? true}]]
      (when-not is-collapsed?
@@ -370,18 +387,26 @@
         [:div {:style {:position "relative" :margin-top "8px"}}
          [:button
           {:style {:background "transparent"
-                   :color (:accent colors)
-                   :border (str "1px solid " (:accent colors))
-                   :padding "8px 16px"
+                   :color (:text-muted colors)
+                   :border (str "1px dashed " (:border colors))
+                   :padding "6px 12px"
                    :border-radius "4px"
                    :cursor "pointer"
                    :width "100%"
-                   :font-size "0.9rem"
+                   :font-size "0.8rem"
                    :display "flex"
                    :justify-content "space-between"
-                   :align-items "center"}
+                   :align-items "center"
+                   :transition "all 0.15s"}
+           :on-mouse-over (fn [e]
+                            (set! (.. e -currentTarget -style -borderColor) (:accent colors))
+                            (set! (.. e -currentTarget -style -color) (:accent colors)))
+           :on-mouse-out (fn [e]
+                           (when-not @open?
+                             (set! (.. e -currentTarget -style -borderColor) (:border colors))
+                             (set! (.. e -currentTarget -style -color) (:text-muted colors))))
            :on-click #(swap! open? not)}
-          [:span (t :new-aspect)]
+          [:span (str "+ " (t :new-aspect))]
           [:span {:style {:font-size "0.7rem"}} (if @open? "▲" "▼")]]
          (when @open?
            [:div {:style {:position "absolute"
@@ -411,33 +436,12 @@
 ;; Annotations Section
 ;; =============================================================================
 
-(defn- annotation-type-color [type]
-  (case type
-    :TODO "#f5a623"
-    :NOTE "#2196f3"
-    :FIX "#f44336"
-    :PROPOSAL "#9c27b0"
-    "#888"))
-
-(defn- format-priority
-  "Format priority for display. Returns '1' or '20.5' or 'AI' or 'AI-DONE' or '--' if nil."
-  [priority]
-  (cond
-    (= priority :AI) "AI"
-    (= priority :AI-DONE) "AI-DONE"
-    (number? priority)
-    (if (= priority (js/Math.floor priority))
-      (str (int priority))  ; integer: no decimals
-      (str priority))       ; decimal: show as-is
-    :else "--"))
-
 (defn- annotation-item [{:keys [chunk-id selected-text comment type priority]}]
   (let [colors (:colors @settings/settings)
         path (annotations/get-chunk-path chunk-id)
-        display-text (if (> (count selected-text) 35)
-                       (str (subs selected-text 0 32) "...")
+        display-text (if (> (count selected-text) 50)
+                       (str (subs selected-text 0 47) "...")
                        selected-text)
-        priority-str (format-priority priority)
         is-ai-done? (= priority :AI-DONE)
         is-ai-pending? (= priority :AI)
         is-ai? (or is-ai-pending? is-ai-done?)
@@ -447,62 +451,35 @@
         alternatives (or (:alts ai-data) [])
         selected-alt (when (and (pos? current-selection) (<= current-selection (count alternatives)))
                        (nth alternatives (dec current-selection)))]
-    [:div {:style {:padding "6px 8px"
-                   :margin-bottom "4px"
-                   :background (:editor-bg colors)
-                   :border-radius "3px"
-                   :border-left (str "3px solid " (annotation-type-color type))
-                   :cursor "pointer"
-                   :font-size "0.8rem"}
-           :on-click (fn []
-                       (editor/set-tab! :edit)  ;; Switch to edit mode to see annotations
-                       (model/select-chunk! chunk-id)
-                       (editor/navigate-to-annotation! selected-text))}
-     ;; Header row with path and badge
-     [:div {:style {:display "flex"
-                    :align-items "center"
-                    :gap "8px"
-                    :margin-bottom "4px"}}
-      ;; Priority column - show AI badge for AI annotations
-      (if is-ai?
-        [:span {:style {:background (if is-ai-pending?
-                                      (:text-muted colors)
-                                      (:accent colors))
-                        :color "white"
-                        :font-size "0.65rem"
-                        :padding "1px 4px"
-                        :border-radius "2px"
-                        :font-weight "600"}}
-         (if is-ai-pending? "AI..." "AI")]
-        (when priority
-          [:span {:style {:color (:accent colors)
-                          :font-family "monospace"
-                          :font-size "0.75rem"}}
-           priority-str]))
-      ;; Path
-      [:span {:style {:color (:text-muted colors)
-                      :font-size "0.7rem"
-                      :flex 1}}
-       path]]
-     ;; Selected text
-     [:div {:style {:color (:text colors)
-                    :overflow "hidden"
-                    :text-overflow "ellipsis"
-                    :white-space "nowrap"}}
+    [:div.annotation-item
+     {:on-click (fn []
+                  (editor/set-tab! :edit)
+                  (model/select-chunk! chunk-id)
+                  (editor/navigate-to-annotation! selected-text))}
+     ;; Type label with optional AI badge
+     [:div.annotation-type
+      (when is-ai?
+        [:span {:class (str "ai-badge" (when is-ai-pending? " pending"))}
+         (if is-ai-pending? "AI..." "AI")])
+      (name type)]
+     ;; Annotation text
+     [:div.annotation-text
       [:span {:style {:font-style "italic"}} (str "\"" display-text "\"")]
       (when (and (seq comment) (not is-ai?))
-        [:span {:style {:color (:text-muted colors)}} (str " — " comment)])]
+        [:span {:style {:opacity "0.7"}} (str " — " comment)])]
+     ;; Location path
+     [:div.annotation-location path]
      ;; AI pending message
      (when is-ai-pending?
        [:div {:style {:color (:text-muted colors)
-                      :font-size "0.7rem"
+                      :font-size "10px"
                       :font-style "italic"
                       :margin-top "4px"}}
         (t :ai-processing)])
      ;; AI-DONE: show selected alternative preview
      (when selected-alt
        [:div {:style {:color (:accent colors)
-                      :font-size "0.75rem"
+                      :font-size "11px"
                       :margin-top "4px"
                       :font-style "italic"
                       :overflow "hidden"
@@ -514,25 +491,15 @@
 
 (defn- annotation-type-section [type items]
   (let [is-collapsed? (not (expanded? (str "ann-" (name type))))
-        colors (:colors @settings/settings)
-        type-label (name type)
-        type-color (annotation-type-color type)]
+        type-label (name type)]
     [:div {:style {:margin-bottom "8px"}}
-     [:div {:style {:display "flex"
-                    :align-items "center"
-                    :cursor "pointer"
-                    :padding "4px 0"
-                    :color type-color
-                    :font-size "0.85rem"}
-            :on-click #(toggle-expanded! (str "ann-" (name type)))}
-      [:span {:style {:margin-right "4px" :font-size "0.7rem"}}
-       (if is-collapsed? "▶" "▼")]
+     [:div.annotation-type-header {:on-click #(toggle-expanded! (str "ann-" (name type)))}
+      [:span.collapse-arrow (if is-collapsed? "▶" "▼")]
       (str type-label " (" (count items) ")")]
      (when-not is-collapsed?
        [:div {:style {:margin-left "8px"}}
         (if (empty? items)
-          [:div {:style {:color (:text-muted colors) :font-size "0.75rem" :padding "4px"}}
-           (t :none-fem)]
+          [:div.annotations-empty (t :none-fem)]
           (doall
            (for [[idx item] (map-indexed vector items)]
              ^{:key (str type "-" (:chunk-id item) "-" idx)}
@@ -542,27 +509,15 @@
   (let [_chunks @model/app-state ; subscribe to changes
         {:keys [TODO NOTE FIX PROPOSAL]} (annotations/get-all-annotations)
         total (+ (count TODO) (count NOTE) (count FIX) (count PROPOSAL))
-        is-collapsed? (not (expanded? "annotations-section"))
-        colors (:colors @settings/settings)]
-    [:div {:style {:margin-top "16px" :padding-top "16px" :border-top (str "1px solid " (:border colors))}}
-     [:div {:style {:display "flex"
-                    :align-items "center"
-                    :justify-content "space-between"
-                    :margin-bottom "8px"
-                    :cursor "pointer"}
-            :on-click #(toggle-expanded! "annotations-section")}
-      [:h2 {:style {:color (:text colors) :margin 0 :display "flex" :align-items "center" :gap "8px"}}
-       [:span {:style {:font-size "0.7rem" :color (:text-muted colors)}}
-        (if is-collapsed? "▶" "▼")]
+        is-collapsed? (not (expanded? "annotations-section"))]
+    [:div.annotations-section
+     [:div.annotations-header {:on-click #(toggle-expanded! "annotations-section")}
+      [:h2.section-title
+       [:span.collapse-arrow (if is-collapsed? "▶" "▼")]
        (t :annotations)
        [help/help-icon :annotazioni {:below? true}]]
       (when (pos? total)
-        [:span {:style {:background (:accent colors)
-                        :color "white"
-                        :padding "2px 8px"
-                        :border-radius "10px"
-                        :font-size "0.75rem"}}
-         total])]
+        [:span.count-badge total])]
      (when-not is-collapsed?
        [:div
         (when (pos? (count PROPOSAL))
@@ -574,26 +529,75 @@
         (when (pos? (count NOTE))
           [annotation-type-section :NOTE NOTE])
         (when (zero? total)
-          [:div {:style {:color (:text-muted colors) :font-size "0.8rem" :padding "8px 0"}}
-           (t :no-annotations)])])]))
+          [:div.annotations-empty (t :no-annotations)])])]))
+
+;; =============================================================================
+;; Right Panel (Annotations)
+;; =============================================================================
+
+(defonce right-panel-collapsed? (r/atom false))
+
+(defn toggle-right-panel! []
+  (swap! right-panel-collapsed? not))
+
+(defn annotations-panel
+  "Standalone annotations panel for the right side"
+  []
+  (let [collapsed? @right-panel-collapsed?
+        colors (:colors @settings/settings)
+        _chunks @model/app-state ; subscribe to changes
+        {:keys [TODO NOTE FIX PROPOSAL]} (annotations/get-all-annotations)
+        total (+ (count TODO) (count NOTE) (count FIX) (count PROPOSAL))]
+    [:aside {:class (str "right-panel" (when collapsed? " collapsed"))
+             :style {:background (:sidebar colors)
+                     :display "flex"
+                     :flex-direction "column"}}
+     ;; Header
+     [:div.panel-header
+      [:span.panel-title (t :annotations)]
+      (when (pos? total)
+        [:span.panel-badge total])
+      [:button.panel-collapse-btn
+       {:on-click toggle-right-panel!
+        :title (if collapsed? (t :expand) (t :collapse))}
+       (if collapsed? "◀" "▶")]]
+     ;; Collapsed state icon
+     (when collapsed?
+       [:div.collapsed-icon {:on-click toggle-right-panel!}
+        "📝"
+        (when (pos? total)
+          [:span {:style {:font-size "10px"
+                          :background (:accent colors)
+                          :color "white"
+                          :padding "1px 4px"
+                          :border-radius "6px"
+                          :margin-top "4px"}}
+           total])])
+     ;; Content (flex-grow to push chat to bottom)
+     [:div.panel-content {:style {:flex 1 :overflow-y "auto"}}
+      (when (pos? (count PROPOSAL))
+        [annotation-type-section :PROPOSAL PROPOSAL])
+      (when (pos? (count TODO))
+        [annotation-type-section :TODO TODO])
+      (when (pos? (count FIX))
+        [annotation-type-section :FIX FIX])
+      (when (pos? (count NOTE))
+        [annotation-type-section :NOTE NOTE])
+      (when (zero? total)
+        [:div.annotations-empty (t :no-annotations)])]
+     ;; Chat panel (only in collaborative mode, at bottom)
+     (when-not collapsed?
+       [chat/chat-panel])]))
 
 ;; =============================================================================
 ;; Filter Input Component
 ;; =============================================================================
 
 (defn- type-color
-  "Get color for a chunk type"
-  [chunk-type]
-  (let [colors (:colors @settings/settings)]
-    (case chunk-type
-      :structure (:structure colors)
-      :personaggi (:personaggi colors)
-      :luoghi (:luoghi colors)
-      :temi (:temi colors)
-      :sequenze (:sequenze colors)
-      :timeline (:timeline colors)
-      :aspect (:accent colors)
-      (:text-muted colors))))
+  "Get color for a chunk type - all use text-muted, accent only for selected"
+  [_chunk-type]
+  ;; All types use text-muted for neutral appearance
+  (settings/get-color :text-muted))
 
 (defn- type-label
   "Get translated label for a chunk type"
@@ -799,7 +803,14 @@
         ;; Normal tree view
         [:<>
          ;; STRUTTURA section
-         [:h2 {:style {:color (:text colors) :display "flex" :align-items "center"}}
+         [:h2 {:style {:color (:text-muted colors)
+                       :display "flex"
+                       :align-items "center"
+                       :font-size "11px"
+                       :font-weight "600"
+                       :text-transform "uppercase"
+                       :letter-spacing "0.5px"
+                       :margin-bottom "8px"}}
           (t :structure)
           [help/help-icon :struttura {:below? true}]]
          ;; Project title
@@ -824,29 +835,38 @@
          (when (model/can-create-chunk-at? nil)
            [:div {:style {:margin-top "12px"}}
             [:button
-             {:style {:background (:accent colors)
-                      :color "white"
-                      :border "none"
-                      :padding "8px 16px"
+             {:style {:background "transparent"
+                      :color (:text-muted colors)
+                      :border (str "1px dashed " (:border colors))
+                      :padding "6px 12px"
                       :border-radius "4px"
                       :cursor "pointer"
                       :width "100%"
-                      :font-size "0.9rem"}
+                      :font-size "0.8rem"
+                      :transition "all 0.15s"}
+              :on-mouse-over (fn [e]
+                               (set! (.. e -target -style -borderColor) (:accent colors))
+                               (set! (.. e -target -style -color) (:accent colors)))
+              :on-mouse-out (fn [e]
+                              (set! (.. e -target -style -borderColor) (:border colors))
+                              (set! (.. e -target -style -color) (:text-muted colors)))
               :on-click (fn []
                           (model/add-chunk!))}
-             (t :new-chunk)]])
+             (str "+ " (t :new-chunk))]])
 
          ;; ASPETTI section
          [:div {:style {:margin-top "24px" :padding-top "16px" :border-top (str "1px solid " (:border colors))}}
-          [:h2 {:style {:color (:text colors)}} (t :aspects)]
+          [:h2 {:style {:color (:text-muted colors)
+                        :font-size "11px"
+                        :font-weight "600"
+                        :text-transform "uppercase"
+                        :letter-spacing "0.5px"
+                        :margin-bottom "12px"}} (t :aspects)]
           (doall
            (for [container model/aspect-containers]
              ^{:key (:id container)}
              [aspect-container-section container]))
-          [new-aspect-dropdown]]
-
-         ;; ANNOTAZIONI section
-         [annotations-section]])]]))
+          [new-aspect-dropdown]]])]]))
 
 ;; =============================================================================
 ;; Outline Stats

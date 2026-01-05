@@ -64,6 +64,18 @@
           FOREIGN KEY (user_id) REFERENCES users(id),
           FOREIGN KEY (project_id) REFERENCES projects(id),
           UNIQUE (user_id, project_id)
+        )"])
+    ;; Project chat messages table
+    (jdbc/execute! ds
+      ["CREATE TABLE IF NOT EXISTS chat_messages (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          project_id INTEGER NOT NULL,
+          user_id INTEGER NOT NULL,
+          username TEXT NOT NULL,
+          message TEXT NOT NULL,
+          created_at TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (project_id) REFERENCES projects(id),
+          FOREIGN KEY (user_id) REFERENCES users(id)
         )"])))
 
 ;; =============================================================================
@@ -231,3 +243,66 @@
     (jdbc/execute! ds
       ["UPDATE users SET is_super_admin = ? WHERE id = ?"
        (if is-super-admin? 1 0) user-id])))
+
+;; =============================================================================
+;; Chat Operations
+;; =============================================================================
+
+(defn get-chat-messages
+  "Get chat messages for a project, optionally after a specific ID (for polling)"
+  ([project-id]
+   (get-chat-messages project-id nil))
+  ([project-id after-id]
+   (if after-id
+     (query ["SELECT id, username, message, created_at
+              FROM chat_messages
+              WHERE project_id = ? AND id > ?
+              ORDER BY id ASC"
+             project-id after-id])
+     (query ["SELECT id, username, message, created_at
+              FROM chat_messages
+              WHERE project_id = ?
+              ORDER BY id ASC
+              LIMIT 100"
+             project-id]))))
+
+(def ^:private max-chat-messages 500)
+
+(defn- purge-old-chat-messages!
+  "Delete oldest messages if project has more than max-chat-messages"
+  [project-id]
+  (let [ds (get-datasource)
+        count-result (query-one ["SELECT COUNT(*) as cnt FROM chat_messages WHERE project_id = ?" project-id])
+        msg-count (:cnt count-result 0)]
+    (when (> msg-count max-chat-messages)
+      ;; Delete oldest messages, keeping only the most recent max-chat-messages
+      (let [to-delete (- msg-count max-chat-messages)]
+        (jdbc/execute! ds
+          ["DELETE FROM chat_messages WHERE id IN (
+              SELECT id FROM chat_messages WHERE project_id = ? ORDER BY id ASC LIMIT ?
+            )" project-id to-delete])))))
+
+(defn add-chat-message!
+  "Add a chat message to a project.
+   Automatically purges old messages if over limit (500)."
+  [project-id user-id username message]
+  (let [ds (get-datasource)]
+    (jdbc/execute-one! ds
+      ["INSERT INTO chat_messages (project_id, user_id, username, message) VALUES (?, ?, ?, ?)"
+       project-id user-id username message]
+      {:return-keys true})
+    ;; Auto-purge old messages
+    (purge-old-chat-messages! project-id)
+    ;; Return the created message
+    (query-one ["SELECT id, username, message, created_at
+                 FROM chat_messages
+                 WHERE project_id = ? AND user_id = ?
+                 ORDER BY id DESC LIMIT 1"
+                project-id user-id])))
+
+(defn clear-chat!
+  "Clear all chat messages for a project (admin/owner only)"
+  [project-id]
+  (let [ds (get-datasource)]
+    (jdbc/execute! ds
+      ["DELETE FROM chat_messages WHERE project_id = ?" project-id])))

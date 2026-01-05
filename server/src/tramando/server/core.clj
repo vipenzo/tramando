@@ -2,6 +2,7 @@
   (:require [ring.adapter.jetty :as jetty]
             [ring.middleware.cors :refer [wrap-cors]]
             [ring.middleware.json :refer [wrap-json-response]]
+            [ring.middleware.params :refer [wrap-params]]
             [reitit.ring :as ring]
             [tramando.server.config :refer [config]]
             [tramando.server.db :as db]
@@ -35,6 +36,7 @@
              :method-not-allowed (constantly {:status 405 :body {:error "Method not allowed"}})})))
       (auth/wrap-auth)
       (wrap-json-response)
+      (wrap-params)
       (wrap-preflight)
       (wrap-cors :access-control-allow-origin [#".*"]
                  :access-control-allow-methods [:get :post :put :delete :options]

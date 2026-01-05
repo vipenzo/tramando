@@ -13,7 +13,8 @@
             [tramando.model :as model]
             [tramando.api :as api]
             [tramando.auth :as auth]
-            [tramando.versioning :as versioning]
+            [tramando.events :as events]
+            [tramando.chat :as chat]
             [reagent.core :as r]))
 
 ;; =============================================================================
@@ -48,6 +49,14 @@
   (when @poll-timer
     (js/clearInterval @poll-timer)
     (reset! poll-timer nil)))
+
+;; Progress timer for visual feedback
+(defonce ^:private progress-timer (atom nil))
+
+(defn- cancel-progress-timer! []
+  (when @progress-timer
+    (js/clearInterval @progress-timer)
+    (reset! progress-timer nil)))
 
 (defn- reload-from-server!
   "Reload project content from server (called when remote changes detected)"
@@ -97,6 +106,9 @@
   "Perform the actual sync to server"
   []
   (when @project-id
+    ;; Stop progress animation
+    (cancel-progress-timer!)
+    (reset! model/autosave-progress 0)
     (reset! sync-status :syncing)
     (reset! model/save-status :saving)
     (let [content (model/serialize-file (model/get-chunks) (model/get-metadata))
@@ -112,35 +124,57 @@
                        (reset! model/save-status :saved)
                        (js/setTimeout #(reset! model/save-status :idle) 2000))
 
-                     ;; Conflict (409)
+                     ;; Conflict (409) - attempt automatic merge
                      (= (:status result) 409)
-                     (do
-                       (reset! sync-status :conflict)
-                       (reset! model/save-status :conflict)
-                       ;; Show conflict dialog
-                       (versioning/show-conflict-dialog!
-                         {:on-overwrite (fn []
-                                          ;; Force save without hash check
-                                          (-> (api/save-project! @project-id content nil)
-                                              (.then (fn [r]
-                                                       (when (:ok r)
-                                                         (reset! content-hash (get-in r [:data :content-hash]))
-                                                         (reset! sync-status :idle)
-                                                         (reset! model/save-status :saved)
-                                                         (js/setTimeout #(reset! model/save-status :idle) 2000))))))
-                          :on-reload (fn []
-                                       ;; Reload from server
-                                       (when @project-id
-                                         (-> (api/get-project @project-id)
-                                             (.then (fn [r]
-                                                      (when (:ok r)
-                                                        (reset! content-hash (get-in r [:data :content-hash]))
-                                                        (model/load-file-content!
-                                                          (get-in r [:data :content])
-                                                          @project-name
-                                                          nil)
-                                                        (reset! sync-status :idle)
-                                                        (reset! model/save-status :idle)))))))}))
+                     (let [server-content (get-in result [:data :current-content])
+                           server-hash (get-in result [:data :current-hash])
+                           local-chunks (model/get-chunks)]
+                       (if server-content
+                         ;; We have server content - try merge
+                         (let [merge-result (model/merge-with-server-content local-chunks server-content)
+                               merged-chunks (:merged-chunks merge-result)
+                               conflicts (:conflicts merge-result)]
+                           ;; Apply merged state
+                           (swap! model/app-state assoc :chunks merged-chunks)
+                           (reset! content-hash server-hash)
+                           ;; Now save the merged result
+                           (let [merged-content (model/serialize-file merged-chunks (model/get-metadata))]
+                             (-> (api/save-project! @project-id merged-content server-hash)
+                                 (.then (fn [save-result]
+                                          (if (:ok save-result)
+                                            (do
+                                              (reset! content-hash (get-in save-result [:data :content-hash]))
+                                              (reset! sync-status :idle)
+                                              (reset! model/save-status :saved)
+                                              ;; Show conflict notification if there were real conflicts
+                                              (when (seq conflicts)
+                                                (let [conflict-msg (if (= 1 (count conflicts))
+                                                                     (str "Modifiche perse su \""
+                                                                          (:chunk-summary (first conflicts))
+                                                                          "\" per conflitto con "
+                                                                          (or (:server-owner (first conflicts)) "altro utente"))
+                                                                     (str "Modifiche perse su " (count conflicts)
+                                                                          " chunk per conflitto"))]
+                                                  (reset! model/save-status :conflict)
+                                                  (js/console.warn "Conflict resolved:" (pr-str conflicts))
+                                                  ;; Show toast with conflict info
+                                                  (events/show-toast! conflict-msg)
+                                                  (js/setTimeout #(reset! model/save-status :idle) 5000)))
+                                              (when (empty? conflicts)
+                                                (js/setTimeout #(reset! model/save-status :idle) 2000)))
+                                            ;; Merge save failed - another conflict, retry later
+                                            (do
+                                              (js/console.warn "Merge save failed, will retry")
+                                              (reset! sync-status :pending)
+                                              (reset! model/save-status :modified)
+                                              ;; Retry sync after delay
+                                              (js/setTimeout do-sync! sync-delay-ms))))))))
+                         ;; No server content in response - fall back to reload
+                         (do
+                           (js/console.warn "No server content in 409 response, reloading")
+                           (reload-from-server!)
+                           (reset! sync-status :idle)
+                           (reset! model/save-status :idle))))
 
                      ;; Other error
                      :else
@@ -157,8 +191,18 @@
   "Schedule a sync after debounce delay"
   []
   (cancel-sync-timer!)
+  (cancel-progress-timer!)
   (reset! sync-status :pending)
   (reset! model/save-status :modified)
+  ;; Start progress animation (4 steps toward sync)
+  (reset! model/autosave-progress 1)
+  (let [step-ms (/ sync-delay-ms 4)]
+    (reset! progress-timer
+            (js/setInterval
+             (fn []
+               (when (< @model/autosave-progress 4)
+                 (swap! model/autosave-progress inc)))
+             step-ms)))
   (reset! sync-timer (js/setTimeout do-sync! sync-delay-ms)))
 
 (defn- on-state-modified!
@@ -166,6 +210,18 @@
   []
   (when @project-id
     (schedule-sync!)))
+
+(defn- on-title-changed!
+  "Called when metadata title changes - sync to server project name"
+  [new-title]
+  (when (and @project-id (seq new-title))
+    (reset! project-name new-title)
+    (-> (api/update-project! @project-id {:name new-title})
+        (.then (fn [result]
+                 (when (:ok result)
+                   (js/console.log "Project name synced to server:" new-title))))
+        (.catch (fn [err]
+                  (js/console.error "Failed to sync project name:" err))))))
 
 ;; =============================================================================
 ;; RemoteStore Record
@@ -181,6 +237,9 @@
       (fn [resolve reject]
         (-> (api/get-project pid)
             (.then (fn [result]
+                     (js/console.log "RemoteStore.load-project: result =" (pr-str (select-keys (:data result) [:project :content-hash :role])))
+                     (js/console.log "RemoteStore.load-project: content length =" (count (:content (:data result))))
+                     (js/console.log "RemoteStore.load-project: content preview =" (subs (or (:content (:data result)) "") 0 (min 300 (count (or (:content (:data result)) "")))))
                      (if (:ok result)
                        (let [data (:data result)]
                          ;; Store project info
@@ -196,11 +255,14 @@
                          (let [role-str (:role data)
                                role-kw (when role-str (keyword role-str))]
                            (reset! model/user-role role-kw))
-                         ;; Set up sync callback
+                         ;; Set up sync callbacks
                          (reset! model/on-modified-callback on-state-modified!)
+                         (reset! model/on-title-changed-callback on-title-changed!)
                          (reset! sync-status :idle)
                          ;; Start polling for remote changes
                          (start-polling!)
+                         ;; Initialize project chat
+                         (chat/init-chat! pid)
                          (resolve {:chunks (model/get-chunks)
                                    :metadata (model/get-metadata)
                                    :project (:project data)
@@ -285,16 +347,20 @@
     (let [chunk (model/get-chunk chunk-id)
           user (protocol/get-current-user _this)
           owner (:owner chunk)]
-      ;; Owner is current user, or chunk has no real owner yet (nil or "local")
-      (or (nil? owner)
-          (= "local" owner)
-          (= user owner))))
+      ;; Owner is current user (exact match only)
+      ;; Chunks with nil or "local" owner belong to project owner, not collaborators
+      (= user owner)))
 
   (can-edit? [_this chunk-id]
-    ;; Project owners can edit all chunks
-    ;; Collaborators can only edit chunks they own
-    (or (model/is-project-owner?)
-        (protocol/is-owner? _this chunk-id))))
+    ;; Strict ownership: only chunk owner can edit
+    ;; Chunks with nil or "local" owner can be edited by project owner
+    (let [chunk (model/get-chunk chunk-id)
+          owner (:owner chunk)]
+      (if (or (nil? owner) (= "local" owner))
+        ;; Unowned chunks: only project owner can edit
+        (model/is-project-owner?)
+        ;; Owned chunks: only the chunk owner can edit
+        (protocol/is-owner? _this chunk-id)))))
 
 ;; =============================================================================
 ;; Store Constructor and Management
@@ -317,7 +383,9 @@
   []
   (cancel-sync-timer!)
   (stop-polling!)
+  (chat/cleanup-chat!)  ;; Stop chat polling and clear state
   (reset! model/on-modified-callback nil)
+  (reset! model/on-title-changed-callback nil)
   (model/set-current-user! nil)  ;; Clear collaborative user
   (reset! model/user-role nil)   ;; Clear user role
   (reset! project-id nil)

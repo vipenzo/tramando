@@ -192,6 +192,26 @@
   (api-put (str "/api/admin/users/" user-id) {:is-super-admin is-super-admin}))
 
 ;; =============================================================================
+;; Chat API
+;; =============================================================================
+
+(defn get-chat-messages
+  "Get chat messages for a project.
+   Optionally pass after-id to get only new messages (for polling)."
+  ([project-id]
+   (get-chat-messages project-id nil))
+  ([project-id after-id]
+   (let [url (if after-id
+               (str "/api/projects/" project-id "/chat?after=" after-id)
+               (str "/api/projects/" project-id "/chat"))]
+     (api-get url))))
+
+(defn send-chat-message!
+  "Send a chat message to a project"
+  [project-id message]
+  (api-post (str "/api/projects/" project-id "/chat") {:message message}))
+
+;; =============================================================================
 ;; Token and Server URL Persistence
 ;; =============================================================================
 

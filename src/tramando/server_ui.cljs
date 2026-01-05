@@ -1,11 +1,106 @@
 (ns tramando.server-ui
   "UI components for server mode: login, projects list, collaborators"
-  (:require [reagent.core :as r]
+  (:require [clojure.string :as str]
+            [reagent.core :as r]
             [tramando.auth :as auth]
             [tramando.api :as api]
             [tramando.settings :as settings]
             [tramando.i18n :refer [t]]
             [tramando.events :as events]))
+
+;; =============================================================================
+;; Markdown to TRMD Conversion
+;; =============================================================================
+
+(defn- md-to-trmd
+  "Convert markdown content to TRMD format with hierarchy.
+   # headings become chapters (root), ## and deeper become children.
+   TRMD native format uses [C:id\"summary\"] headers with indentation for hierarchy."
+  [md-content]
+  ;; Remove BOM if present and normalize line endings
+  (let [clean-content (-> md-content
+                          (str/replace #"^\uFEFF" "")  ;; Remove UTF-8 BOM
+                          (str/replace "\r\n" "\n")    ;; Windows -> Unix
+                          (str/replace "\r" "\n"))     ;; Old Mac -> Unix
+        lines (str/split-lines clean-content)
+        _ (js/console.log "md-to-trmd: total lines =" (count lines))
+        _ (js/console.log "md-to-trmd: first 3 lines =" (pr-str (take 3 lines)))
+        ;; Parse lines into chunks with hierarchy info
+        result (reduce
+                (fn [{:keys [chunks current-chunk parent-stack counter]} line]
+                  (if-let [[_ hashes title] (re-find #"^(#{1,6})\s+(.+)$" line)]
+                    ;; Found a heading
+                    (let [level (count hashes)
+                          ;; Save current chunk if it has content
+                          updated-chunks (if (and current-chunk
+                                                   (or (seq (:summary current-chunk))
+                                                       (seq (:lines current-chunk))))
+                                           (conj chunks (assoc current-chunk
+                                                               :content (str/trim (str/join "\n" (:lines current-chunk)))))
+                                           chunks)
+                          ;; Find parent: walk back through stack to find first chunk with level < current
+                          new-parent-stack (vec (take-while #(< (:level %) level) parent-stack))
+                          parent-id (when (seq new-parent-stack)
+                                      (:id (last new-parent-stack)))
+                          new-id (str "cap-" counter)
+                          new-chunk {:id new-id
+                                     :summary (str/trim title)
+                                     :lines []
+                                     :level level
+                                     :parent-id parent-id}]
+                      {:chunks updated-chunks
+                       :current-chunk new-chunk
+                       :parent-stack (conj new-parent-stack {:id new-id :level level})
+                       :counter (inc counter)})
+                    ;; Regular line - add to current chunk's content
+                    {:chunks chunks
+                     :current-chunk (if current-chunk
+                                      (update current-chunk :lines conj line)
+                                      current-chunk)
+                     :parent-stack parent-stack
+                     :counter counter}))
+                {:chunks []
+                 :current-chunk nil
+                 :parent-stack []
+                 :counter 1}
+                lines)
+        ;; Don't forget the last chunk
+        final-chunks (if (and (:current-chunk result)
+                              (or (seq (:summary (:current-chunk result)))
+                                  (seq (:lines (:current-chunk result)))))
+                       (conj (:chunks result)
+                             (assoc (:current-chunk result)
+                                    :content (str/trim (str/join "\n" (:lines (:current-chunk result))))))
+                       (:chunks result))
+        _ (js/console.log "md-to-trmd: found chunks =" (count final-chunks))
+        _ (js/console.log "md-to-trmd: chunk summaries =" (pr-str (map :summary (take 5 final-chunks))))
+        ;; Build parent lookup for indentation
+        chunk-by-id (into {} (map (juxt :id identity) final-chunks))
+        ;; Helper to get depth (number of ancestors)
+        get-depth (fn get-depth [chunk]
+                    (if-let [pid (:parent-id chunk)]
+                      (inc (get-depth (chunk-by-id pid)))
+                      0))
+        ;; Serialize to TRMD native format: [C:id"summary"] with indentation
+        output (str/join "\n\n"
+                         (map (fn [chunk]
+                                (let [{:keys [id summary content]} chunk
+                                      depth (get-depth chunk)
+                                      indent (apply str (repeat (* 2 depth) " "))
+                                      ;; Format: [C:id"summary"]
+                                      header (str indent "[C:" id "\"" summary "\"]")
+                                      ;; Indent content lines too
+                                      content-str (when (seq content)
+                                                    (str/join "\n"
+                                                              (map #(str indent %)
+                                                                   (str/split-lines content))))]
+                                  (if (seq content-str)
+                                    (str header "\n" content-str)
+                                    header)))
+                              final-chunks))
+        _ (js/console.log "md-to-trmd: output length =" (count output))
+        _ (js/console.log "md-to-trmd: output preview =" (subs output 0 (min 500 (count output))))]
+    output))
 
 ;; =============================================================================
 ;; Login/Register Form
@@ -43,7 +138,7 @@
 
        ;; Error message
        (when @error
-         [:div {:style {:background "#ff5252"
+         [:div {:style {:background (settings/get-color :danger)
                         :color "white"
                         :padding "10px 15px"
                         :border-radius "4px"
@@ -266,7 +361,7 @@
                                               (load-projects!))))))
                    :style {:flex 1
                            :padding "6px 10px"
-                           :background "#ff5252"
+                           :background (settings/get-color :danger)
                            :color "white"
                            :border "none"
                            :border-radius "4px"
@@ -291,8 +386,8 @@
                   :style {:flex 1
                           :padding "6px 10px"
                           :background "transparent"
-                          :color "#ff5252"
-                          :border "1px solid #ff5252"
+                          :color (settings/get-color :danger)
+                          :border (str "1px solid " (settings/get-color :danger))
                           :border-radius "4px"
                           :cursor "pointer"
                           :font-size "0.8rem"}}
@@ -307,6 +402,10 @@
         new-project-name (r/atom "")
         creating? (r/atom false)
         show-create-form? (r/atom false)
+        show-import-form? (r/atom false)
+        import-type (r/atom :trmd)
+        importing? (r/atom false)
+        import-file-input (r/atom nil)
         duplicating-id (r/atom nil)
         confirm-delete-id (r/atom nil)
         load-projects! (fn []
@@ -330,14 +429,23 @@
                       :font-weight "400"
                       :color (settings/get-color :text)}}
          "I tuoi progetti"]
-        [:button {:on-click #(reset! show-create-form? true)
-                  :style {:padding "8px 16px"
-                          :background (settings/get-color :accent)
-                          :color "white"
-                          :border "none"
-                          :border-radius "4px"
-                          :cursor "pointer"}}
-         "+ Nuovo progetto"]]
+        [:div {:style {:display "flex" :gap "10px"}}
+         [:button {:on-click #(reset! show-import-form? true)
+                   :style {:padding "8px 16px"
+                           :background "transparent"
+                           :color (settings/get-color :text-muted)
+                           :border (str "1px solid " (settings/get-color :border))
+                           :border-radius "4px"
+                           :cursor "pointer"}}
+          "↑ " (t :import)]
+         [:button {:on-click #(reset! show-create-form? true)
+                   :style {:padding "8px 16px"
+                           :background (settings/get-color :accent)
+                           :color "white"
+                           :border "none"
+                           :border-radius "4px"
+                           :cursor "pointer"}}
+          "+ Nuovo progetto"]]]
 
        ;; Create form
        (when @show-create-form?
@@ -389,9 +497,109 @@
                              :cursor "pointer"}}
             "Annulla"]]])
 
+       ;; Import form
+       (when @show-import-form?
+         [:div {:style {:background (settings/get-color :sidebar)
+                        :border (str "1px solid " (settings/get-color :border))
+                        :border-radius "6px"
+                        :padding "15px"
+                        :margin-bottom "20px"}}
+          [:div {:style {:margin-bottom "12px"
+                         :font-size "0.9rem"
+                         :color (settings/get-color :text)}}
+           (t :import-select-file)]
+          ;; Format selector
+          [:div {:style {:display "flex" :gap "10px" :margin-bottom "12px"}}
+           [:button {:on-click #(reset! import-type :trmd)
+                     :style {:padding "6px 12px"
+                             :background (if (= @import-type :trmd)
+                                           (settings/get-color :accent)
+                                           "transparent")
+                             :color (if (= @import-type :trmd)
+                                      "white"
+                                      (settings/get-color :text-muted))
+                             :border (str "1px solid " (if (= @import-type :trmd)
+                                                         (settings/get-color :accent)
+                                                         (settings/get-color :border)))
+                             :border-radius "4px"
+                             :cursor "pointer"
+                             :font-size "0.85rem"}}
+            ".trmd"]
+           [:button {:on-click #(reset! import-type :md)
+                     :style {:padding "6px 12px"
+                             :background (if (= @import-type :md)
+                                           (settings/get-color :accent)
+                                           "transparent")
+                             :color (if (= @import-type :md)
+                                      "white"
+                                      (settings/get-color :text-muted))
+                             :border (str "1px solid " (if (= @import-type :md)
+                                                         (settings/get-color :accent)
+                                                         (settings/get-color :border)))
+                             :border-radius "4px"
+                             :cursor "pointer"
+                             :font-size "0.85rem"}}
+            ".md"]]
+          ;; Hidden file input
+          [:input {:type "file"
+                   :accept (if (= @import-type :trmd) ".trmd" ".md,.txt")
+                   :style {:display "none"}
+                   :ref #(reset! import-file-input %)
+                   :on-change (fn [e]
+                                (when-let [file (-> e .-target .-files (aget 0))]
+                                  (reset! importing? true)
+                                  (let [reader (js/FileReader.)]
+                                    (set! (.-onload reader)
+                                          (fn [evt]
+                                            (let [raw-content (-> evt .-target .-result)
+                                                  filename (.-name file)
+                                                  ;; Extract project name from filename
+                                                  project-name (-> filename
+                                                                   (str/replace #"\.(trmd|md|txt)$" ""))
+                                                  ;; Convert MD to TRMD if needed
+                                                  content (if (or (str/ends-with? filename ".md")
+                                                                  (str/ends-with? filename ".txt"))
+                                                            (md-to-trmd raw-content)
+                                                            raw-content)]
+                                              ;; Log content length for debugging
+                                              (js/console.log "Import: creating project with content length =" (count content))
+                                              ;; Create project with imported content
+                                              (-> (api/create-project! project-name content)
+                                                  (.then (fn [result]
+                                                           (js/console.log "Import: create-project result =" (pr-str result))
+                                                           (reset! importing? false)
+                                                           (when (:ok result)
+                                                             (reset! show-import-form? false)
+                                                             (load-projects!)
+                                                             (when on-create
+                                                               (on-create (get-in result [:data :project]))))))))))
+                                    (.readAsText reader file)))
+                                ;; Reset input
+                                (set! (-> e .-target .-value) ""))}]
+          ;; Buttons
+          [:div {:style {:display "flex" :gap "10px"}}
+           [:button {:on-click #(when @import-file-input (.click @import-file-input))
+                     :disabled @importing?
+                     :style {:padding "8px 16px"
+                             :background (settings/get-color :accent)
+                             :color "white"
+                             :border "none"
+                             :border-radius "4px"
+                             :cursor "pointer"
+                             :opacity (if @importing? 0.5 1)}}
+            (if @importing? "..." (t :import-select-file))]
+           [:button {:on-click #(reset! show-import-form? false)
+                     :style {:padding "8px 12px"
+                             :background "transparent"
+                             :color (settings/get-color :text-muted)
+                             :border (str "1px solid " (settings/get-color :border))
+                             :border-radius "4px"
+                             :cursor "pointer"}}
+            "Annulla"]]])
+
        ;; Error
        (when @error
-         [:div {:style {:color "#ff5252" :margin-bottom "15px"}}
+         [:div {:style {:color (settings/get-color :danger) :margin-bottom "15px"}}
           @error])
 
        ;; Loading
@@ -453,7 +661,7 @@
          [:div {:style {:color (settings/get-color :text-muted)}} "Caricamento..."])
 
        (when @error
-         [:div {:style {:color "#ff5252" :margin-bottom "10px"}} @error])
+         [:div {:style {:color (settings/get-color :danger) :margin-bottom "10px"}} @error])
 
        (when @data
          [:div
@@ -495,7 +703,7 @@
                                           (.then (fn [_] (load-data!)))))
                           :style {:background "transparent"
                                   :border "none"
-                                  :color "#ff5252"
+                                  :color (settings/get-color :danger)
                                   :cursor "pointer"
                                   :font-size "0.9rem"}}
                  "Rimuovi"]])])
@@ -726,7 +934,7 @@
         [:div {:style {:padding "20px"}}
          ;; Error
          (when @error
-           [:div {:style {:background "#ff5252"
+           [:div {:style {:background (settings/get-color :danger)
                           :color "white"
                           :padding "10px 15px"
                           :border-radius "4px"
@@ -881,7 +1089,7 @@
                                                         (when (:ok result)
                                                           (load-users!))))))
                                :style {:padding "4px 10px"
-                                       :background "#ff5252"
+                                       :background (settings/get-color :danger)
                                        :color "white"
                                        :border "none"
                                        :border-radius "4px"
@@ -900,8 +1108,8 @@
                     [:button {:on-click #(reset! confirm-delete-id (:id user))
                               :style {:padding "4px 10px"
                                       :background "transparent"
-                                      :color "#ff5252"
-                                      :border "1px solid #ff5252"
+                                      :color (settings/get-color :danger)
+                                      :border (str "1px solid " (settings/get-color :danger))
                                       :border-radius "4px"
                                       :cursor "pointer"
                                       :font-size "0.8rem"}}

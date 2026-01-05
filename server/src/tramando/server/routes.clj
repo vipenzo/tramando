@@ -4,6 +4,7 @@
             [reitit.ring.coercion :as coercion]
             [reitit.ring.middleware.muuntaja :as muuntaja]
             [muuntaja.core :as m]
+            [clojure.string :as str]
             [tramando.server.auth :as auth]
             [tramando.server.db :as db]
             [tramando.server.storage :as storage]
@@ -105,10 +106,11 @@
                 {:status 200
                  :body {:project project
                         :content-hash (:hash save-result)}})
-              ;; Conflict - return 409 with current hash so client can retry
+              ;; Conflict - return 409 with current content for client-side merge
               {:status 409
                :body {:error "Conflict: content was modified by another user"
-                      :current-hash (:current-hash save-result)}}))
+                      :current-hash (:current-hash save-result)
+                      :current-content (storage/load-project-content project-id)}}))
           ;; No content change, just metadata update
           (let [project (db/find-project-by-id project-id)]
             {:status 200
@@ -191,6 +193,38 @@
       (do
         (db/add-collaborator! project-id target-user-id role)
         {:status 200 :body {:success true}}))))
+
+;; =============================================================================
+;; Chat Handlers
+;; =============================================================================
+
+(defn get-chat-handler [request]
+  (let [user-id (get-in request [:user :id])
+        project-id (-> request :path-params :id Integer/parseInt)
+        ;; Query params may come as string keys depending on middleware
+        query-params (:query-params request)
+        after-str (or (get query-params :after) (get query-params "after"))
+        after-id (when after-str (Integer/parseInt after-str))]
+    (if-not (db/user-can-access-project? user-id project-id)
+      {:status 403 :body {:error "Access denied"}}
+      {:status 200
+       :body {:messages (db/get-chat-messages project-id after-id)}})))
+
+(defn post-chat-handler [request]
+  (let [user-id (get-in request [:user :id])
+        username (get-in request [:user :username])
+        project-id (-> request :path-params :id Integer/parseInt)
+        {:keys [message]} (:body-params request)]
+    (cond
+      (not (db/user-can-access-project? user-id project-id))
+      {:status 403 :body {:error "Access denied"}}
+
+      (or (nil? message) (empty? (str/trim message)))
+      {:status 400 :body {:error "Message cannot be empty"}}
+
+      :else
+      (let [msg (db/add-chat-message! project-id user-id username message)]
+        {:status 201 :body {:message msg}}))))
 
 ;; =============================================================================
 ;; Admin Handlers
@@ -289,7 +323,11 @@
        ["/:user-id" {:delete {:handler remove-collaborator-handler
                               :middleware [auth/require-auth]}
                      :put {:handler update-collaborator-role-handler
-                           :middleware [auth/require-auth]}}]]]]
+                           :middleware [auth/require-auth]}}]]
+      ["/chat" {:get {:handler get-chat-handler
+                      :middleware [auth/require-auth]}
+                :post {:handler post-chat-handler
+                       :middleware [auth/require-auth]}}]]]
 
     ["/admin/users" {:get {:handler list-users-handler
                            :middleware [auth/require-auth auth/require-super-admin]}

@@ -401,6 +401,106 @@
      :chunks chunks}))
 
 ;; =============================================================================
+;; Conflict Resolution / Merge
+;; =============================================================================
+
+(defn- chunk-content-equal?
+  "Check if two chunks have the same main content (excluding discussion).
+   Discussion is handled separately with append-merge strategy."
+  [chunk1 chunk2]
+  (and (= (:summary chunk1) (:summary chunk2))
+       (= (:content chunk1) (:content chunk2))
+       (= (:parent-id chunk1) (:parent-id chunk2))
+       (= (:aspects chunk1) (:aspects chunk2))
+       (= (:owner chunk1) (:owner chunk2))))
+
+(defn- merge-discussions
+  "Merge two discussion lists.
+   Strategy: combine entries, dedupe by timestamp+author+text, sort by timestamp.
+   This allows append-only operations (comments) to never be lost in conflicts."
+  [local-discussion server-discussion]
+  (let [local-entries (or local-discussion [])
+        server-entries (or server-discussion [])
+        ;; Create a unique key for each entry to dedupe
+        entry-key (fn [entry]
+                    (str (:timestamp entry) "|" (:author entry) "|" (:type entry) "|"
+                         (:text entry) (:previous-text entry) (:proposed-text entry)))
+        ;; Combine and dedupe
+        all-entries (vals (into {} (map (juxt entry-key identity)
+                                        (concat server-entries local-entries))))
+        ;; Sort by timestamp
+        sorted-entries (sort-by :timestamp all-entries)]
+    (vec sorted-entries)))
+
+(defn merge-with-server-content
+  "Merge local changes with server content.
+   Returns {:merged-chunks [...] :conflicts [{:id ... :local-owner ... :server-owner ...}]}
+
+   Strategy:
+   - For each chunk, compare local vs server
+   - If only one side changed from base → use that version
+   - If both changed (true conflict) → server wins for content, but merge discussions
+   - New chunks from either side are kept
+   - Discussion entries are always merged (append-only, never lost)
+
+   Since we don't have the original base, we use a simpler heuristic:
+   - Server version is authoritative for content
+   - Discussion entries from both sides are merged (union)"
+  [local-chunks server-content]
+  (let [;; Parse server content
+        {:keys [chunks metadata]} (parse-file server-content)
+        server-chunks chunks
+        ;; Build lookup maps by ID
+        local-by-id (into {} (map (juxt :id identity) local-chunks))
+        server-by-id (into {} (map (juxt :id identity) server-chunks))
+        ;; All unique IDs
+        all-ids (set (concat (keys local-by-id) (keys server-by-id)))
+        ;; Process each chunk
+        result (reduce
+                (fn [acc id]
+                  (let [local-chunk (get local-by-id id)
+                        server-chunk (get server-by-id id)]
+                    (cond
+                      ;; Only in local (new local chunk) → keep it
+                      (and local-chunk (nil? server-chunk))
+                      (update acc :merged-chunks conj local-chunk)
+
+                      ;; Only in server (new server chunk or deleted locally)
+                      ;; → use server version
+                      (and server-chunk (nil? local-chunk))
+                      (update acc :merged-chunks conj server-chunk)
+
+                      ;; Both exist - check if they're different
+                      (and local-chunk server-chunk)
+                      (let [;; Always merge discussions (append-only, never lost)
+                            merged-discussion (merge-discussions
+                                               (:discussion local-chunk)
+                                               (:discussion server-chunk))]
+                        (if (chunk-content-equal? local-chunk server-chunk)
+                          ;; Same content → use local with merged discussion
+                          (update acc :merged-chunks conj
+                                  (assoc local-chunk :discussion merged-discussion))
+                          ;; Different content → conflict! Server wins, but merge discussions
+                          (-> acc
+                              (update :merged-chunks conj
+                                      (assoc server-chunk :discussion merged-discussion))
+                              (update :conflicts conj {:id id
+                                                       :chunk-summary (:summary server-chunk)
+                                                       :local-owner (:owner local-chunk)
+                                                       :server-owner (:owner server-chunk)}))))
+
+                      :else acc)))
+                {:merged-chunks []
+                 :conflicts []
+                 :server-metadata metadata}
+                all-ids)]
+    ;; Sort merged chunks to maintain order (by parent-id hierarchy)
+    ;; For now, just preserve server order for chunks that exist there
+    (let [server-order (into {} (map-indexed (fn [i c] [(:id c) i]) server-chunks))
+          sorted-chunks (sort-by #(get server-order (:id %) 999999) (:merged-chunks result))]
+      (assoc result :merged-chunks (vec sorted-chunks)))))
+
+;; =============================================================================
 ;; Serialization
 ;; =============================================================================
 
@@ -515,18 +615,17 @@
 
 (defn can-edit-chunk?
   "Check if current user can edit a specific chunk.
-   - Project owners can edit all chunks
-   - Collaborators can only edit chunks they own"
+   Strict ownership: only the chunk owner can edit.
+   - Chunks with nil or 'local' owner: only project owner can edit
+   - Chunks with explicit owner: only that owner can edit"
   [chunk-id]
-  (if (is-project-owner?)
-    true
-    ;; Collaborator: check if they own this chunk
-    (let [chunk (get-chunk chunk-id)
-          chunk-owner (:owner chunk)]
-      ;; Can edit if: no owner yet, owner is 'local', or owner matches current user
-      (or (nil? chunk-owner)
-          (= "local" chunk-owner)
-          (= chunk-owner @current-user)))))
+  (let [chunk (get-chunk chunk-id)
+        chunk-owner (:owner chunk)]
+    (if (or (nil? chunk-owner) (= "local" chunk-owner))
+      ;; Unowned chunks: only project owner can edit
+      (is-project-owner?)
+      ;; Owned chunks: only the chunk owner can edit
+      (= chunk-owner @current-user))))
 
 (defn get-current-owner
   "Get the owner to use for new chunks. Returns username if in collaborative mode, 'local' otherwise."
@@ -612,6 +711,9 @@
 
 ;; Optional external callback for modifications (used by server mode)
 (defonce on-modified-callback (atom nil))
+
+;; Optional callback when title changes (used by server mode to sync project name)
+(defonce on-title-changed-callback (atom nil))
 
 ;; Timer ID for debounced autosave
 (defonce ^:private autosave-timer (atom nil))
@@ -699,6 +801,33 @@
   (if @on-modified-callback
     (@on-modified-callback)
     (schedule-autosave!)))
+
+;; =============================================================================
+;; Ownership Management
+;; =============================================================================
+
+(defn get-chunk-owner
+  "Get the owner of a chunk, or nil if unowned/local."
+  [chunk-id]
+  (let [chunk (first (filter #(= (:id %) chunk-id) (:chunks @app-state)))
+        owner (:owner chunk)]
+    (when (and owner (not= owner "local"))
+      owner)))
+
+(defn set-chunk-owner!
+  "Change the owner of a chunk. Only project owners can do this.
+   new-owner can be a username or nil to make it unowned (project owner only)."
+  [chunk-id new-owner]
+  (when (is-project-owner?)
+    (push-history!)
+    (swap! app-state update :chunks
+           (fn [chunks]
+             (mapv (fn [c]
+                     (if (= (:id c) chunk-id)
+                       (assoc c :owner (or new-owner "local"))
+                       c))
+                   chunks)))
+    (mark-modified!)))
 
 (defn get-chunks []
   (:chunks @app-state))
@@ -1292,6 +1421,64 @@
     (.click a)
     (js/URL.revokeObjectURL url)))
 
+(defn import-md-content!
+  "Import markdown content, parsing it and appending chunks to current project.
+   The content is parsed as markdown: headings become chunk summaries,
+   text between headings becomes chunk content."
+  [content]
+  (push-history!)
+  ;; Parse markdown content into chunks
+  ;; Split by headings (# ## ### etc)
+  (let [lines (str/split-lines content)
+        ;; Find all structural chunks (non-aspect-containers) to get max numeric ID
+        structural-chunks (filter #(not (contains? aspect-container-ids (:id %))) (get-chunks))
+        ;; Find the highest numeric part of existing chunk IDs like "cap-1", "cap-2"
+        max-num (reduce (fn [max-n chunk]
+                          (if-let [[_ num-str] (re-find #"-(\d+)$" (:id chunk))]
+                            (max max-n (js/parseInt num-str 10))
+                            max-n))
+                        0
+                        structural-chunks)
+        ;; Parse lines into chunks
+        result (reduce
+                (fn [{:keys [chunks current-summary current-lines counter]} line]
+                  (if-let [[_ _hashes title] (re-find #"^(#{1,6})\s+(.+)$" line)]
+                    ;; Found a heading - save previous chunk if any, start new one
+                    (let [new-chunks (if (or (seq current-summary) (seq current-lines))
+                                       (conj chunks {:summary (or current-summary "(importato)")
+                                                     :content (str/join "\n" current-lines)})
+                                       chunks)]
+                      {:chunks new-chunks
+                       :current-summary (str/trim title)
+                       :current-lines []
+                       :counter counter})
+                    ;; Regular line - add to current content
+                    {:chunks chunks
+                     :current-summary current-summary
+                     :current-lines (conj current-lines line)
+                     :counter counter}))
+                {:chunks []
+                 :current-summary nil
+                 :current-lines []
+                 :counter (inc max-num)}
+                lines)
+        ;; Don't forget the last chunk
+        final-chunks (if (or (seq (:current-summary result)) (seq (:current-lines result)))
+                       (conj (:chunks result)
+                             {:summary (or (:current-summary result) "(importato)")
+                              :content (str/join "\n" (:current-lines result))})
+                       (:chunks result))]
+    ;; Add parsed chunks to the project
+    (doseq [[idx chunk-data] (map-indexed vector final-chunks)]
+      (let [chunk-id (str "imp-" (+ max-num idx 1))
+            new-chunk (make-chunk (assoc chunk-data :id chunk-id))]
+        (swap! app-state update :chunks conj new-chunk)))
+    ;; Mark as modified
+    (mark-modified!)
+    ;; Select first imported chunk if any
+    (when (seq final-chunks)
+      (select-chunk! (str "imp-" (inc max-num))))))
+
 (defn load-file-content!
   "Load content from a string (called after file is read).
    filepath is optional - if provided, enables direct Save without dialog."
@@ -1705,8 +1892,14 @@
 (defn update-metadata!
   "Update metadata with given changes"
   [changes]
-  (swap! app-state update :metadata merge changes)
-  (mark-modified!))
+  (let [old-title (get-in @app-state [:metadata :title])]
+    (swap! app-state update :metadata merge changes)
+    ;; If title changed, notify callback (for server mode sync)
+    (when (and (:title changes)
+               (not= (:title changes) old-title)
+               @on-title-changed-callback)
+      (@on-title-changed-callback (:title changes)))
+    (mark-modified!)))
 
 (defn set-custom-field!
   "Set a custom metadata field"

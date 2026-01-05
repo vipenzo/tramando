@@ -388,17 +388,17 @@
             :items [{:id :todo
                      :label "TODO"
                      :icon "●"
-                     :color "#f5a623"
+                     :color (settings/get-color :accent)
                      :action #(handle-wrap-annotation! "TODO")}
                     {:id :note
                      :label "NOTE"
                      :icon "●"
-                     :color "#2196f3"
+                     :color (settings/get-color :accent)
                      :action #(handle-wrap-annotation! "NOTE")}
                     {:id :fix
                      :label "FIX"
                      :icon "●"
-                     :color "#f44336"
+                     :color (settings/get-color :danger)
                      :action #(handle-wrap-annotation! "FIX")}]}])
 
 (defn- tone-submenu
@@ -574,7 +574,7 @@
                              (hide-menu!))}]
      [menu-separator]
      [menu-item {:label (t :delete-annotation)
-                 :color "#f44336"
+                 :color (settings/get-color :danger)
                  :on-click (fn []
                              ;; Delete annotation, keeping original text
                              (when @on-delete-annotation
@@ -603,7 +603,7 @@
                    :overflow "hidden"}
            :on-click #(.stopPropagation %)}
      [menu-item {:label (t :cancel-request)
-                 :color "#f44336"
+                 :color (settings/get-color :danger)
                  :on-click (fn []
                              (ai-handlers/cancel-ai-annotation! chunk-id selected-text)
                              (hide-menu!))}]]))
@@ -702,7 +702,7 @@
                           (.stopPropagation e)
                           (model/update-proposal-selection! chunk-id original-text 1)
                           (js/setTimeout #(events/refresh-editor!) 50))}
-        [:span {:style {:color (if is-proposed-selected? "#4CAF50" (settings/get-color :text-muted))
+        [:span {:style {:color (if is-proposed-selected? (settings/get-color :accent) (settings/get-color :text-muted))
                         :flex-shrink 0}}
          (if is-proposed-selected? "●" "○")]
         [:div {:style {:flex 1}}
@@ -712,11 +712,11 @@
                         :margin-bottom "2px"}}
           (t :proposal-proposed)]
          [:span {:style {:font-size "0.85rem"
-                         :color "#4CAF50"
+                         :color (settings/get-color :accent)
                          :font-weight "500"}}
           (make-preview (if (seq proposed-text) proposed-text "(testo vuoto)"))]]
         (when is-proposed-selected?
-          [:span {:style {:color "#4CAF50"
+          [:span {:style {:color (settings/get-color :accent)
                           :flex-shrink 0}}
            "✓"])])
 
@@ -729,7 +729,7 @@
                           (t :proposal-accept)      ; Proposed selected
                           (t :proposal-reject))     ; Original selected (reject proposal)
                  :icon "✓"
-                 :color (if (pos? current-sel) "#4CAF50" (settings/get-color :text))
+                 :color (if (pos? current-sel) (settings/get-color :accent) (settings/get-color :text))
                  :on-click (fn []
                              ;; Get fresh annotation at click time (sel may have changed)
                              (let [chunk (model/get-chunk chunk-id)

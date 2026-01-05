@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tramando - UI Mockup</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #1e1e1e;
+            --bg-secondary: #252526;
+            --bg-tertiary: #2d2d30;
+            --bg-hover: #3c3c3c;
+            --text-primary: #cccccc;
+            --text-secondary: #858585;
+            --text-muted: #5a5a5a;
+            --border-color: #3c3c3c;
+            --accent: #4a9f8e;
+            --accent-hover: #5bbfab;
+            --accent-muted: rgba(74, 159, 142, 0.15);
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-size: 13px;
+            line-height: 1.5;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 16px;
+            height: 40px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            color: var(--text-primary);
+            letter-spacing: -0.5px;
+        }
+
+        .logo-icon {
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .logo-icon svg {
+            width: 18px;
+            height: 18px;
+        }
+
+        .logo-text {
+            font-family: 'Georgia', serif;
+            font-style: italic;
+            font-weight: 400;
+            font-size: 16px;
+            letter-spacing: 0.5px;
+        }
+
+        .logo-text-accent {
+            color: var(--accent);
+        }
+
+        .project-name {
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .btn {
+            padding: 5px 10px;
+            border-radius: 4px;
+            border: none;
+            background: transparent;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .btn:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-hover);
+        }
+
+        .btn-icon {
+            padding: 5px 8px;
+        }
+
+        /* Main layout */
+        .main {
+            display: flex;
+            height: calc(100vh - 40px);
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 240px;
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .sidebar-section {
+            padding: 12px 0;
+        }
+
+        .sidebar-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 12px;
+            margin-bottom: 4px;
+        }
+
+        .sidebar-title {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            letter-spacing: 0.5px;
+        }
+
+        .sidebar-action {
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 16px;
+            line-height: 1;
+        }
+
+        .sidebar-action:hover {
+            color: var(--text-secondary);
+        }
+
+        /* Tree */
+        .tree {
+            list-style: none;
+        }
+
+        .tree-item {
+            display: flex;
+            align-items: center;
+            padding: 4px 12px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            gap: 6px;
+        }
+
+        .tree-item:hover {
+            background: var(--bg-hover);
+        }
+
+        .tree-item.active {
+            background: var(--accent-muted);
+            color: var(--accent);
+        }
+
+        .tree-item.active::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            width: 2px;
+            height: 24px;
+            background: var(--accent);
+        }
+
+        .tree-item {
+            position: relative;
+        }
+
+        .tree-indent {
+            width: 16px;
+            flex-shrink: 0;
+        }
+
+        .tree-icon {
+            font-size: 10px;
+            width: 14px;
+            text-align: center;
+            color: var(--text-muted);
+        }
+
+        .tree-label {
+            flex: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            font-size: 13px;
+        }
+
+        /* Aspects */
+        .aspects-list {
+            padding: 0 12px;
+        }
+
+        .aspect-item {
+            display: flex;
+            align-items: center;
+            padding: 4px 0;
+            gap: 8px;
+            color: var(--text-secondary);
+            cursor: pointer;
+        }
+
+        .aspect-item:hover {
+            color: var(--text-primary);
+        }
+
+        .aspect-icon {
+            font-size: 12px;
+        }
+
+        .aspect-count {
+            margin-left: auto;
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        /* Editor area */
+        .editor-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Chunk header */
+        .chunk-header {
+            padding: 16px 24px 12px;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-secondary);
+        }
+
+        .chunk-title-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .chunk-title {
+            font-size: 18px;
+            font-weight: 500;
+            color: var(--text-primary);
+            background: transparent;
+            border: none;
+            outline: none;
+            flex: 1;
+        }
+
+        .chunk-meta {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 8px;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+
+        .chunk-header:hover .chunk-meta {
+            opacity: 1;
+        }
+
+        .tag {
+            display: inline-flex;
+            align-items: center;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            border: 1px solid var(--border-color);
+            gap: 4px;
+        }
+
+        .tag-remove {
+            cursor: pointer;
+            opacity: 0.5;
+        }
+
+        .tag-remove:hover {
+            opacity: 1;
+        }
+
+        /* Dropdown menu */
+        .dropdown {
+            position: relative;
+            display: inline-block;
+        }
+
+        .dropdown-menu {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            margin-top: 4px;
+            min-width: 180px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            z-index: 100;
+            padding: 4px 0;
+            display: none;
+        }
+
+        .dropdown-menu.show {
+            display: block;
+        }
+
+        .dropdown-item {
+            display: flex;
+            align-items: center;
+            padding: 8px 12px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 12px;
+            gap: 8px;
+        }
+
+        .dropdown-item:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
+
+        .dropdown-item.danger {
+            color: #e57373;
+        }
+
+        .dropdown-item.danger:hover {
+            background: rgba(229, 115, 115, 0.1);
+        }
+
+        .dropdown-divider {
+            height: 1px;
+            background: var(--border-color);
+            margin: 4px 0;
+        }
+
+        .dropdown-item-icon {
+            width: 16px;
+            text-align: center;
+            font-size: 12px;
+            opacity: 0.7;
+        }
+
+        .dropdown-shortcut {
+            margin-left: auto;
+            font-size: 10px;
+            color: var(--text-muted);
+        }
+
+        /* Toggle for markup */
+        .toggle-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 4px 16px;
+        }
+
+        .toggle-label {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .toggle {
+            width: 28px;
+            height: 16px;
+            background: var(--bg-hover);
+            border-radius: 8px;
+            position: relative;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .toggle.active {
+            background: var(--accent);
+        }
+
+        .toggle::after {
+            content: '';
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            background: white;
+            border-radius: 50%;
+            top: 2px;
+            left: 2px;
+            transition: transform 0.2s;
+        }
+
+        .toggle.active::after {
+            transform: translateX(12px);
+        }
+
+        /* Utility */
+        .divider {
+            height: 1px;
+            background: var(--border-color);
+            margin: 8px 0;
+        }
+
+        .flex-grow {
+            flex: 1;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            padding: 0 24px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .tab {
+            padding: 8px 16px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+
+        .tab:hover {
+            color: var(--text-primary);
+        }
+
+        .tab.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+        }
+
+        /* Editor */
+        .editor {
+            flex: 1;
+            padding: 24px;
+            overflow-y: auto;
+            background: var(--bg-primary);
+        }
+
+        .editor-content {
+            max-width: 700px;
+            margin: 0 auto;
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 14px;
+            line-height: 1.8;
+            color: var(--text-primary);
+        }
+
+        .editor-content p {
+            margin-bottom: 1em;
+        }
+
+        .editor-content em {
+            color: var(--accent);
+            font-style: italic;
+        }
+
+        /* Right panel (collapsible) */
+        .right-panel {
+            width: 280px;
+            background: var(--bg-secondary);
+            border-left: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            transition: width 0.2s;
+        }
+
+        .right-panel.collapsed {
+            width: 40px;
+        }
+
+        .panel-tabs {
+            display: flex;
+            flex-direction: column;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .panel-tab {
+            padding: 12px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            border-left: 2px solid transparent;
+            font-size: 12px;
+        }
+
+        .panel-tab:hover {
+            background: var(--bg-hover);
+        }
+
+        .panel-tab.active {
+            color: var(--accent);
+            border-left-color: var(--accent);
+            background: var(--accent-muted);
+        }
+
+        .panel-content {
+            flex: 1;
+            padding: 12px;
+            overflow-y: auto;
+        }
+
+        .annotation-item {
+            padding: 10px;
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            margin-bottom: 8px;
+            border-left: 3px solid var(--accent);
+        }
+
+        .annotation-type {
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: var(--accent);
+            margin-bottom: 4px;
+        }
+
+        .annotation-text {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .annotation-location {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 6px;
+        }
+
+        /* Status bar */
+        .status-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 4px 16px;
+            background: var(--bg-tertiary);
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        /* Toggle button for comparison */
+        .theme-toggle {
+            position: fixed;
+            bottom: 40px;
+            right: 20px;
+            padding: 10px 16px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            z-index: 100;
+        }
+
+        /* Light theme */
+        body.light {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f5f5f5;
+            --bg-tertiary: #ebebeb;
+            --bg-hover: #e0e0e0;
+            --text-primary: #333333;
+            --text-secondary: #666666;
+            --text-muted: #999999;
+            --border-color: #e0e0e0;
+            --accent: #4a9f8e;
+            --accent-hover: #3d8a7a;
+            --accent-muted: rgba(74, 159, 142, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <div class="logo">
+                <img src="resources/public/img/32x32.png" alt="Tramando" style="width: 20px; height: 20px;">
+                <span class="logo-text"><span style="color: #5b9aa9;">T</span>ramando</span>
+            </div>
+            <span class="project-name">Un giorno da Leone</span>
+        </div>
+        <div class="header-actions">
+            <button class="btn btn-primary">Salva</button>
+            <button class="btn">Esporta</button>
+            <button class="btn btn-icon" title="Mappa">◎</button>
+            <button class="btn btn-icon" title="AI">✦</button>
+            <button class="btn btn-icon" title="Impostazioni">⚙</button>
+        </div>
+    </header>
+
+    <div class="main">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-section">
+                <div class="sidebar-header">
+                    <span class="sidebar-title">Struttura</span>
+                    <span class="sidebar-action">+</span>
+                </div>
+                <ul class="tree">
+                    <li class="tree-item">
+                        <span class="tree-icon">▶</span>
+                        <span class="tree-label">Capitolo 1: Comunità</span>
+                    </li>
+                    <li class="tree-item">
+                        <span class="tree-icon">▼</span>
+                        <span class="tree-label">Capitolo 2: Geko666</span>
+                    </li>
+                    <li class="tree-item">
+                        <span class="tree-indent"></span>
+                        <span class="tree-icon"></span>
+                        <span class="tree-label">Il bagno</span>
+                    </li>
+                    <li class="tree-item active">
+                        <span class="tree-indent"></span>
+                        <span class="tree-icon"></span>
+                        <span class="tree-label">Il loft</span>
+                    </li>
+                    <li class="tree-item">
+                        <span class="tree-indent"></span>
+                        <span class="tree-icon"></span>
+                        <span class="tree-label">Il ring</span>
+                    </li>
+                    <li class="tree-item">
+                        <span class="tree-indent"></span>
+                        <span class="tree-icon"></span>
+                        <span class="tree-label">L'archivio nero</span>
+                    </li>
+                    <li class="tree-item">
+                        <span class="tree-icon">▶</span>
+                        <span class="tree-label">Capitolo 3: Reazioni</span>
+                    </li>
+                    <li class="tree-item">
+                        <span class="tree-icon">▶</span>
+                        <span class="tree-label">Capitolo 4: Decisioni</span>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-header">
+                    <span class="sidebar-title">Aspetti</span>
+                    <span class="sidebar-action">+</span>
+                </div>
+                <div class="aspects-list">
+                    <div class="aspect-item">
+                        <span class="aspect-icon">👤</span>
+                        <span>Personaggi</span>
+                        <span class="aspect-count">7</span>
+                    </div>
+                    <div class="aspect-item">
+                        <span class="aspect-icon">📍</span>
+                        <span>Luoghi</span>
+                        <span class="aspect-count">4</span>
+                    </div>
+                    <div class="aspect-item">
+                        <span class="aspect-icon">💡</span>
+                        <span>Temi</span>
+                        <span class="aspect-count">3</span>
+                    </div>
+                    <div class="aspect-item">
+                        <span class="aspect-icon">📅</span>
+                        <span>Timeline</span>
+                        <span class="aspect-count">12</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Editor area -->
+        <main class="editor-area">
+            <div class="chunk-header">
+                <div class="chunk-title-row">
+                    <input type="text" class="chunk-title" value="Il loft">
+                    <div class="dropdown">
+                        <button class="btn btn-icon" title="Altre azioni" onclick="this.nextElementSibling.classList.toggle('show')">⋮</button>
+                        <div class="dropdown-menu">
+                            <div class="dropdown-item">
+                                <span class="dropdown-item-icon">✎</span>
+                                Modifica ID...
+                            </div>
+                            <div class="dropdown-divider"></div>
+                            <div class="dropdown-item">
+                                <span class="dropdown-item-icon">+</span>
+                                Crea figlio
+                                <span class="dropdown-shortcut">⌘⇧N</span>
+                            </div>
+                            <div class="dropdown-item">
+                                <span class="dropdown-item-icon">↗</span>
+                                Sposta in...
+                            </div>
+                            <div class="dropdown-item">
+                                <span class="dropdown-item-icon">⧉</span>
+                                Duplica
+                            </div>
+                            <div class="dropdown-divider"></div>
+                            <div class="dropdown-item">
+                                <span class="dropdown-item-icon">◎</span>
+                                Rivela nella struttura
+                            </div>
+                            <div class="dropdown-divider"></div>
+                            <div class="dropdown-item danger">
+                                <span class="dropdown-item-icon">🗑</span>
+                                Elimina...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="chunk-meta">
+                    <span class="tag">@Stephan <span class="tag-remove">×</span></span>
+                    <span class="tag">@Nella <span class="tag-remove">×</span></span>
+                    <span class="tag">@Palestra Ponchia <span class="tag-remove">×</span></span>
+                    <button class="btn" style="padding: 2px 8px; font-size: 11px; border-radius: 12px;">+ Tag</button>
+                </div>
+            </div>
+
+            <div class="tabs">
+                <div class="tab active">Modifica</div>
+                <div class="tab">Figli</div>
+                <div class="tab">Lettura</div>
+                <div class="tab">Discussione</div>
+            </div>
+
+            <div class="editor">
+                <div class="editor-content">
+                    <p>Cammina verso il centro del locale, attraverso lo spazio vuoto lungo la facciata, una specie di corridoio senza muri. Controlla la porta blindata alla sua sinistra, le finestre basculanti in alto, il tetto a denti di sega che illumina il locale senza abbagliare. Aveva fatto installare i pannelli solari su un lato di ogni prisma, ma anche così il locale restava luminosissimo.</p>
+
+                    <p>Il loft, negli anni '60 e '70, aveva ospitato la Palestra Ponchia – nome che campeggiava ancora, sbiadito, sulla facciata verde marcio. Ci si allenavano pugili di periferia, Stephan s'era chiesto spesso se qualche grande campione fosse mai uscito di lì. Quando aveva trovato il locale in vendita non aveva avuto dubbi: abbastanza isolato, anonimo, con un sacco di spazio da adattare ai suoi <em>allenamenti digitali</em>. Gli spogliatoi erano diventati la zona notte e i bagni l'unico locale davvero ristrutturato per dare una parvenza di <em>casa normale</em>.</p>
+
+                    <p>Il resto dello spazio conservava il vecchio pavimento in cemento rinforzato.</p>
+
+                    <p>Qualche cimelio ricordava la vecchia vocazione del grande ambiente interno: due spalliere, una pertica e qualche poster sbiadito di pugili famosi degli anni '50, lui non li conosceva. Li aveva mantenuti nello spazio che aveva adibito ad area fitness e relax, sul lato opposto della struttura rispetto agli spogliatoi.</p>
+
+                    <p>Nella ci passava ore rannicchiata a leggere.</p>
+
+                    <p>"Con tutti i soldi che avrai speso per quei computer avresti potuto concederti un divano più serio".</p>
+                </div>
+            </div>
+        </main>
+
+        <!-- Right panel -->
+        <aside class="right-panel">
+            <div class="sidebar-header" style="padding: 12px;">
+                <span class="sidebar-title">Annotazioni</span>
+                <span class="aspect-count">1</span>
+            </div>
+            <div class="panel-content">
+                <div class="annotation-item">
+                    <div class="annotation-type">FIX</div>
+                    <div class="annotation-text">"Sofia alza gli occhi dallo schermo..."</div>
+                    <div class="annotation-location">cap3/cap3-scena2</div>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <!-- Status bar -->
+    <div class="status-bar">
+        <div class="status-item">
+            <span>Capitolo [:ORD]: Geko666</span>
+            <span>•</span>
+            <span>1,247 parole</span>
+        </div>
+        <div class="status-item">
+            <span class="toggle-label">Markup</span>
+            <div class="toggle" onclick="this.classList.toggle('active')"></div>
+            <span style="margin-left: 12px;">Salvato ✓</span>
+        </div>
+    </div>
+
+    <button class="theme-toggle" onclick="document.body.classList.toggle('light')">
+        Cambia tema (Dark/Light)
+    </button>
+
+    <script>
+        // Chiudi dropdown cliccando fuori
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.dropdown')) {
+                document.querySelectorAll('.dropdown-menu').forEach(menu => {
+                    menu.classList.remove('show');
+                });
+            }
+        });
+    </script>
+</body>
+</html>

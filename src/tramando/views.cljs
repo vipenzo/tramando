@@ -43,6 +43,8 @@
 ;; =============================================================================
 
 (defonce export-dropdown-open? (r/atom false))
+(defonce import-dropdown-open? (r/atom false))
+(defonce import-file-input-ref (r/atom nil))
 
 ;; =============================================================================
 ;; Splash Screen State
@@ -1139,6 +1141,86 @@
 ;; Export Dropdown
 ;; =============================================================================
 
+(defn import-dropdown
+  "Import dropdown for webapp/Tauri - imports .md files into current project"
+  []
+  (let [colors (:colors @settings/settings)
+        _ @i18n/current-lang] ; subscribe to language changes
+    [:<>
+     ;; Click-outside overlay
+     (when @import-dropdown-open?
+       [:div {:style {:position "fixed"
+                      :top 0 :left 0 :right 0 :bottom 0
+                      :z-index 99}
+              :on-click #(reset! import-dropdown-open? false)}])
+
+     [:div {:style {:position "relative" :z-index 150}}
+      ;; Hidden file input
+      [:input {:type "file"
+               :accept ".md,.txt"
+               :style {:display "none"}
+               :ref #(reset! import-file-input-ref %)
+               :on-change (fn [e]
+                            (when-let [file (-> e .-target .-files (aget 0))]
+                              (let [reader (js/FileReader.)]
+                                (set! (.-onload reader)
+                                      (fn [evt]
+                                        (let [content (-> evt .-target .-result)]
+                                          ;; Import as new chunks appended to current project
+                                          (model/import-md-content! content))))
+                                (.readAsText reader file)))
+                            ;; Reset input
+                            (set! (-> e .-target .-value) "")
+                            (reset! import-dropdown-open? false))}]
+
+      ;; Import button - icon style
+      [:button
+       {:style {:background "transparent"
+                :color (:text-muted colors)
+                :border "none"
+                :padding "6px 10px"
+                :border-radius "4px"
+                :cursor "pointer"
+                :font-size "18px"
+                :line-height "1"
+                :min-width "32px"
+                :height "32px"
+                :display "flex"
+                :align-items "center"
+                :justify-content "center"
+                :gap "2px"}
+        :title (t :import)
+        :on-click #(swap! import-dropdown-open? not)}
+       "⬇"
+       [:span {:style {:font-size "10px" :margin-left "2px"}} "▾"]]
+
+      ;; Dropdown menu
+      (when @import-dropdown-open?
+        [:div {:style {:position "absolute"
+                       :top "100%"
+                       :right 0
+                       :margin-top "4px"
+                       :background (:sidebar colors)
+                       :border (str "1px solid " (:border colors))
+                       :border-radius "4px"
+                       :box-shadow "0 4px 12px rgba(0,0,0,0.3)"
+                       :min-width "140px"
+                       :z-index 200}}
+         ;; Import .md
+         [:button {:style {:display "block"
+                           :width "100%"
+                           :text-align "left"
+                           :background "transparent"
+                           :border "none"
+                           :color (:text colors)
+                           :padding "10px 14px"
+                           :cursor "pointer"
+                           :font-size "0.85rem"}
+                   :on-click (fn []
+                               (when @import-file-input-ref
+                                 (.click @import-file-input-ref)))}
+          (t :import-md)]])]]))
+
 (defn export-dropdown []
   (let [colors (:colors @settings/settings)
         _ @i18n/current-lang] ; subscribe to language changes
@@ -1387,9 +1469,11 @@
            :on-list-versions #(versioning/open-version-list-dialog!)
            :on-restore-backup #(versioning/open-restore-backup-dialog! model/reload-file!)}]
          ;; Export dropdown
-         [export-dropdown]])
+         [export-dropdown]
+         ;; Import dropdown
+         [import-dropdown]])
 
-      ;; Export for server mode
+      ;; Export for server mode (no import - projects page handles that)
       (when server-mode?
         [export-dropdown])
 
@@ -1968,7 +2052,11 @@
         [:div#app {:style {:background (:background colors)
                            :color (:text colors)
                            :display "flex"
-                           :flex-direction "column"}
+                           :flex-direction "column"
+                           ;; Use flex: 1 and height: 100% to work both as root and nested
+                           :flex 1
+                           :height "100%"
+                           :min-height 0}  ;; Needed for flex children to respect overflow
                    ;; Prevent browser context menu everywhere in the app
                    :on-context-menu #(.preventDefault %)}
          [header]
@@ -2127,9 +2215,15 @@
      (= @app-mode :editor-remote)
      [:div {:style {:display "flex"
                     :flex-direction "column"
-                    :height "100vh"}}
+                    :height "100vh"
+                    :overflow "hidden"}}
       [server-project-header]
-      [:div {:style {:flex 1 :overflow "hidden"}}
+      ;; Wrapper that makes #app fill available space (uses flex: 1 in main-layout)
+      [:div {:style {:flex 1
+                     :display "flex"
+                     :flex-direction "column"
+                     :overflow "hidden"
+                     :min-height 0}}
        [main-layout]]]
 
      ;; Fallback
