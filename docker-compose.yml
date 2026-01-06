@@ -1,0 +1,35 @@
+# =============================================================================
+# Tramando - Docker Compose Configuration
+# =============================================================================
+# Uso:
+#   docker-compose up -d        # Avvia in background
+#   docker-compose logs -f      # Vedi i log
+#   docker-compose down         # Ferma
+#   docker-compose build        # Ricostruisci l'immagine
+# =============================================================================
+
+services:
+  tramando:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tramando
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - ./data:/data
+    environment:
+      - PORT=3000
+      - BASE_PATH=${BASE_PATH:-}
+      - DATA_DIR=/data
+      - TRAMANDO_DB_PATH=/data/tramando.db
+      - TRAMANDO_PROJECTS_PATH=/data/projects
+      - TRAMANDO_JWT_SECRET=${TRAMANDO_JWT_SECRET:-change-me-in-production}
+      - TRAMANDO_ALLOW_REGISTRATION=${TRAMANDO_ALLOW_REGISTRATION:-true}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/me"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s

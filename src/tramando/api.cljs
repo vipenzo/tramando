@@ -6,7 +6,26 @@
 ;; Configuration
 ;; =============================================================================
 
-(def ^:private default-server-url "http://localhost:3000")
+(defn- detect-server-url
+  "Rileva automaticamente l'URL del server.
+   - In Tauri: restituisce nil (non usato)
+   - Se il frontend è servito da localhost:8080 (dev) usa localhost:3000.
+   - Altrimenti usa l'origine corrente (produzione Docker)."
+  []
+  (let [protocol (.-protocol js/location)
+        origin (.-origin js/location)
+        port (.-port js/location)]
+    (cond
+      ;; Tauri mode - API not used, return nil
+      (or (= protocol "tauri:")
+          (.-__TAURI__ js/window))
+      nil
+      ;; Development mode (shadow-cljs dev server)
+      (= port "8080") "http://localhost:3000"
+      ;; Production: same origin
+      :else origin)))
+
+(def ^:private default-server-url (detect-server-url))
 
 (defonce config (atom {:server-url default-server-url
                        :token nil}))
