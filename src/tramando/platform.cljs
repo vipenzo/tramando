@@ -28,9 +28,9 @@
   "Dynamically import Tauri plugins when needed"
   []
   (when (and (tauri?) (nil? @tauri-dialog))
-    ;; Use js/eval to dynamically require - these are already bundled
-    (reset! tauri-dialog (js/window.__TAURI__.dialog))
-    (reset! tauri-fs (js/window.__TAURI__.fs)))
+    ;; Access Tauri plugin modules from global object
+    (reset! tauri-dialog (.-dialog (.-__TAURI__ js/window)))
+    (reset! tauri-fs (.-fs (.-__TAURI__ js/window))))
   (boolean @tauri-dialog))
 
 ;; =============================================================================

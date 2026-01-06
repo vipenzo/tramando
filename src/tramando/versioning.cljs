@@ -392,14 +392,16 @@
   ;; Only set up listener if running in Tauri (not in browser dev mode)
   (when (platform/tauri?)
     (when-let [window-api (get-tauri-window)]
-      (when-let [get-current (.getCurrent window-api)]
-        (.listen get-current "tauri://focus"
+      ;; In Tauri v2, getCurrent is a function on the module
+      (when-let [get-current-fn (.-getCurrent window-api)]
+        (when-let [current-window (get-current-fn)]
+          (.listen current-window "tauri://focus"
                  (fn [_]
                    (when @file-info
                      (-> (check-conflict)
                          (.then (fn [{:keys [conflict? file-deleted?]}]
                                   (when (and conflict? (not file-deleted?))
-                                    (on-file-changed!))))))))))))
+                                    (on-file-changed!)))))))))))))
 
 ;; =============================================================================
 ;; UI Components - Dialogs
