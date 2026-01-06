@@ -98,69 +98,128 @@
             ;; No more matches, add remaining text
             (conj result remaining)))))))
 
-(defn- parse-markdown-block
-  "Parse a single markdown block (paragraph or heading)"
-  [line style-config]
-  (let [styles (:styles style-config)]
-    (cond
-      ;; ## Heading 2
-      (str/starts-with? line "## ")
-      (let [heading-text (subs line 3)
-            h2-style (:h2-in-scene styles)]
-        {:type :h2
-         :content {:text (parse-inline-formatting heading-text)
-                   :fontSize (:size h2-style 11)
-                   :italics true
-                   :alignment "left"
-                   :margin [0 (:spacing-before h2-style 12) 0 (:spacing-after h2-style 6)]}})
+(defn- parse-markdown-block-v2
+  "Parse a structured markdown block (with type info from parse-markdown-content)"
+  [block style-config]
+  (let [styles (:styles style-config)
+        block-type (:type block)
+        text (:text block)]
+    (case block-type
+      ;; Heading (# or ##)
+      :heading
+      (cond
+        (str/starts-with? text "## ")
+        (let [heading-text (subs text 3)
+              h2-style (:h2-in-scene styles)]
+          {:type :h2
+           :content {:text (parse-inline-formatting heading-text)
+                     :fontSize (:size h2-style 11)
+                     :italics true
+                     :alignment "left"
+                     :margin [0 (:spacing-before h2-style 12) 0 (:spacing-after h2-style 6)]}})
 
-      ;; # Heading 1
-      (str/starts-with? line "# ")
-      (let [heading-text (subs line 2)
-            h1-style (:h1-in-scene styles)]
-        {:type :h1
-         :content {:text (parse-inline-formatting heading-text)
-                   :fontSize (:size h1-style 13)
-                   :bold true
-                   :alignment "left"
-                   :margin [0 (:spacing-before h1-style 18) 0 (:spacing-after h1-style 9)]}})
+        (str/starts-with? text "# ")
+        (let [heading-text (subs text 2)
+              h1-style (:h1-in-scene styles)]
+          {:type :h1
+           :content {:text (parse-inline-formatting heading-text)
+                     :fontSize (:size h1-style 13)
+                     :bold true
+                     :alignment "left"
+                     :margin [0 (:spacing-before h1-style 18) 0 (:spacing-after h1-style 9)]}})
 
-      ;; Regular paragraph
-      :else
+        :else
+        {:type :paragraph :text text})
+
+      ;; Blockquote - indented with left margin
+      :blockquote
+      {:type :blockquote
+       :text text}
+
+      ;; Empty line - vertical spacing
+      :empty
+      {:type :empty}
+
+      ;; Normal paragraph
+      :normal
       {:type :paragraph
-       :text line})))
+       :text text}
+
+      ;; Default
+      {:type :paragraph
+       :text text})))
+
+;; Removed italic-line? - *text* is just inline italic formatting, not a special block
+
+(defn- blockquote-line?
+  "Check if a line is a blockquote (> text)"
+  [line]
+  (str/starts-with? line "> "))
+
+(defn- strip-blockquote
+  "Remove the > prefix from a blockquote line"
+  [line]
+  (subs line 2))
 
 (defn- parse-markdown-content
-  "Parse markdown content into structured blocks"
+  "Parse markdown content into structured blocks.
+   Each line becomes a separate paragraph, except:
+   - Empty lines are skipped
+   - Consecutive blockquote lines (> ...) are grouped together
+   - Headings are separate blocks"
   [content style-config]
   (let [lines (str/split-lines content)
-        ;; Group lines into paragraphs (separated by empty lines)
+        ;; Each line = one paragraph, except blockquotes which group together
         paragraphs (loop [lines lines
-                          current-para []
+                          current-blockquote []  ; accumulate consecutive blockquote lines
                           result []]
                      (if (empty? lines)
-                       (if (seq current-para)
-                         (conj result (str/join " " current-para))
+                       ;; Flush any remaining blockquote
+                       (if (seq current-blockquote)
+                         (conj result {:type :blockquote
+                                       :text (str/join "\n" current-blockquote)})
                          result)
                        (let [line (str/trim (first lines))]
-                         (if (str/blank? line)
+                         (cond
+                           ;; Empty line - flush blockquote if any, add empty paragraph for spacing
+                           (str/blank? line)
                            (recur (rest lines)
                                   []
-                                  (if (seq current-para)
-                                    (conj result (str/join " " current-para))
-                                    result))
-                           ;; Check if it's a heading (don't merge with previous)
-                           (if (or (str/starts-with? line "# ")
-                                   (str/starts-with? line "## "))
-                             (recur (rest lines)
-                                    []
-                                    (-> result
-                                        (cond-> (seq current-para) (conj (str/join " " current-para)))
-                                        (conj line)))
-                             (recur (rest lines)
-                                    (conj current-para line)
-                                    result))))))]
-    (map #(parse-markdown-block % style-config) paragraphs)))
+                                  (-> result
+                                      (cond-> (seq current-blockquote)
+                                        (conj {:type :blockquote
+                                               :text (str/join "\n" current-blockquote)}))
+                                      (conj {:type :empty})))
+
+                           ;; Heading - flush blockquote, add heading
+                           (or (str/starts-with? line "# ")
+                               (str/starts-with? line "## "))
+                           (recur (rest lines)
+                                  []
+                                  (-> result
+                                      (cond-> (seq current-blockquote)
+                                        (conj {:type :blockquote
+                                               :text (str/join "\n" current-blockquote)}))
+                                      (conj {:type :heading :text line})))
+
+                           ;; Blockquote line - accumulate
+                           (blockquote-line? line)
+                           (recur (rest lines)
+                                  (conj current-blockquote (strip-blockquote line))
+                                  result)
+
+                           ;; Normal line - each line is a separate paragraph
+                           :else
+                           (recur (rest lines)
+                                  []
+                                  (-> result
+                                      ;; First flush any blockquote
+                                      (cond-> (seq current-blockquote)
+                                        (conj {:type :blockquote
+                                               :text (str/join "\n" current-blockquote)}))
+                                      ;; Then add this line as a paragraph
+                                      (conj {:type :normal :text line})))))))]
+    (map #(parse-markdown-block-v2 % style-config) paragraphs)))
 
 ;; =============================================================================
 ;; PDF Content Generation
@@ -189,18 +248,31 @@
 
 (defn- make-paragraph
   "Create a paragraph block with proper formatting"
-  [text style-config first-para?]
+  [text style-config _first-para?]
   (let [styles (:styles style-config)
-        para-style (if first-para?
-                     (:first-paragraph styles)
-                     (:body-paragraph styles))
-        indent (if first-para? 0 (:indent-first para-style 20))
+        para-style (:paragraph styles)
         inline-content (parse-inline-formatting text)]
     {:text inline-content
      :fontSize (:size para-style 11)
      :alignment "justify"
      :lineHeight (:line-height para-style 1.4)
-     :margin [indent 0 0 6]}))
+     :margin [0 0 0 6]}))
+
+(defn- make-blockquote
+  "Create a blockquote block - indented with left margin, preserves line breaks"
+  [text style-config]
+  (let [styles (:styles style-config)
+        para-style (:paragraph styles)
+        ;; Split by newlines to preserve verse structure
+        lines (str/split-lines text)]
+    {:stack (mapv (fn [line]
+                    {:text (parse-inline-formatting line)
+                     :italics true
+                     :fontSize (:size para-style 11)
+                     :alignment "left"
+                     :margin [0 0 0 2]})  ; Small spacing between lines
+                  lines)
+     :margin [30 12 20 12]}))  ; Left/right indent for the whole block
 
 (defn- convert-markdown-blocks-to-pdf
   "Convert parsed markdown blocks to pdfmake content"
@@ -221,6 +293,12 @@
           :paragraph (recur (rest blocks)
                             (conj result (make-paragraph (:text block) style-config first-para?))
                             false)
+          :blockquote (recur (rest blocks)
+                             (conj result (make-blockquote (:text block) style-config))
+                             true)  ; Reset first-para after special block
+          :empty (recur (rest blocks)
+                        (conj result {:text "" :margin [0 6 0 6]})  ; Vertical spacing
+                        true)  ; Next paragraph is first after empty line
           ;; Default case
           (recur (rest blocks) result first-para?))))))
 

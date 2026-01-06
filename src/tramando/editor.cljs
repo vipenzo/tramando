@@ -723,6 +723,11 @@
               tooltip (cond
                         has-ai-selection?
                         (str "AI alternative #" ai-sel " selected")
+                        ;; For PROPOSAL: show the proposed text, not the base64
+                        is-proposal?
+                        (if-let [proposed (:text proposal-data)]
+                          (str (t :proposal) ": " proposed)
+                          (t :proposal))
                         (and (seq priority-str) (seq comment-text))
                         (str "[" priority-str "] " comment-text)
                         (seq comment-text) comment-text
@@ -1200,7 +1205,7 @@
 
 (defn- wrap-selection-with-annotation!
   "Wrap selected text with annotation syntax [!TYPE:text:priority:comment]"
-  [annotation-type chunk selected-text]
+  [annotation-type chunk selected-text & [priority comment]]
   ;; Prevent nested annotations
   (if (contains-annotation? selected-text)
     (events/show-toast! (t :error-nested-annotation))
@@ -1211,9 +1216,12 @@
         (when (and idx (>= idx 0))
           (let [from idx
                 to (+ from (count selected-text))
-                wrapped-text (str "[!" annotation-type ":" selected-text "::]")
-                ;; Position cursor after the second : (where priority goes)
-                cursor-pos (+ from 2 (count annotation-type) 1 (count selected-text) 1)]
+                ;; Build annotation with provided priority and comment
+                priority-str (or priority "")
+                comment-str (or comment "")
+                wrapped-text (str "[!" annotation-type ":" selected-text ":" priority-str ":" comment-str "]")
+                ;; Position cursor at end of annotation
+                cursor-pos (+ from (count wrapped-text))]
             (.dispatch view #js {:changes #js {:from from :to to :insert wrapped-text}
                                  :selection #js {:anchor cursor-pos}})
             (.focus view)))))))
@@ -1306,13 +1314,22 @@
         (when-let [chunk (model/get-selected-chunk)]
           (let [read-only? (not (can-edit-chunk? (:id chunk)))
                 state (create-editor-state (:content chunk) (:id chunk) read-only?)
-                view (create-editor-view @editor-ref state)]
+                view (create-editor-view @editor-ref state)
+                saved-pos (model/get-cursor-pos (:id chunk))]
             (reset! editor-view view)
             (reset! editor-view-ref view) ;; Store in global ref for search
             (reset! last-chunk-id (:id chunk))
             (reset! last-show-markup @annotations/show-markup?)
             ;; Store view in local-editor-view for annotation handler
             (reset! local-editor-view view)
+            ;; Restore cursor position if saved (and no pending scroll)
+            (when (and saved-pos (nil? @pending-scroll-pattern))
+              (let [doc-length (.. view -state -doc -length)
+                    safe-pos (min saved-pos doc-length)]
+                (.dispatch view #js {:selection #js {:anchor safe-pos}
+                                     :scrollIntoView true})
+                ;; Focus the editor after a small delay to ensure DOM is ready
+                (js/setTimeout #(.focus view) 10)))
             ;; Execute any pending scroll (from "Usato da" navigation)
             (execute-pending-scroll!))))
 
@@ -1325,6 +1342,10 @@
           (when (or (and chunk (not= (:id chunk) @last-chunk-id))
                     (not= show-markup? @last-show-markup)
                     (not= refresh-counter @last-refresh-counter))
+            ;; Save cursor position of old chunk before destroying
+            (when (and @editor-view @last-chunk-id (not= (:id chunk) @last-chunk-id))
+              (let [pos (.. @editor-view -state -selection -main -head)]
+                (model/set-cursor-pos! @last-chunk-id pos)))
             (when @editor-view
               (.destroy @editor-view))
             ;; Re-run search on new content
@@ -1334,7 +1355,9 @@
               (let [read-only? (not (can-edit-chunk? (:id chunk)))
                     state (create-editor-state (:content chunk) (:id chunk) read-only?)
                     view (create-editor-view @editor-ref state)
-                    chunk-changed? (not= (:id chunk) @last-chunk-id)]
+                    chunk-changed? (not= (:id chunk) @last-chunk-id)
+                    has-pending-scroll? (some? @pending-scroll-pattern)
+                    saved-pos (when chunk-changed? (model/get-cursor-pos (:id chunk)))]
                 (reset! editor-view view)
                 (reset! editor-view-ref view) ;; Update global ref
                 (reset! last-chunk-id (:id chunk))
@@ -1342,12 +1365,24 @@
                 (reset! last-refresh-counter refresh-counter)
                 ;; Store view in local-editor-view for annotation handler
                 (reset! local-editor-view view)
-                ;; Execute pending scroll only when chunk changed
+                ;; When chunk changed: prefer pending scroll, fallback to saved position
                 (when chunk-changed?
-                  (execute-pending-scroll!)))))))
+                  (if has-pending-scroll?
+                    (execute-pending-scroll!)
+                    ;; No pending scroll - restore saved cursor position
+                    (when saved-pos
+                      (let [doc-length (.. view -state -doc -length)
+                            safe-pos (min saved-pos doc-length)]
+                        (.dispatch view #js {:selection #js {:anchor safe-pos}
+                                             :scrollIntoView true})
+                        (js/setTimeout #(.focus view) 10))))))))))
 
       :component-will-unmount
       (fn [this]
+        ;; Save cursor position before destroying
+        (when (and @editor-view @last-chunk-id)
+          (let [pos (.. @editor-view -state -selection -main -head)]
+            (model/set-cursor-pos! @last-chunk-id pos)))
         (when @editor-view
           (.destroy @editor-view))
         (reset! editor-view-ref nil))
@@ -1715,6 +1750,34 @@
                                        (reset! editing-id? true))}
                        (t :edit-id)]))
 
+                  ;; Priority field (for aspects only)
+                  (when is-aspect?
+                    [:div {:style {:padding "8px 12px"
+                                   :display "flex"
+                                   :align-items "center"
+                                   :gap "8px"}}
+                     [:span {:style {:color (:text-muted colors) :font-size "11px"}}
+                      (t :priority)]
+                     [:input {:type "number"
+                              :min 0
+                              :max 10
+                              :value (or (:priority chunk) 0)
+                              :style {:width "50px"
+                                      :background (:editor-bg colors)
+                                      :border (str "1px solid " (:border colors))
+                                      :border-radius "3px"
+                                      :color (:text colors)
+                                      :font-size "12px"
+                                      :padding "4px 6px"
+                                      :text-align "center"}
+                              :on-change (fn [e]
+                                           (let [v (js/parseInt (.. e -target -value) 10)]
+                                             (when (and (not (js/isNaN v)) (<= 0 v 10))
+                                               (model/update-chunk! (:id chunk) {:priority (when (pos? v) v)}))))
+                              :on-click #(.stopPropagation %)}]
+                     [:span {:style {:color (:text-dim colors) :font-size "9px"}}
+                      (t :priority-hint)]])
+
                   (when is-aspect?
                     [:div.dropdown-divider])
 
@@ -1785,11 +1848,18 @@
               ;; Aspect tags (pill style)
               (doall
                (for [aspect-id (:aspects chunk)]
-                 (let [aspect (first (filter #(= (:id %) aspect-id) (model/get-chunks)))]
+                 (let [aspect (first (filter #(= (:id %) aspect-id) (model/get-chunks)))
+                       container-id (:parent-id aspect)
+                       threshold (settings/get-aspect-threshold container-id)
+                       aspect-priority (or (:priority aspect) 0)
+                       is-filtered-out? (< aspect-priority threshold)]
                    ^{:key aspect-id}
-                   [:span.tag-pill
-                    [:span {:on-click #(events/navigate-to-aspect! aspect-id)
-                            :title (t :click-to-navigate)}
+                   [:span.tag-pill {:class (when is-filtered-out? "tag-filtered")}
+                    [:span {:on-click (when-not is-filtered-out?
+                                        #(events/navigate-to-aspect! aspect-id))
+                            :title (if is-filtered-out?
+                                     (t :aspect-filtered-out)
+                                     (t :click-to-navigate))}
                      (str "@" (or (:summary aspect) aspect-id))]
                     [:button.tag-remove
                      {:on-click #(model/remove-aspect-from-chunk! (:id chunk) aspect-id)

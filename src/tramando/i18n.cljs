@@ -32,8 +32,8 @@
     :timeline "Timeline"
 
     ;; Actions
-    :new-chunk "+ Nuovo Chunk"
-    :new-aspect "+ Nuovo aspetto"
+    :new-chunk "Nuovo chunk"
+    :new-aspect "Nuovo aspetto"
     :add-child "+ Figlio di \"{0}\""
     :add-aspect "+ Aspetto"
     :save "Salva"
@@ -43,6 +43,7 @@
     :export-trmd "Esporta TRMD"
     :export-md "Esporta MD"
     :export-pdf "Esporta PDF"
+    :export-docx "Esporta DOCX"
     :import "Importa"
     :import-trmd "Importa da TRMD"
     :import-md "Importa da MD"
@@ -209,6 +210,14 @@
     :no-aspects "Nessuno"
     :no-annotations "Nessuna annotazione"
     :none-fem "Nessuna"
+    :all-filtered "Tutti filtrati"
+
+    ;; Priority/Threshold
+    :priority "Priorità"
+    :priority-hint "0=bassa, 10=alta"
+    :decrease-threshold "Riduci soglia"
+    :increase-threshold "Aumenta soglia"
+    :aspect-filtered-out "Aspetto nascosto (sotto soglia)"
 
     ;; Chat
     :project-chat "Chat"
@@ -458,11 +467,14 @@
     :annotation-priority "Priorità"
     :annotation-comment "Commento"
     :annotation-edit-title "Modifica annotazione"
+    :new-annotation "Nuova annotazione"
     :selected-text-label "Testo"
     :priority-low "Bassa"
     :priority-medium "Media"
     :priority-high "Alta"
     :comment-placeholder "Aggiungi un commento..."
+    :press-enter-to-confirm "Premi Invio per confermare"
+    :optional "(opzionale)"
 
     ;; Aspect Link Context Menu
     :go-to-aspect "Vai all'aspetto"
@@ -526,8 +538,8 @@
     :timeline "Timeline"
 
     ;; Actions
-    :new-chunk "+ New Chunk"
-    :new-aspect "+ New aspect"
+    :new-chunk "New chunk"
+    :new-aspect "New aspect"
     :add-child "+ Child of \"{0}\""
     :add-aspect "+ Aspect"
     :save "Save"
@@ -537,6 +549,7 @@
     :export-trmd "Export TRMD"
     :export-md "Export MD"
     :export-pdf "Export PDF"
+    :export-docx "Export DOCX"
     :import "Import"
     :import-trmd "Import from TRMD"
     :import-md "Import from MD"
@@ -703,6 +716,14 @@
     :no-aspects "None"
     :no-annotations "No annotations"
     :none-fem "None"
+    :all-filtered "All filtered"
+
+    ;; Priority/Threshold
+    :priority "Priority"
+    :priority-hint "0=low, 10=high"
+    :decrease-threshold "Decrease threshold"
+    :increase-threshold "Increase threshold"
+    :aspect-filtered-out "Aspect hidden (below threshold)"
 
     ;; Chat
     :project-chat "Chat"
@@ -952,11 +973,14 @@
     :annotation-priority "Priority"
     :annotation-comment "Comment"
     :annotation-edit-title "Edit annotation"
+    :new-annotation "New annotation"
     :selected-text-label "Text"
     :priority-low "Low"
     :priority-medium "Medium"
     :priority-high "High"
     :comment-placeholder "Add a comment..."
+    :press-enter-to-confirm "Press Enter to confirm"
+    :optional "(optional)"
     :annotation-updated "Annotation updated"
 
     ;; Aspect Link Context Menu

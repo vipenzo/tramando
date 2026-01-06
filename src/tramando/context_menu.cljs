@@ -30,6 +30,14 @@
                                    :priority ""
                                    :comment ""}))
 
+;; State for annotation create modal (new annotation workflow)
+(defonce create-modal-state (r/atom {:visible false
+                                     :annotation-type nil  ;; :TODO, :NOTE, :FIX
+                                     :chunk nil
+                                     :selected-text nil
+                                     :priority ""
+                                     :comment ""}))
+
 ;; Callbacks - these will be set by the main app
 (defonce on-template-action (atom nil))
 (defonce on-wrap-annotation (atom nil))
@@ -254,6 +262,187 @@
           (t :save)]]]])))
 
 ;; =============================================================================
+;; Annotation Create Modal (new workflow)
+;; =============================================================================
+
+(defn- annotation-type-color
+  "Get the color for an annotation type"
+  [ann-type colors]
+  (case ann-type
+    :TODO (:accent colors)
+    :NOTE (:luoghi colors)
+    :FIX (:danger colors)
+    (:accent colors)))
+
+(defn show-create-modal!
+  "Show the annotation create modal"
+  [annotation-type chunk selected-text]
+  (reset! create-modal-state {:visible true
+                              :annotation-type (keyword annotation-type)
+                              :chunk chunk
+                              :selected-text selected-text
+                              :priority ""
+                              :comment ""}))
+
+(defn hide-create-modal!
+  "Hide the annotation create modal"
+  []
+  (reset! create-modal-state {:visible false
+                              :annotation-type nil
+                              :chunk nil
+                              :selected-text nil
+                              :priority ""
+                              :comment ""}))
+
+(defn confirm-create-annotation!
+  "Confirm and create the annotation"
+  []
+  (let [{:keys [annotation-type chunk selected-text priority comment]} @create-modal-state]
+    (when (and @on-wrap-annotation chunk selected-text)
+      (@on-wrap-annotation (name annotation-type) chunk selected-text priority comment))
+    (hide-create-modal!)))
+
+(defn annotation-create-modal
+  "Modal for creating a new annotation with comment and priority"
+  []
+  (let [{:keys [visible annotation-type selected-text priority comment]} @create-modal-state
+        colors (:colors @settings/settings)
+        type-color (when annotation-type (annotation-type-color annotation-type colors))
+        input-ref (atom nil)]
+    (when visible
+      [:div {:style {:position "fixed"
+                     :top 0 :left 0 :right 0 :bottom 0
+                     :background "rgba(0,0,0,0.5)"
+                     :display "flex"
+                     :align-items "center"
+                     :justify-content "center"
+                     :z-index 10002}
+             :on-mouse-down #(hide-create-modal!)}
+       [:div {:style {:background (:sidebar colors)
+                      :border-radius "8px"
+                      :padding "20px"
+                      :min-width "320px"
+                      :max-width "450px"
+                      :box-shadow "0 4px 20px rgba(0,0,0,0.4)"
+                      :border-top (str "3px solid " type-color)}
+              :on-mouse-down #(.stopPropagation %)}
+        ;; Title with type badge
+        [:div {:style {:display "flex"
+                       :align-items "center"
+                       :gap "10px"
+                       :margin-bottom "16px"}}
+         [:span {:style {:background type-color
+                         :color "#fff"
+                         :padding "4px 10px"
+                         :border-radius "4px"
+                         :font-size "0.85rem"
+                         :font-weight "600"}}
+          (when annotation-type (name annotation-type))]
+         [:span {:style {:color (:text colors)
+                         :font-size "1rem"}}
+          (t :new-annotation)]]
+
+        ;; Show selected text (read-only)
+        [:div {:style {:margin-bottom "16px"}}
+         [:label {:style {:display "block"
+                          :color (:text-muted colors)
+                          :font-size "0.85rem"
+                          :margin-bottom "4px"}}
+          (t :selected-text-label)]
+         [:div {:style {:background (:editor-bg colors)
+                        :padding "8px 12px"
+                        :border-radius "4px"
+                        :color (:text colors)
+                        :font-style "italic"
+                        :max-height "60px"
+                        :overflow-y "auto"}}
+          selected-text]]
+
+        ;; Comment field (with auto-focus)
+        [:div {:style {:margin-bottom "16px"}}
+         [:label {:style {:display "block"
+                          :color (:text-muted colors)
+                          :font-size "0.85rem"
+                          :margin-bottom "4px"}}
+          (t :annotation-comment)]
+         [:input {:type "text"
+                  :ref (fn [el]
+                         (when el
+                           (reset! input-ref el)
+                           ;; Auto-focus after a brief delay
+                           (js/setTimeout #(.focus el) 50)))
+                  :value comment
+                  :on-change #(swap! create-modal-state assoc :comment (.. % -target -value))
+                  :on-key-down (fn [e]
+                                 (when (= (.-key e) "Enter")
+                                   (.preventDefault e)
+                                   (confirm-create-annotation!)))
+                  :placeholder (t :comment-placeholder)
+                  :style {:width "100%"
+                          :padding "8px"
+                          :border (str "1px solid " (:border colors))
+                          :border-radius "4px"
+                          :background (:editor-bg colors)
+                          :color (:text colors)
+                          :font-size "0.95rem"
+                          :box-sizing "border-box"}}]]
+
+        ;; Priority field
+        [:div {:style {:margin-bottom "20px"}}
+         [:label {:style {:display "block"
+                          :color (:text-muted colors)
+                          :font-size "0.85rem"
+                          :margin-bottom "4px"}}
+          (str (t :annotation-priority) " " (t :optional))]
+         [:input {:type "text"
+                  :value priority
+                  :on-change #(let [v (.. % -target -value)
+                                    clean (str/replace v #"[^0-9.]" "")]
+                                (swap! create-modal-state assoc :priority clean))
+                  :on-key-down (fn [e]
+                                 (when (= (.-key e) "Enter")
+                                   (.preventDefault e)
+                                   (confirm-create-annotation!)))
+                  :placeholder "1, 2.5, 10..."
+                  :style {:width "100%"
+                          :padding "8px"
+                          :border (str "1px solid " (:border colors))
+                          :border-radius "4px"
+                          :background (:editor-bg colors)
+                          :color (:text colors)
+                          :font-size "0.95rem"
+                          :box-sizing "border-box"}}]]
+
+        ;; Hint for Enter key
+        [:div {:style {:color (:text-dim colors)
+                       :font-size "0.75rem"
+                       :margin-bottom "16px"
+                       :text-align "center"}}
+         (t :press-enter-to-confirm)]
+
+        ;; Buttons
+        [:div {:style {:display "flex"
+                       :justify-content "flex-end"
+                       :gap "12px"}}
+         [:button {:on-click #(hide-create-modal!)
+                   :style {:padding "8px 16px"
+                           :border (str "1px solid " (:border colors))
+                           :border-radius "4px"
+                           :background "transparent"
+                           :color (:text colors)
+                           :cursor "pointer"}}
+          (t :cancel)]
+         [:button {:on-click #(confirm-create-annotation!)
+                   :style {:padding "8px 16px"
+                           :border "none"
+                           :border-radius "4px"
+                           :background type-color
+                           :color "#fff"
+                           :cursor "pointer"
+                           :font-weight "500"}}
+          (t :add)]]]])))
+
+;; =============================================================================
 ;; AI Configuration Check
 ;; =============================================================================
 
@@ -277,12 +466,12 @@
   (hide-menu!))
 
 (defn handle-wrap-annotation!
-  "Handle wrapping selected text with an annotation"
+  "Handle wrapping selected text with an annotation - shows create modal"
   [annotation-type]
-  (when @on-wrap-annotation
-    (@on-wrap-annotation annotation-type
-                         (:chunk @menu-state)
-                         (:selected-text @menu-state)))
+  (let [chunk (:chunk @menu-state)
+        selected-text (:selected-text @menu-state)]
+    (when (and chunk selected-text)
+      (show-create-modal! annotation-type chunk selected-text)))
   (hide-menu!))
 
 (defn handle-create-proposal!
@@ -393,7 +582,7 @@
                     {:id :note
                      :label "NOTE"
                      :icon "●"
-                     :color (settings/get-color :accent)
+                     :color (settings/get-color :luoghi)  ; blu per distinguere da TODO
                      :action #(handle-wrap-annotation! "NOTE")}
                     {:id :fix
                      :label "FIX"
@@ -924,7 +1113,9 @@
           [selection-context-menu {:x x :y y :chunk chunk :selected-text selected-text :open-submenu open-submenu}])])
 
      ;; Annotation edit modal (rendered independently)
-     [annotation-edit-modal]]))
+     [annotation-edit-modal]
+     ;; Annotation create modal (for new annotation workflow)
+     [annotation-create-modal]]))
 
 ;; =============================================================================
 ;; Event Handler for Context Menu

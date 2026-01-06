@@ -26,6 +26,23 @@
 ;; Global state for expanded nodes (collapsed by default)
 (defonce expanded-nodes (r/atom #{}))
 
+;; =============================================================================
+;; Aspect Priority Thresholds
+;; =============================================================================
+
+;; Discrete steps for threshold widget (max 9 for single digit display)
+(def threshold-steps [0 1 2 3 5 7 9])
+
+(defn get-threshold
+  "Get the current threshold for a container (from settings)"
+  [container-id]
+  (settings/get-aspect-threshold container-id))
+
+(defn set-threshold!
+  "Set the threshold for a container (saves to settings)"
+  [container-id value]
+  (settings/set-aspect-threshold! container-id value))
+
 (defn- toggle-expanded! [id]
   (swap! expanded-nodes #(if (contains? % id) (disj % id) (conj % id))))
 
@@ -342,11 +359,81 @@
     "timeline" "📅"
     "📁"))
 
+(defn- filter-and-sort-aspects
+  "Filter aspects by threshold and sort by priority (descending), then alphabetically"
+  [aspects threshold]
+  (->> aspects
+       (filter #(>= (or (:priority %) 0) threshold))
+       (sort-by (fn [a] [(- (or (:priority a) 0))
+                         (.toLowerCase (or (:summary a) ""))]))))
+
+(defn- threshold-widget
+  "Widget to adjust priority threshold for an aspect container"
+  [container-id total-count filtered-count]
+  (let [colors (:colors @settings/settings)
+        threshold (get-threshold container-id)
+        current-idx (.indexOf (to-array threshold-steps) threshold)
+        can-decrease? (> current-idx 0)
+        can-increase? (< current-idx (dec (count threshold-steps)))
+        is-filtering? (< filtered-count total-count)
+        tooltip (if is-filtering?
+                  (str filtered-count "/" total-count " " (t :priority) " ≥" threshold)
+                  (str (t :priority) " ≥" threshold))]
+    [:div {:style {:display "flex"
+                   :align-items "center"
+                   :gap "1px"
+                   :margin-left "auto"
+                   :font-size "0.75rem"}
+           :on-click #(.stopPropagation %)}
+     ;; Decrease button
+     [:button {:style {:background "transparent"
+                       :border "none"
+                       :color (if can-decrease? (:text-muted colors) (:text-dim colors))
+                       :cursor (if can-decrease? "pointer" "default")
+                       :padding "0 2px"
+                       :font-size "0.8rem"
+                       :line-height 1}
+               :disabled (not can-decrease?)
+               :title (t :decrease-threshold)
+               :on-click (fn [e]
+                           (.stopPropagation e)
+                           (when can-decrease?
+                             (set-threshold! container-id (nth threshold-steps (dec current-idx)))))}
+      "−"]
+     ;; Current value (with tooltip showing filtered count)
+     [:span {:style {:color (if (pos? threshold) (:accent colors) (:text-dim colors))
+                     :min-width "10px"
+                     :text-align "center"
+                     :font-weight (when (pos? threshold) "600")
+                     :cursor "default"}
+             :title tooltip}
+      threshold]
+     ;; Increase button
+     [:button {:style {:background "transparent"
+                       :border "none"
+                       :color (if can-increase? (:text-muted colors) (:text-dim colors))
+                       :cursor (if can-increase? "pointer" "default")
+                       :padding "0 2px"
+                       :font-size "0.8rem"
+                       :line-height 1}
+               :disabled (not can-increase?)
+               :title (t :increase-threshold)
+               :on-click (fn [e]
+                           (.stopPropagation e)
+                           (when can-increase?
+                             (set-threshold! container-id (nth threshold-steps (inc current-idx)))))}
+      "+"]]))
+
 (defn aspect-container-section
   "Render an expandable aspect container with its children"
   [{:keys [id summary]}]
   (let [is-collapsed? (not (expanded? id))
-        children (model/build-aspect-tree id)
+        all-children (model/build-aspect-tree id)
+        threshold (get-threshold id)
+        ;; Filter and sort children by priority
+        filtered-children (filter-and-sort-aspects all-children threshold)
+        total-count (count all-children)
+        filtered-count (count filtered-children)
         colors (:colors @settings/settings)
         color (container-color id)
         help-key (keyword id)
@@ -365,16 +452,21 @@
        (if is-collapsed? "▶" "▼")]
       [:span {:style {:margin-right "6px"}} icon]
       display-name
-      [help/help-icon help-key {:below? true}]]
+      [help/help-icon help-key {:below? true}]
+      ;; Threshold widget (only when there are aspects)
+      (when (pos? total-count)
+        [threshold-widget id total-count filtered-count])]
      (when-not is-collapsed?
-       (if (seq children)
+       (if (seq filtered-children)
          [:div {:style {:margin-left "8px"}}
           (doall
-           (for [child children]
+           (for [child filtered-children]
              ^{:key (:id child)}
              [aspect-item child]))]
          [:div {:style {:color (:text-muted colors) :font-size "0.8rem" :padding "4px 8px"}}
-          (t :no-aspects)]))]))
+          (if (pos? total-count)
+            (t :all-filtered)  ;; All aspects are below threshold
+            (t :no-aspects))]))]))
 
 ;; =============================================================================
 ;; New Aspect Dropdown
@@ -436,8 +528,19 @@
 ;; Annotations Section
 ;; =============================================================================
 
+(defn- annotation-type-color
+  "Get the color for an annotation type"
+  [type colors]
+  (case type
+    :TODO (:accent colors)
+    :NOTE (:luoghi colors)
+    :FIX (:danger colors)
+    :PROPOSAL (:accent colors)
+    (:accent colors)))
+
 (defn- annotation-item [{:keys [chunk-id selected-text comment type priority]}]
   (let [colors (:colors @settings/settings)
+        type-color (annotation-type-color type colors)
         path (annotations/get-chunk-path chunk-id)
         display-text (if (> (count selected-text) 50)
                        (str (subs selected-text 0 47) "...")
@@ -452,12 +555,13 @@
         selected-alt (when (and (pos? current-selection) (<= current-selection (count alternatives)))
                        (nth alternatives (dec current-selection)))]
     [:div.annotation-item
-     {:on-click (fn []
+     {:style {:border-left-color type-color}
+      :on-click (fn []
                   (editor/set-tab! :edit)
                   (model/select-chunk! chunk-id)
                   (editor/navigate-to-annotation! selected-text))}
      ;; Type label with optional AI badge
-     [:div.annotation-type
+     [:div.annotation-type {:style {:color type-color}}
       (when is-ai?
         [:span {:class (str "ai-badge" (when is-ai-pending? " pending"))}
          (if is-ai-pending? "AI..." "AI")])
@@ -490,10 +594,13 @@
                     selected-alt))])]))
 
 (defn- annotation-type-section [type items]
-  (let [is-collapsed? (not (expanded? (str "ann-" (name type))))
+  (let [colors (:colors @settings/settings)
+        type-color (annotation-type-color type colors)
+        is-collapsed? (not (expanded? (str "ann-" (name type))))
         type-label (name type)]
     [:div {:style {:margin-bottom "8px"}}
-     [:div.annotation-type-header {:on-click #(toggle-expanded! (str "ann-" (name type)))}
+     [:div.annotation-type-header {:style {:color type-color}
+                                   :on-click #(toggle-expanded! (str "ann-" (name type)))}
       [:span.collapse-arrow (if is-collapsed? "▶" "▼")]
       (str type-label " (" (count items) ")")]
      (when-not is-collapsed?

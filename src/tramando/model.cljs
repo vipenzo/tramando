@@ -47,9 +47,9 @@
 
 (defn make-chunk
   "Create a new chunk with the given properties"
-  [{:keys [id summary content parent-id aspects ordered-refs
+  [{:keys [id summary content parent-id aspects ordered-refs priority
            owner previous-owner ownership-expires discussion]
-    :or {summary "" content "" parent-id nil aspects #{} ordered-refs []
+    :or {summary "" content "" parent-id nil aspects #{} ordered-refs [] priority nil
          owner "local" previous-owner nil ownership-expires nil discussion []}}]
   {:id id
    :summary summary
@@ -57,6 +57,7 @@
    :parent-id parent-id
    :aspects (set aspects)
    :ordered-refs (vec ordered-refs)
+   :priority priority  ;; 0-10, nil = not set (treated as 0)
    ;; Collaborative fields
    :owner owner
    :previous-owner previous-owner
@@ -143,6 +144,8 @@
 (def ^:private owner-re #"\[#owner:([^\]]+)\]")
 (def ^:private prev-owner-re #"\[#prev-owner:([^\]]+)\]")
 (def ^:private expires-re #"\[#expires:([^\]]+)\]")
+;; Priority pattern: [#priority:N] where N is 0-10
+(def ^:private priority-re #"\[#priority:(\d+)\]")
 
 ;; Discussion block pattern: [!DISCUSSION:base64data]
 (def ^:private discussion-re #"\[!DISCUSSION:([^\]]+)\]")
@@ -284,7 +287,7 @@
     (quot spaces 2)))
 
 (defn- parse-header
-  "Parse a chunk header line, returns {:id :summary :aspects :owner :previous-owner :ownership-expires} or nil"
+  "Parse a chunk header line, returns {:id :summary :aspects :owner :previous-owner :ownership-expires :priority} or nil"
   [line]
   (when-let [[_ id summary rest] (re-matches chunk-header-re (str/trim line))]
     (let [aspects (->> (re-seq aspect-re rest)
@@ -293,13 +296,17 @@
           ;; Extract collaborative attributes (optional)
           owner (second (re-find owner-re rest))
           prev-owner (second (re-find prev-owner-re rest))
-          expires (second (re-find expires-re rest))]
+          expires (second (re-find expires-re rest))
+          ;; Extract priority (optional, 0-10)
+          priority-str (second (re-find priority-re rest))
+          priority (when priority-str (js/parseInt priority-str 10))]
       {:id id
        :summary summary
        :aspects aspects
        :owner (or owner "local")
        :previous-owner prev-owner
-       :ownership-expires expires})))
+       :ownership-expires expires
+       :priority priority})))
 
 ;; Default metadata (defined here for use in parse-yaml-frontmatter)
 (def default-metadata
@@ -379,6 +386,7 @@
                                   :summary (:summary header)
                                   :parent-id parent-id
                                   :aspects (:aspects header)
+                                  :priority (:priority header)
                                   ;; Collaborative fields from header
                                   :owner (:owner header)
                                   :previous-owner (:previous-owner header)
@@ -509,6 +517,10 @@
   [chunk depth]
   (let [indent (apply str (repeat (* 2 depth) " "))
         aspects-str (str/join "" (map #(str "[@" % "]") (:aspects chunk)))
+        ;; Priority (only include if set and > 0)
+        priority (:priority chunk)
+        priority-str (when (and priority (pos? priority))
+                       (str "[#priority:" priority "]"))
         ;; Collaborative attributes (only include if non-default)
         owner (:owner chunk)
         owner-str (when (and owner (not= owner "local"))
@@ -517,7 +529,7 @@
                          (str "[#prev-owner:" (:previous-owner chunk) "]"))
         expires-str (when (:ownership-expires chunk)
                       (str "[#expires:" (:ownership-expires chunk) "]"))
-        collab-str (str owner-str prev-owner-str expires-str)
+        collab-str (str priority-str owner-str prev-owner-str expires-str)
         ;; Build header
         header (str indent "[C:" (:id chunk) "\"" (:summary chunk) "\"]" aspects-str collab-str)
         ;; Content with optional discussion block
@@ -893,6 +905,30 @@
                      c))
                  chunks)))
   (mark-modified!))
+
+(defn update-chunk-transient!
+  "Update a chunk with transient (non-persisted) changes.
+   Does not push history or mark as modified.
+   Useful for cursor position, scroll position, etc."
+  [id changes]
+  (swap! app-state update :chunks
+         (fn [chunks]
+           (mapv (fn [c]
+                   (if (= (:id c) id)
+                     (merge c changes)
+                     c))
+                 chunks))))
+
+(defn get-cursor-pos
+  "Get saved cursor position for a chunk"
+  [chunk-id]
+  (when-let [chunk (get-chunk chunk-id)]
+    (:cursor-pos chunk)))
+
+(defn set-cursor-pos!
+  "Save cursor position for a chunk (transient, not persisted)"
+  [chunk-id pos]
+  (update-chunk-transient! chunk-id {:cursor-pos pos}))
 
 ;; =============================================================================
 ;; Discussion Management
@@ -1763,6 +1799,18 @@
   "Get all aspect chunks (children of aspect containers)"
   []
   (filter #(contains? aspect-container-ids (:parent-id %)) (get-chunks)))
+
+(defn get-aspect-priority
+  "Get priority of an aspect (default 0 if not set)"
+  [aspect-id]
+  (let [chunk (get-chunk aspect-id)]
+    (or (:priority chunk) 0)))
+
+(defn set-aspect-priority!
+  "Set priority for an aspect (0-10)"
+  [aspect-id priority]
+  (let [clamped (max 0 (min 10 (or priority 0)))]
+    (update-chunk! aspect-id {:priority (when (pos? clamped) clamped)})))
 
 (defn add-aspect!
   "Add a new aspect under the specified container"

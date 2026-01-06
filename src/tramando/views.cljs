@@ -7,6 +7,7 @@
             [tramando.settings :as settings]
             [tramando.radial :as radial]
             [tramando.export-pdf :as export-pdf]
+            [tramando.export-docx :as export-docx]
             [tramando.help :as help]
             [tramando.i18n :as i18n :refer [t]]
             [tramando.ai-panel :as ai-panel]
@@ -1310,7 +1311,22 @@
                    :on-click (fn []
                                (export-pdf/export-pdf!)
                                (reset! export-dropdown-open? false))}
-          (t :export-pdf)]])]]))
+          (t :export-pdf)]
+         [:div {:style {:height "1px"
+                        :background (:border colors)}}]
+         [:button {:style {:display "block"
+                           :width "100%"
+                           :text-align "left"
+                           :background "transparent"
+                           :border "none"
+                           :color (:text colors)
+                           :padding "10px 14px"
+                           :cursor "pointer"
+                           :font-size "0.85rem"}
+                   :on-click (fn []
+                               (export-docx/export-docx!)
+                               (reset! export-dropdown-open? false))}
+          (t :export-docx)]])]]))
 
 ;; =============================================================================
 ;; Header

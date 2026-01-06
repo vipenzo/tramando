@@ -700,6 +700,20 @@
       border-style: dashed;
     }
 
+    /* Filtered tag (aspect below threshold) */
+    .tag-pill.tag-filtered {
+      opacity: 0.4;
+      cursor: default;
+      border-style: dashed;
+    }
+    .tag-pill.tag-filtered:hover {
+      border-color: var(--color-border);
+      color: var(--color-text-dim);
+    }
+    .tag-pill.tag-filtered span {
+      cursor: default;
+    }
+
     /* Annotation Section Styles */
     .annotations-section {
       margin-top: 16px;

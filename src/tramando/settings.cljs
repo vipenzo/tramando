@@ -18,11 +18,12 @@
           :accent-muted "rgba(74, 159, 142, 0.15)"
           :logo-accent "#5b9aa9"
           :structure "#858585"
-          :personaggi "#858585"
-          :luoghi "#858585"
-          :temi "#858585"
-          :sequenze "#858585"
-          :timeline "#858585"
+          ;; Colori aspetti per la mappa radiale
+          :personaggi "#e06c75"    ; rosso/rosa
+          :luoghi "#61afef"        ; blu
+          :temi "#c678dd"          ; viola
+          :sequenze "#e5c07b"      ; giallo/oro
+          :timeline "#98c379"      ; verde
           :editor-bg "#1e1e1e"
           :tertiary "#2d2d30"
           :hover "#3c3c3c"
@@ -40,11 +41,12 @@
            :accent-muted "rgba(74, 159, 142, 0.1)"
            :logo-accent "#5b9aa9"
            :structure "#666666"
-           :personaggi "#666666"
-           :luoghi "#666666"
-           :temi "#666666"
-           :sequenze "#666666"
-           :timeline "#666666"
+           ;; Colori aspetti per la mappa radiale
+           :personaggi "#c0392b"    ; rosso scuro
+           :luoghi "#2980b9"        ; blu
+           :temi "#8e44ad"          ; viola
+           :sequenze "#d68910"      ; oro scuro
+           :timeline "#27ae60"      ; verde
            :editor-bg "#ffffff"
            :tertiary "#ebebeb"
            :hover "#e0e0e0"
@@ -69,7 +71,13 @@
         :groq-model "llama-3.3-70b-versatile"
         :auto-send false}
    :projects {:default-folder ""
-              :always-use-folder false}})
+              :always-use-folder false}
+   ;; Aspect priority thresholds (0 = show all)
+   :aspect-thresholds {:personaggi 0
+                       :luoghi 0
+                       :temi 0
+                       :sequenze 0
+                       :timeline 0}})
 
 ;; =============================================================================
 ;; Settings State
@@ -109,7 +117,8 @@
                        (assoc :theme theme-key)
                        (assoc :colors default-colors)
                        (assoc :ai (merge (:ai default-settings) (:ai loaded)))
-                       (assoc :projects (merge (:projects default-settings) (:projects loaded))))]
+                       (assoc :projects (merge (:projects default-settings) (:projects loaded)))
+                       (assoc :aspect-thresholds (merge (:aspect-thresholds default-settings) (:aspect-thresholds loaded))))]
         (reset! settings merged)
         ;; Sync language with i18n module
         (when-let [lang (:language @settings)]
@@ -225,6 +234,32 @@
   "Set whether to always use default folder"
   [value]
   (swap! settings assoc-in [:projects :always-use-folder] value))
+
+;; =============================================================================
+;; Aspect Threshold Operations
+;; =============================================================================
+
+(defn get-aspect-thresholds
+  "Get all aspect thresholds"
+  []
+  (get @settings :aspect-thresholds))
+
+(defn get-aspect-threshold
+  "Get threshold for a specific container"
+  [container-id]
+  (get-in @settings [:aspect-thresholds (keyword container-id)] 0))
+
+(defn set-aspect-threshold!
+  "Set threshold for a specific container and save"
+  [container-id value]
+  (swap! settings assoc-in [:aspect-thresholds (keyword container-id)] value)
+  (save-settings!))
+
+(defn set-aspect-thresholds!
+  "Set all thresholds at once (for sync from outline atom)"
+  [thresholds]
+  (swap! settings assoc :aspect-thresholds thresholds)
+  (save-settings!))
 
 ;; =============================================================================
 ;; AI Settings Operations
