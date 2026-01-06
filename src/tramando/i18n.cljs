@@ -173,6 +173,16 @@
     :continue-work "Continua il lavoro in corso"
     :new-project "Nuovo progetto"
     :open-file "Apri file..."
+    :work-local "Lavora in locale"
+    :work-local-desc "Crea, modifica e salva progetti direttamente sul tuo computer"
+    :login-server "Accedi al server"
+    :login-server-desc "Lavora in team e sincronizza i tuoi progetti"
+    :login "Accedi"
+    :register "Registrati"
+    :have-account "Hai un account?"
+    :no-account "Non hai un account?"
+    :username-min-chars "Username: almeno 3 caratteri"
+    :password-min-chars "Password: almeno 6 caratteri"
 
     ;; Tutorial
     :tutorial-welcome-title "Benvenuto in Tramando"
@@ -679,6 +689,16 @@
     :continue-work "Continue previous work"
     :new-project "New project"
     :open-file "Open file..."
+    :work-local "Work locally"
+    :work-local-desc "Create, edit and save projects directly on your computer"
+    :login-server "Connect to server"
+    :login-server-desc "Work as a team and sync your projects"
+    :login "Login"
+    :register "Register"
+    :have-account "Have an account?"
+    :no-account "Don't have an account?"
+    :username-min-chars "Username: at least 3 characters"
+    :password-min-chars "Password: at least 6 characters"
 
     ;; Tutorial
     :tutorial-welcome-title "Welcome to Tramando"

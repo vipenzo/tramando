@@ -1778,11 +1778,11 @@
                   :color (:text colors)
                   :font-weight "500"
                   :font-size "1.1rem"}}
-     "Lavora in locale"]
+     (t :work-local)]
     [:p {:style {:margin 0
                  :font-size "0.8rem"
                  :color (:text-muted colors)}}
-     "Crea, modifica e salva progetti direttamente sul tuo computer"]]
+     (t :work-local-desc)]]
    ;; Buttons
    [:div {:style {:display "flex"
                   :flex-direction "column"
@@ -1858,11 +1858,11 @@
                   :color (:text colors)
                   :font-weight "500"
                   :font-size "1.1rem"}}
-     "Accedi al server"]
+     (t :login-server)]
     [:p {:style {:margin 0
                  :font-size "0.8rem"
                  :color (:text-muted colors)}}
-     "Lavora in team e sincronizza i tuoi progetti"]]
+     (t :login-server-desc)]]
    ;; Error
    (when @splash-login-error
      [:div {:style {:background (settings/get-color :danger)
@@ -1878,9 +1878,9 @@
                         (reset! splash-login-error nil)
                         (cond
                           (< (count @splash-login-username) 3)
-                          (reset! splash-login-error "Username: almeno 3 caratteri")
+                          (reset! splash-login-error (t :username-min-chars))
                           (< (count @splash-login-password) 6)
-                          (reset! splash-login-error "Password: almeno 6 caratteri")
+                          (reset! splash-login-error (t :password-min-chars))
                           :else
                           (do
                             (reset! splash-login-loading? true)
@@ -1952,12 +1952,12 @@
                       :opacity (if @splash-login-loading? 0.7 1)}}
      (cond
        @splash-login-loading? "..."
-       @splash-register-mode? "Registrati"
-       :else "Accedi")]]
+       @splash-register-mode? (t :register)
+       :else (t :login))]]
    ;; Toggle
    [:div {:style {:text-align "center" :margin-top "12px"}}
     [:span {:style {:color (:text-muted colors) :font-size "0.85rem"}}
-     (if @splash-register-mode? "Hai un account? " "Non hai un account? ")]
+     (if @splash-register-mode? (str (t :have-account) " ") (str (t :no-account) " "))]
     [:a {:href "#"
          :on-click (fn [e]
                      (.preventDefault e)
@@ -1966,7 +1966,7 @@
          :style {:color (:accent colors)
                  :text-decoration "none"
                  :font-size "0.85rem"}}
-     (if @splash-register-mode? "Accedi" "Registrati")]]])
+     (if @splash-register-mode? (t :login) (t :register))]]])
 
 (defn splash-screen []
   (r/create-class
@@ -1981,7 +1981,9 @@
             has-autosave (model/has-autosave?)
             use-texture (or (get colors :background-texture) (= current-theme :tessuto))
             is-webapp? (not (platform/tauri?))
-            _ @i18n/current-lang]
+            _ @i18n/current-lang
+            current-lang @i18n/current-lang
+            lang-flags {:it "🇮🇹" :en "🇬🇧"}]
         [:div {:style {:position "fixed"
                        :top 0 :left 0 :right 0 :bottom 0
                        :background (:background colors)
@@ -2036,7 +2038,33 @@
                          :flex-wrap "wrap"}}
            [splash-local-panel colors has-autosave]
            (when is-webapp?
-             [splash-server-panel colors])]]]))}))
+             [splash-server-panel colors])]]
+         ;; Language selector (bottom right) with flags
+         [:div {:style {:position "absolute"
+                        :bottom "20px"
+                        :right "20px"
+                        :z-index 10
+                        :display "flex"
+                        :gap "4px"
+                        :background (str (:background colors) "e0")
+                        :padding "6px 10px"
+                        :border-radius "20px"
+                        :border (str "1px solid " (:border colors))
+                        :opacity (if @splash-fade-in? 1 0)
+                        :transition "opacity 0.5s ease-out 0.5s"}}
+          (doall
+           (for [[lang-key _] i18n/available-languages]
+             ^{:key lang-key}
+             [:span {:style {:cursor "pointer"
+                             :font-size "1.3rem"
+                             :padding "2px 6px"
+                             :border-radius "4px"
+                             :opacity (if (= lang-key current-lang) 1 0.5)
+                             :transform (if (= lang-key current-lang) "scale(1.1)" "scale(1)")
+                             :transition "all 0.2s"}
+                     :title (get i18n/available-languages lang-key)
+                     :on-click #(settings/set-language! lang-key)}
+              (get lang-flags lang-key)]))]]))}))
 
 ;; =============================================================================
 ;; Main Layout

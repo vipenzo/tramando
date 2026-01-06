@@ -1894,15 +1894,20 @@
   (let [current @active-tab
         chunk (model/get-selected-chunk)
         is-aspect? (model/is-aspect-chunk? chunk)]
+    ;; Se siamo sul tab refs ma il chunk non è un aspetto, torna a edit
+    (when (and (= current :refs) (not is-aspect?))
+      (set-tab! :edit))
     [:div.tab-bar
      [:button.tab {:class (when (= current :edit) "active")
                    :title (t :help-tab-modifica)
                    :on-click #(set-tab! :edit)}
       (t :edit)]
-     [:button.tab {:class (when (= current :refs) "active")
-                   :title (if is-aspect? (t :help-tab-usato-da) (t :help-tab-figli))
-                   :on-click #(set-tab! :refs)}
-      (if is-aspect? (t :used-by) (t :children))]
+     ;; Tab "Usato da" solo per gli aspetti
+     (when is-aspect?
+       [:button.tab {:class (when (= current :refs) "active")
+                     :title (t :help-tab-usato-da)
+                     :on-click #(set-tab! :refs)}
+        (t :used-by)])
      [:button.tab {:class (when (= current :read) "active")
                    :title (t :help-tab-lettura)
                    :on-click #(set-tab! :read)}
