@@ -8,85 +8,55 @@
 ;; =============================================================================
 
 (def default-themes
-  {:tessuto {:background "#e8dcc8"
-             :sidebar "#d4c4a8"
-             :text "#3d3225"
-             :text-muted "#7a6f5d"
-             :accent "#c44a4a"
-             :structure "#4a90c2"
-             :personaggi "#c44a4a"
-             :luoghi "#4a9a6a"
-             :temi "#b87333"
-             :sequenze "#8a5ac2"
-             :timeline "#4a90c2"
-             :editor-bg "#f5f0e6"
-             :border "#c4b49a"
-             :ai-panel "#c9b898"
-             :background-texture true}
+  {:dark {:background "#1e1e1e"
+          :sidebar "#252526"
+          :text "#cccccc"
+          :text-muted "#858585"
+          :text-dim "#5a5a5a"
+          :accent "#4a9f8e"
+          :accent-hover "#5bbfab"
+          :accent-muted "rgba(74, 159, 142, 0.15)"
+          :logo-accent "#5b9aa9"
+          :structure "#858585"
+          ;; Colori aspetti per la mappa radiale
+          :personaggi "#e06c75"    ; rosso/rosa
+          :luoghi "#61afef"        ; blu
+          :temi "#c678dd"          ; viola
+          :sequenze "#e5c07b"      ; giallo/oro
+          :timeline "#98c379"      ; verde
+          :editor-bg "#1e1e1e"
+          :tertiary "#2d2d30"
+          :hover "#3c3c3c"
+          :border "#3c3c3c"
+          :ai-panel "#252526"
+          :danger "#e57373"}
 
-   :dark {:background "#1a1a2e"
-          :sidebar "#16213e"
-          :text "#eeeeee"
-          :text-muted "#888888"
-          :accent "#e94560"
-          :structure "#4a90d9"
-          :personaggi "#e94560"
-          :luoghi "#50c878"
-          :temi "#ffd700"
-          :sequenze "#9370db"
-          :timeline "#ff6b6b"
-          :editor-bg "#0f3460"
-          :border "#0f3460"
-          :ai-panel "#1e2a4a"}
-
-   :light {:background "#f5f5f5"
-           :sidebar "#e8e8e8"
+   :light {:background "#ffffff"
+           :sidebar "#f5f5f5"
            :text "#333333"
            :text-muted "#666666"
-           :accent "#d63031"
-           :structure "#2980b9"
-           :personaggi "#d63031"
-           :luoghi "#27ae60"
-           :temi "#f39c12"
-           :sequenze "#8e44ad"
-           :timeline "#e74c3c"
+           :text-dim "#999999"
+           :accent "#4a9f8e"
+           :accent-hover "#3d8a7a"
+           :accent-muted "rgba(74, 159, 142, 0.1)"
+           :logo-accent "#5b9aa9"
+           :structure "#666666"
+           ;; Colori aspetti per la mappa radiale
+           :personaggi "#c0392b"    ; rosso scuro
+           :luoghi "#2980b9"        ; blu
+           :temi "#8e44ad"          ; viola
+           :sequenze "#d68910"      ; oro scuro
+           :timeline "#27ae60"      ; verde
            :editor-bg "#ffffff"
-           :border "#cccccc"
-           :ai-panel "#d8d8d8"}
-
-   :sepia {:background "#f4ecd8"
-           :sidebar "#ebe3d0"
-           :text "#5c4b37"
-           :text-muted "#8b7355"
-           :accent "#8b4513"
-           :structure "#4a6741"
-           :personaggi "#8b4513"
-           :luoghi "#228b22"
-           :temi "#b8860b"
-           :sequenze "#6b4423"
-           :timeline "#cd5c5c"
-           :editor-bg "#faf6eb"
-           :border "#d4c4a8"
-           :ai-panel "#e0d5c0"}
-
-   :ulysses {:background "#1e1e2e"
-             :sidebar "#252535"
-             :text "#e0e0e0"
-             :text-muted "#7a7a8c"
-             :accent "#7c7cff"
-             :structure "#7c7cff"
-             :personaggi "#ff7c7c"
-             :luoghi "#7cffb4"
-             :temi "#ffd97c"
-             :sequenze "#c77cff"
-             :timeline "#7cc4ff"
-             :editor-bg "#2a2a3e"
-             :border "#3a3a4e"
-             :ai-panel "#2e2e42"}})
+           :tertiary "#ebebeb"
+           :hover "#e0e0e0"
+           :border "#e0e0e0"
+           :ai-panel "#f5f5f5"
+           :danger "#e57373"}})
 
 (def default-settings
-  {:theme :tessuto
-   :colors (:tessuto default-themes)
+  {:theme :dark
+   :colors (:dark default-themes)
    :autosave-delay-ms 3000
    :language :it
    :tutorial-completed false
@@ -101,7 +71,13 @@
         :groq-model "llama-3.3-70b-versatile"
         :auto-send false}
    :projects {:default-folder ""
-              :always-use-folder false}})
+              :always-use-folder false}
+   ;; Aspect priority thresholds (0 = show all)
+   :aspect-thresholds {:personaggi 0
+                       :luoghi 0
+                       :temi 0
+                       :sequenze 0
+                       :timeline 0}})
 
 ;; =============================================================================
 ;; Settings State
@@ -129,13 +105,20 @@
   (when-let [data (.getItem js/localStorage localstorage-key)]
     (try
       (let [loaded (edn/read-string data)
-            ;; Deep merge for nested maps (colors, ai, projects) to preserve new defaults
-            theme-key (or (:theme loaded) :tessuto)
-            default-colors (get default-themes theme-key (:tessuto default-themes))
+            ;; Migrate old themes to dark/light
+            raw-theme (or (:theme loaded) :dark)
+            theme-key (case raw-theme
+                        (:tessuto :sepia) :light  ; light-ish themes -> light
+                        (:ulysses :dark :custom) :dark  ; dark-ish themes -> dark
+                        :light :light
+                        :dark)  ; default
+            default-colors (get default-themes theme-key)
             merged (-> (merge default-settings loaded)
-                       (assoc :colors (merge default-colors (:colors loaded)))
+                       (assoc :theme theme-key)
+                       (assoc :colors default-colors)
                        (assoc :ai (merge (:ai default-settings) (:ai loaded)))
-                       (assoc :projects (merge (:projects default-settings) (:projects loaded))))]
+                       (assoc :projects (merge (:projects default-settings) (:projects loaded)))
+                       (assoc :aspect-thresholds (merge (:aspect-thresholds default-settings) (:aspect-thresholds loaded))))]
         (reset! settings merged)
         ;; Sync language with i18n module
         (when-let [lang (:language @settings)]
@@ -158,39 +141,30 @@
   (get-in @settings [:colors color-key]))
 
 (defn set-theme!
-  "Set the theme to a predefined theme"
+  "Set the theme to :dark or :light"
   [theme-key]
   (when-let [theme-colors (get default-themes theme-key)]
-    (let [;; Preserve background-texture setting if it was enabled
-          had-texture (or (get-in @settings [:colors :background-texture])
-                          (= (:theme @settings) :tessuto))]
-      (swap! settings assoc
-             :theme theme-key
-             :colors (assoc theme-colors :background-texture had-texture)))))
+    (swap! settings assoc
+           :theme theme-key
+           :colors theme-colors)
+    (save-settings!)))
 
-(defn set-color!
-  "Set a specific color"
-  [color-key color-value]
+(defn toggle-theme!
+  "Toggle between dark and light themes"
+  []
   (let [current-theme (:theme @settings)
-        ;; Preserve background-texture when switching to custom theme
-        has-texture (or (get-in @settings [:colors :background-texture])
-                        (= current-theme :tessuto))]
-    (swap! settings assoc-in [:colors color-key] color-value)
-    ;; When manually changing colors, set theme to :custom but preserve texture setting
-    (swap! settings assoc :theme :custom)
-    (swap! settings assoc-in [:colors :background-texture] has-texture)))
+        new-theme (if (= current-theme :light) :dark :light)]
+    (set-theme! new-theme)))
+
+(defn is-light-theme?
+  "Check if current theme is light"
+  []
+  (= (:theme @settings) :light))
 
 (defn set-autosave-delay!
   "Set autosave delay in milliseconds"
   [delay-ms]
   (swap! settings assoc :autosave-delay-ms delay-ms))
-
-(defn reset-to-theme!
-  "Reset colors to the currently selected theme defaults"
-  []
-  (let [current-theme (:theme @settings)
-        theme-key (if (= current-theme :custom) :tessuto current-theme)]
-    (set-theme! theme-key)))
 
 (defn get-autosave-delay
   "Get current autosave delay in milliseconds"
@@ -260,6 +234,32 @@
   "Set whether to always use default folder"
   [value]
   (swap! settings assoc-in [:projects :always-use-folder] value))
+
+;; =============================================================================
+;; Aspect Threshold Operations
+;; =============================================================================
+
+(defn get-aspect-thresholds
+  "Get all aspect thresholds"
+  []
+  (get @settings :aspect-thresholds))
+
+(defn get-aspect-threshold
+  "Get threshold for a specific container"
+  [container-id]
+  (get-in @settings [:aspect-thresholds (keyword container-id)] 0))
+
+(defn set-aspect-threshold!
+  "Set threshold for a specific container and save"
+  [container-id value]
+  (swap! settings assoc-in [:aspect-thresholds (keyword container-id)] value)
+  (save-settings!))
+
+(defn set-aspect-thresholds!
+  "Set all thresholds at once (for sync from outline atom)"
+  [thresholds]
+  (swap! settings assoc :aspect-thresholds thresholds)
+  (save-settings!))
 
 ;; =============================================================================
 ;; AI Settings Operations
@@ -351,15 +351,15 @@
          "          :sidebar \"" (:sidebar colors) "\"\n"
          "          :text \"" (:text colors) "\"\n"
          "          :text-muted \"" (:text-muted colors) "\"\n"
+         "          :text-dim \"" (:text-dim colors) "\"\n"
          "          :accent \"" (:accent colors) "\"\n"
-         "          :structure \"" (:structure colors) "\"\n"
-         "          :personaggi \"" (:personaggi colors) "\"\n"
-         "          :luoghi \"" (:luoghi colors) "\"\n"
-         "          :temi \"" (:temi colors) "\"\n"
-         "          :sequenze \"" (:sequenze colors) "\"\n"
-         "          :timeline \"" (:timeline colors) "\"\n"
+         "          :accent-hover \"" (:accent-hover colors) "\"\n"
+         "          :accent-muted \"" (:accent-muted colors) "\"\n"
+         "          :tertiary \"" (:tertiary colors) "\"\n"
+         "          :hover \"" (:hover colors) "\"\n"
          "          :editor-bg \"" (:editor-bg colors) "\"\n"
-         "          :border \"" (:border colors) "\"}\n"
+         "          :border \"" (:border colors) "\"\n"
+         "          :danger \"" (:danger colors) "\"}\n"
          " :autosave-delay-ms " autosave-delay-ms "}\n")))
 
 (defn download-settings!

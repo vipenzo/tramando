@@ -30,6 +30,14 @@
                                    :priority ""
                                    :comment ""}))
 
+;; State for annotation create modal (new annotation workflow)
+(defonce create-modal-state (r/atom {:visible false
+                                     :annotation-type nil  ;; :TODO, :NOTE, :FIX
+                                     :chunk nil
+                                     :selected-text nil
+                                     :priority ""
+                                     :comment ""}))
+
 ;; Callbacks - these will be set by the main app
 (defonce on-template-action (atom nil))
 (defonce on-wrap-annotation (atom nil))
@@ -56,7 +64,7 @@
 
 (defn show-menu!
   "Show the context menu at the specified position"
-  [x y chunk selected-text & {:keys [annotation menu-type]}]
+  [x y chunk selected-text & {:keys [annotation aspect-link menu-type]}]
   (reset! menu-state {:visible true
                       :x x
                       :y y
@@ -64,6 +72,7 @@
                       :selected-text selected-text
                       :open-submenu nil
                       :annotation annotation
+                      :aspect-link aspect-link
                       :menu-type (or menu-type :selection)}))
 
 (defn hide-menu!
@@ -253,6 +262,187 @@
           (t :save)]]]])))
 
 ;; =============================================================================
+;; Annotation Create Modal (new workflow)
+;; =============================================================================
+
+(defn- annotation-type-color
+  "Get the color for an annotation type"
+  [ann-type colors]
+  (case ann-type
+    :TODO (:accent colors)
+    :NOTE (:luoghi colors)
+    :FIX (:danger colors)
+    (:accent colors)))
+
+(defn show-create-modal!
+  "Show the annotation create modal"
+  [annotation-type chunk selected-text]
+  (reset! create-modal-state {:visible true
+                              :annotation-type (keyword annotation-type)
+                              :chunk chunk
+                              :selected-text selected-text
+                              :priority ""
+                              :comment ""}))
+
+(defn hide-create-modal!
+  "Hide the annotation create modal"
+  []
+  (reset! create-modal-state {:visible false
+                              :annotation-type nil
+                              :chunk nil
+                              :selected-text nil
+                              :priority ""
+                              :comment ""}))
+
+(defn confirm-create-annotation!
+  "Confirm and create the annotation"
+  []
+  (let [{:keys [annotation-type chunk selected-text priority comment]} @create-modal-state]
+    (when (and @on-wrap-annotation chunk selected-text)
+      (@on-wrap-annotation (name annotation-type) chunk selected-text priority comment))
+    (hide-create-modal!)))
+
+(defn annotation-create-modal
+  "Modal for creating a new annotation with comment and priority"
+  []
+  (let [{:keys [visible annotation-type selected-text priority comment]} @create-modal-state
+        colors (:colors @settings/settings)
+        type-color (when annotation-type (annotation-type-color annotation-type colors))
+        input-ref (atom nil)]
+    (when visible
+      [:div {:style {:position "fixed"
+                     :top 0 :left 0 :right 0 :bottom 0
+                     :background "rgba(0,0,0,0.5)"
+                     :display "flex"
+                     :align-items "center"
+                     :justify-content "center"
+                     :z-index 10002}
+             :on-mouse-down #(hide-create-modal!)}
+       [:div {:style {:background (:sidebar colors)
+                      :border-radius "8px"
+                      :padding "20px"
+                      :min-width "320px"
+                      :max-width "450px"
+                      :box-shadow "0 4px 20px rgba(0,0,0,0.4)"
+                      :border-top (str "3px solid " type-color)}
+              :on-mouse-down #(.stopPropagation %)}
+        ;; Title with type badge
+        [:div {:style {:display "flex"
+                       :align-items "center"
+                       :gap "10px"
+                       :margin-bottom "16px"}}
+         [:span {:style {:background type-color
+                         :color "#fff"
+                         :padding "4px 10px"
+                         :border-radius "4px"
+                         :font-size "0.85rem"
+                         :font-weight "600"}}
+          (when annotation-type (name annotation-type))]
+         [:span {:style {:color (:text colors)
+                         :font-size "1rem"}}
+          (t :new-annotation)]]
+
+        ;; Show selected text (read-only)
+        [:div {:style {:margin-bottom "16px"}}
+         [:label {:style {:display "block"
+                          :color (:text-muted colors)
+                          :font-size "0.85rem"
+                          :margin-bottom "4px"}}
+          (t :selected-text-label)]
+         [:div {:style {:background (:editor-bg colors)
+                        :padding "8px 12px"
+                        :border-radius "4px"
+                        :color (:text colors)
+                        :font-style "italic"
+                        :max-height "60px"
+                        :overflow-y "auto"}}
+          selected-text]]
+
+        ;; Comment field (with auto-focus)
+        [:div {:style {:margin-bottom "16px"}}
+         [:label {:style {:display "block"
+                          :color (:text-muted colors)
+                          :font-size "0.85rem"
+                          :margin-bottom "4px"}}
+          (t :annotation-comment)]
+         [:input {:type "text"
+                  :ref (fn [el]
+                         (when el
+                           (reset! input-ref el)
+                           ;; Auto-focus after a brief delay
+                           (js/setTimeout #(.focus el) 50)))
+                  :value comment
+                  :on-change #(swap! create-modal-state assoc :comment (.. % -target -value))
+                  :on-key-down (fn [e]
+                                 (when (= (.-key e) "Enter")
+                                   (.preventDefault e)
+                                   (confirm-create-annotation!)))
+                  :placeholder (t :comment-placeholder)
+                  :style {:width "100%"
+                          :padding "8px"
+                          :border (str "1px solid " (:border colors))
+                          :border-radius "4px"
+                          :background (:editor-bg colors)
+                          :color (:text colors)
+                          :font-size "0.95rem"
+                          :box-sizing "border-box"}}]]
+
+        ;; Priority field
+        [:div {:style {:margin-bottom "20px"}}
+         [:label {:style {:display "block"
+                          :color (:text-muted colors)
+                          :font-size "0.85rem"
+                          :margin-bottom "4px"}}
+          (str (t :annotation-priority) " " (t :optional))]
+         [:input {:type "text"
+                  :value priority
+                  :on-change #(let [v (.. % -target -value)
+                                    clean (str/replace v #"[^0-9.]" "")]
+                                (swap! create-modal-state assoc :priority clean))
+                  :on-key-down (fn [e]
+                                 (when (= (.-key e) "Enter")
+                                   (.preventDefault e)
+                                   (confirm-create-annotation!)))
+                  :placeholder "1, 2.5, 10..."
+                  :style {:width "100%"
+                          :padding "8px"
+                          :border (str "1px solid " (:border colors))
+                          :border-radius "4px"
+                          :background (:editor-bg colors)
+                          :color (:text colors)
+                          :font-size "0.95rem"
+                          :box-sizing "border-box"}}]]
+
+        ;; Hint for Enter key
+        [:div {:style {:color (:text-dim colors)
+                       :font-size "0.75rem"
+                       :margin-bottom "16px"
+                       :text-align "center"}}
+         (t :press-enter-to-confirm)]
+
+        ;; Buttons
+        [:div {:style {:display "flex"
+                       :justify-content "flex-end"
+                       :gap "12px"}}
+         [:button {:on-click #(hide-create-modal!)
+                   :style {:padding "8px 16px"
+                           :border (str "1px solid " (:border colors))
+                           :border-radius "4px"
+                           :background "transparent"
+                           :color (:text colors)
+                           :cursor "pointer"}}
+          (t :cancel)]
+         [:button {:on-click #(confirm-create-annotation!)
+                   :style {:padding "8px 16px"
+                           :border "none"
+                           :border-radius "4px"
+                           :background type-color
+                           :color "#fff"
+                           :cursor "pointer"
+                           :font-weight "500"}}
+          (t :add)]]]])))
+
+;; =============================================================================
 ;; AI Configuration Check
 ;; =============================================================================
 
@@ -276,12 +466,31 @@
   (hide-menu!))
 
 (defn handle-wrap-annotation!
-  "Handle wrapping selected text with an annotation"
+  "Handle wrapping selected text with an annotation - shows create modal"
   [annotation-type]
-  (when @on-wrap-annotation
-    (@on-wrap-annotation annotation-type
-                         (:chunk @menu-state)
-                         (:selected-text @menu-state)))
+  (let [chunk (:chunk @menu-state)
+        selected-text (:selected-text @menu-state)]
+    (when (and chunk selected-text)
+      (show-create-modal! annotation-type chunk selected-text)))
+  (hide-menu!))
+
+(defn handle-create-proposal!
+  "Handle creating a proposal for selected text"
+  []
+  (let [chunk (:chunk @menu-state)
+        selected-text (:selected-text @menu-state)]
+    (when (and chunk (seq selected-text))
+      ;; Prompt for proposed text
+      (when-let [proposed-text (js/prompt (t :proposal-enter-text) selected-text)]
+        (when (and (seq proposed-text) (not= proposed-text selected-text))
+          (let [content (:content chunk)
+                ;; Find the position of selected text in content
+                start (.indexOf content selected-text)]
+            (when (>= start 0)
+              (let [end (+ start (count selected-text))]
+                (model/create-proposal-in-chunk! (:id chunk) start end proposed-text)
+                ;; Refresh editor to update decorations
+                (js/setTimeout #(events/refresh-editor!) 50))))))))
   (hide-menu!))
 
 ;; =============================================================================
@@ -368,17 +577,17 @@
             :items [{:id :todo
                      :label "TODO"
                      :icon "●"
-                     :color "#f5a623"
+                     :color (settings/get-color :accent)
                      :action #(handle-wrap-annotation! "TODO")}
                     {:id :note
                      :label "NOTE"
                      :icon "●"
-                     :color "#2196f3"
+                     :color (settings/get-color :luoghi)  ; blu per distinguere da TODO
                      :action #(handle-wrap-annotation! "NOTE")}
                     {:id :fix
                      :label "FIX"
                      :icon "●"
-                     :color "#f44336"
+                     :color (settings/get-color :danger)
                      :action #(handle-wrap-annotation! "FIX")}]}])
 
 (defn- tone-submenu
@@ -554,7 +763,7 @@
                              (hide-menu!))}]
      [menu-separator]
      [menu-item {:label (t :delete-annotation)
-                 :color "#f44336"
+                 :color (settings/get-color :danger)
                  :on-click (fn []
                              ;; Delete annotation, keeping original text
                              (when @on-delete-annotation
@@ -583,10 +792,188 @@
                    :overflow "hidden"}
            :on-click #(.stopPropagation %)}
      [menu-item {:label (t :cancel-request)
-                 :color "#f44336"
+                 :color (settings/get-color :danger)
                  :on-click (fn []
                              (ai-handlers/cancel-ai-annotation! chunk-id selected-text)
                              (hide-menu!))}]]))
+
+;; =============================================================================
+;; Proposal Annotation Menu (Interactive like AI-DONE)
+;; =============================================================================
+
+(defn- proposal-annotation-menu
+  "Context menu for PROPOSAL annotations - interactive preview like AI-DONE"
+  [{:keys [x y annotation]}]
+  (let [menu-width 300
+        chunk-id (:chunk-id annotation)
+        original-text (:selected-text annotation)
+        sender (annotations/get-proposal-from annotation)
+        ;; Read fresh data from chunk to get current selection state
+        fresh-chunk (model/get-chunk chunk-id)
+        fresh-content (:content fresh-chunk)
+        ;; Find the annotation in fresh content and parse its data
+        fresh-annotation (first (filter #(and (= (:selected-text %) original-text)
+                                              (annotations/is-proposal? %))
+                                        (annotations/parse-annotations fresh-content)))
+        fresh-comment (or (:comment fresh-annotation) (:comment annotation))
+        proposal-data (annotations/parse-proposal-data fresh-comment)
+        proposed-text (or (:text proposal-data) "")
+        current-sel (or (:sel proposal-data) 0)
+        ;; Preview helper
+        make-preview (fn [text]
+                       (if (> (count text) 60)
+                         (str (subs text 0 57) "...")
+                         text))]
+    [:div {:style {:position "fixed"
+                   :left (str x "px")
+                   :top (str y "px")
+                   :background (settings/get-color :sidebar)
+                   :border (str "1px solid " (settings/get-color :border))
+                   :border-radius "6px"
+                   :box-shadow "0 4px 12px rgba(0,0,0,0.3)"
+                   :min-width (str menu-width "px")
+                   :max-width "400px"
+                   :z-index 10001
+                   :overflow "hidden"}
+           :on-click #(.stopPropagation %)}
+     ;; Header: who proposed
+     [:div {:style {:padding "10px 12px"
+                    :font-size "0.85rem"
+                    :color (settings/get-color :text-muted)
+                    :border-bottom (str "1px solid " (settings/get-color :border))}}
+      [:span {:style {:font-weight "500" :color (settings/get-color :text)}}
+       (str (t :proposal-from) " " (or sender "local"))]]
+
+     ;; Original text option (sel=0) - selectable
+     (let [is-original-selected? (zero? current-sel)]
+       [:div {:style {:padding "8px 12px"
+                      :cursor "pointer"
+                      :display "flex"
+                      :align-items "flex-start"
+                      :gap "8px"
+                      :background (when is-original-selected? (settings/get-color :editor-bg))
+                      :border-bottom (str "1px solid " (settings/get-color :border))}
+              :on-mouse-over #(set! (.. % -currentTarget -style -background) (settings/get-color :editor-bg))
+              :on-mouse-out #(set! (.. % -currentTarget -style -background) (if is-original-selected? (settings/get-color :editor-bg) "transparent"))
+              :on-click (fn [e]
+                          (.stopPropagation e)
+                          (model/update-proposal-selection! chunk-id original-text 0)
+                          (js/setTimeout #(events/refresh-editor!) 50))}
+        [:span {:style {:color (if is-original-selected? (settings/get-color :accent) (settings/get-color :text-muted))
+                        :flex-shrink 0}}
+         (if is-original-selected? "●" "○")]
+        [:div {:style {:flex 1}}
+         [:div {:style {:font-size "0.7rem"
+                        :text-transform "uppercase"
+                        :color (settings/get-color :text-muted)
+                        :margin-bottom "2px"}}
+          (t :proposal-original)]
+         [:span {:style {:font-size "0.85rem"
+                         :color (settings/get-color :text)}}
+          (make-preview original-text)]]
+        (when is-original-selected?
+          [:span {:style {:color (settings/get-color :accent)
+                          :flex-shrink 0}}
+           "✓"])])
+
+     ;; Proposed text option (sel=1) - selectable
+     (let [is-proposed-selected? (pos? current-sel)]
+       [:div {:style {:padding "8px 12px"
+                      :cursor "pointer"
+                      :display "flex"
+                      :align-items "flex-start"
+                      :gap "8px"
+                      :background (when is-proposed-selected? (settings/get-color :editor-bg))
+                      :border-bottom (str "1px solid " (settings/get-color :border))}
+              :on-mouse-over #(set! (.. % -currentTarget -style -background) (settings/get-color :editor-bg))
+              :on-mouse-out #(set! (.. % -currentTarget -style -background) (if is-proposed-selected? (settings/get-color :editor-bg) "transparent"))
+              :on-click (fn [e]
+                          (.stopPropagation e)
+                          (model/update-proposal-selection! chunk-id original-text 1)
+                          (js/setTimeout #(events/refresh-editor!) 50))}
+        [:span {:style {:color (if is-proposed-selected? (settings/get-color :accent) (settings/get-color :text-muted))
+                        :flex-shrink 0}}
+         (if is-proposed-selected? "●" "○")]
+        [:div {:style {:flex 1}}
+         [:div {:style {:font-size "0.7rem"
+                        :text-transform "uppercase"
+                        :color (settings/get-color :text-muted)
+                        :margin-bottom "2px"}}
+          (t :proposal-proposed)]
+         [:span {:style {:font-size "0.85rem"
+                         :color (settings/get-color :accent)
+                         :font-weight "500"}}
+          (make-preview (if (seq proposed-text) proposed-text "(testo vuoto)"))]]
+        (when is-proposed-selected?
+          [:span {:style {:color (settings/get-color :accent)
+                          :flex-shrink 0}}
+           "✓"])])
+
+     ;; Separator
+     [menu-separator]
+
+     ;; Confirm button (applies the current selection - original or proposed)
+     ;; Re-read fresh annotation at click time to get current sel state
+     [menu-item {:label (if (pos? current-sel)
+                          (t :proposal-accept)      ; Proposed selected
+                          (t :proposal-reject))     ; Original selected (reject proposal)
+                 :icon "✓"
+                 :color (if (pos? current-sel) (settings/get-color :accent) (settings/get-color :text))
+                 :on-click (fn []
+                             ;; Get fresh annotation at click time (sel may have changed)
+                             (let [chunk (model/get-chunk chunk-id)
+                                   content (:content chunk)
+                                   current-annotation (first (filter #(and (= (:selected-text %) original-text)
+                                                                           (annotations/is-proposal? %))
+                                                                     (annotations/parse-annotations content)))
+                                   ann (or current-annotation annotation)
+                                   sel-data (annotations/parse-proposal-data (:comment ann))
+                                   sel-now (or (:sel sel-data) 0)]
+                               (if (pos? sel-now)
+                                 ;; Apply proposed text
+                                 (do
+                                   (model/accept-proposal! chunk-id ann)
+                                   (events/show-toast! (t :discussion-proposal-accepted)))
+                                 ;; Keep original (reject)
+                                 (do
+                                   (model/reject-proposal! chunk-id ann)
+                                   (events/show-toast! (t :discussion-proposal-rejected)))))
+                             (events/refresh-editor!)
+                             (hide-menu!))}]]))
+
+;; =============================================================================
+;; Aspect Link Context Menu
+;; =============================================================================
+
+(defn- aspect-link-menu
+  "Context menu for aspect links [@id]"
+  [{:keys [x y aspect-link]}]
+  (let [menu-width 200
+        aspect-id (:aspect-id aspect-link)
+        aspect (:aspect aspect-link)
+        aspect-name (when aspect (or (:summary aspect) aspect-id))]
+    [:div {:style {:position "fixed"
+                   :left (str x "px")
+                   :top (str y "px")
+                   :background (settings/get-color :sidebar)
+                   :border (str "1px solid " (settings/get-color :border))
+                   :border-radius "6px"
+                   :box-shadow "0 4px 12px rgba(0,0,0,0.3)"
+                   :min-width (str menu-width "px")
+                   :z-index 10001
+                   :overflow "hidden"}
+           :on-click #(.stopPropagation %)}
+     (if aspect
+       ;; Aspect found - show go to option
+       [menu-item {:label (str (t :go-to-aspect) ": " aspect-name)
+                   :icon "→"
+                   :on-click (fn []
+                               (events/navigate-to-chunk! aspect-id)
+                               (hide-menu!))}]
+       ;; Aspect not found
+       [menu-item {:label (str (t :aspect-not-found) ": " aspect-id)
+                   :disabled? true
+                   :color (settings/get-color :text-muted)}])]))
 
 ;; =============================================================================
 ;; Selection Context Menu (text selected, no annotation)
@@ -621,6 +1008,12 @@
                   :submenu-key :annotation}]
       (when (= open-submenu :annotation)
         [annotation-submenu (calculate-submenu-rect x y 0 menu-width)])]
+
+     ;; Proposal section (collaborative)
+     [menu-separator]
+     [menu-item {:label (t :proposal-create)
+                 :on-click handle-create-proposal!
+                 :icon "💬"}]
 
      ;; AI section (only if configured)
      (when ai-configured?
@@ -684,7 +1077,7 @@
 (defn context-menu
   "The main context menu component"
   []
-  (let [{:keys [visible x y chunk selected-text open-submenu annotation menu-type]} @menu-state]
+  (let [{:keys [visible x y chunk selected-text open-submenu annotation aspect-link menu-type]} @menu-state]
     [:<>
      ;; Context menu overlay
      (when visible
@@ -710,11 +1103,19 @@
           :annotation-normal
           [normal-annotation-menu {:x x :y y :annotation annotation :chunk chunk}]
 
+          :annotation-proposal
+          [proposal-annotation-menu {:x x :y y :annotation annotation}]
+
+          :aspect-link
+          [aspect-link-menu {:x x :y y :aspect-link aspect-link}]
+
           ;; Default: selection menu
           [selection-context-menu {:x x :y y :chunk chunk :selected-text selected-text :open-submenu open-submenu}])])
 
      ;; Annotation edit modal (rendered independently)
-     [annotation-edit-modal]]))
+     [annotation-edit-modal]
+     ;; Annotation create modal (for new annotation workflow)
+     [annotation-create-modal]]))
 
 ;; =============================================================================
 ;; Event Handler for Context Menu
@@ -761,6 +1162,7 @@
         menu-type (cond
                     (annotations/is-ai-done? annotation) :annotation-ai-done
                     (= priority :AI) :annotation-ai-pending
+                    (annotations/is-proposal? annotation) :annotation-proposal
                     :else :annotation-normal)]
     (show-menu! adjusted-x adjusted-y nil nil
                 :annotation annotation

@@ -32,25 +32,38 @@
     :timeline "Timeline"
 
     ;; Actions
-    :new-chunk "+ Nuovo Chunk"
-    :new-aspect "+ Nuovo aspetto"
+    :new-chunk "Nuovo chunk"
+    :new-aspect "Nuovo aspetto"
     :add-child "+ Figlio di \"{0}\""
     :add-aspect "+ Aspetto"
     :save "Salva"
     :save-as "Salva con nome"
     :load "Carica"
     :export "Esporta"
+    :export-trmd "Esporta TRMD"
     :export-md "Esporta MD"
     :export-pdf "Esporta PDF"
+    :export-docx "Esporta DOCX"
+    :import "Importa"
+    :import-trmd "Importa da TRMD"
+    :import-md "Importa da MD"
+    :import-docx "Importa da Word"
+    :import-pdf "Importa da PDF"
+    :import-select-file "Seleziona file da importare"
+    :import-success "Importazione completata"
+    :import-error "Errore durante l'importazione"
     :delete "Elimina"
     :delete-chunk "Elimina questo chunk"
     :create-child "Crea figlio"
+    :show-in-hierarchy "Mostra in struttura"
     :copy "Copia"
     :copied "Copiato"
     :cancel "Annulla"
     :confirm "Confermi?"
     :close "Chiudi"
     :reset-theme "Reset tema"
+    :theme-light "Tema chiaro"
+    :theme-dark "Tema scuro"
 
     ;; Editor
     :edit "Modifica"
@@ -66,10 +79,46 @@
     :click-to-navigate "Clicca per navigare all'aspetto"
     :remove "Rimuovi"
 
+    ;; Discussion
+    :discussion "Discussione"
+    :discussion-empty "Nessun commento per questo chunk."
+    :discussion-add-comment "Aggiungi commento..."
+    :discussion-send "Invia"
+    :discussion-clear "Svuota discussione"
+    :discussion-clear-confirm "Eliminare tutti i commenti?"
+    :discussion-owner "Proprietario"
+    :discussion-comment "Commento"
+    :discussion-proposal-accepted "Proposta accettata"
+    :discussion-proposal-rejected "Proposta rifiutata"
+    :claim-ownership "Riprendi"
+    :ownership-claimed "Ownership acquisita"
+    :help-tab-discussion "Commenti e proposte risolte per questo chunk"
+
+    ;; Proposals
+    :proposal "Proposta"
+    :proposal-create "Proponi modifica"
+    :proposal-accept "Accetta"
+    :proposal-reject "Rifiuta"
+    :proposal-from "Proposta di {0}"
+    :proposal-original "Testo originale:"
+    :proposal-proposed "Testo proposto:"
+    :proposal-pending "In attesa"
+    :proposal-enter-text "Inserisci il testo proposto..."
+    :proposal-reason "Motivo (opzionale)..."
+    :proposal-no-selection "Seleziona del testo per proporre una modifica"
+
     ;; Status
     :modified "Modificato"
     :saving "Salvataggio..."
     :saved "Salvato"
+    :all-saved "Tutto salvato"
+    :autosave-in-progress "Salvataggio automatico in corso..."
+    :read-only-not-owner "Sola lettura - non sei il proprietario di questo chunk"
+    ;; Status bar - dual indicators
+    :backup-pending "Modifiche non salvate"
+    :backup-done "Backup eseguito"
+    :file-dirty "File non aggiornato"
+    :file-clean "File aggiornato"
 
     ;; Settings modal
     :settings "Impostazioni"
@@ -92,6 +141,7 @@
     :settings-browse "Sfoglia..."
     :settings-always-use-folder "Apri sempre da questa cartella"
     :settings-no-folder "(nessuna cartella selezionata)"
+    :not-available-in-webapp "(non disponibile in browser)"
 
     ;; Color labels
     :color-background "Sfondo"
@@ -123,6 +173,16 @@
     :continue-work "Continua il lavoro in corso"
     :new-project "Nuovo progetto"
     :open-file "Apri file..."
+    :work-local "Lavora in locale"
+    :work-local-desc "Crea, modifica e salva progetti direttamente sul tuo computer"
+    :login-server "Accedi al server"
+    :login-server-desc "Lavora in team e sincronizza i tuoi progetti"
+    :login "Accedi"
+    :register "Registrati"
+    :have-account "Hai un account?"
+    :no-account "Non hai un account?"
+    :username-min-chars "Username: almeno 3 caratteri"
+    :password-min-chars "Password: almeno 6 caratteri"
 
     ;; Tutorial
     :tutorial-welcome-title "Benvenuto in Tramando"
@@ -160,6 +220,21 @@
     :no-aspects "Nessuno"
     :no-annotations "Nessuna annotazione"
     :none-fem "Nessuna"
+    :all-filtered "Tutti filtrati"
+
+    ;; Priority/Threshold
+    :priority "Priorità"
+    :priority-hint "0=bassa, 10=alta"
+    :decrease-threshold "Riduci soglia"
+    :increase-threshold "Aumenta soglia"
+    :aspect-filtered-out "Aspetto nascosto (sotto soglia)"
+
+    ;; Chat
+    :project-chat "Chat"
+    :chat-placeholder "Scrivi un messaggio..."
+    :chat-empty "Nessun messaggio. Inizia la conversazione!"
+    :expand "Espandi"
+    :collapse "Comprimi"
     :all-aspects-added "Tutti gli aspetti già aggiunti"
     :no-chunk-uses-aspect "Nessun chunk usa questo aspetto"
     :select-chunk "Seleziona un chunk dall'outline o creane uno nuovo"
@@ -402,12 +477,24 @@
     :annotation-priority "Priorità"
     :annotation-comment "Commento"
     :annotation-edit-title "Modifica annotazione"
+    :new-annotation "Nuova annotazione"
     :selected-text-label "Testo"
     :priority-low "Bassa"
     :priority-medium "Media"
     :priority-high "Alta"
     :comment-placeholder "Aggiungi un commento..."
+    :press-enter-to-confirm "Premi Invio per confermare"
+    :optional "(opzionale)"
+
+    ;; Aspect Link Context Menu
+    :go-to-aspect "Vai all'aspetto"
+    :aspect-not-found "Aspetto non trovato"
     :annotation-updated "Annotazione aggiornata"
+
+    ;; Chunk Actions Menu
+    :edit-id "Modifica ID..."
+    :move-to "Sposta in..."
+    :aspect "Aspetto"
 
     ;; Versioning
     :version "Versione"
@@ -461,25 +548,38 @@
     :timeline "Timeline"
 
     ;; Actions
-    :new-chunk "+ New Chunk"
-    :new-aspect "+ New aspect"
+    :new-chunk "New chunk"
+    :new-aspect "New aspect"
     :add-child "+ Child of \"{0}\""
     :add-aspect "+ Aspect"
     :save "Save"
     :save-as "Save As"
     :load "Load"
     :export "Export"
+    :export-trmd "Export TRMD"
     :export-md "Export MD"
     :export-pdf "Export PDF"
+    :export-docx "Export DOCX"
+    :import "Import"
+    :import-trmd "Import from TRMD"
+    :import-md "Import from MD"
+    :import-docx "Import from Word"
+    :import-pdf "Import from PDF"
+    :import-select-file "Select file to import"
+    :import-success "Import completed"
+    :import-error "Import error"
     :delete "Delete"
     :delete-chunk "Delete this chunk"
     :create-child "Create child"
+    :show-in-hierarchy "Show in structure"
     :copy "Copy"
     :copied "Copied"
     :cancel "Cancel"
     :confirm "Confirm?"
     :close "Close"
     :reset-theme "Reset theme"
+    :theme-light "Light theme"
+    :theme-dark "Dark theme"
 
     ;; Editor
     :edit "Edit"
@@ -495,10 +595,46 @@
     :click-to-navigate "Click to navigate to aspect"
     :remove "Remove"
 
+    ;; Discussion
+    :discussion "Discussion"
+    :discussion-empty "No comments for this chunk."
+    :discussion-add-comment "Add comment..."
+    :discussion-send "Send"
+    :discussion-clear "Clear discussion"
+    :discussion-clear-confirm "Delete all comments?"
+    :discussion-owner "Owner"
+    :discussion-comment "Comment"
+    :discussion-proposal-accepted "Proposal accepted"
+    :discussion-proposal-rejected "Proposal rejected"
+    :claim-ownership "Claim"
+    :ownership-claimed "Ownership claimed"
+    :help-tab-discussion "Comments and resolved proposals for this chunk"
+
+    ;; Proposals
+    :proposal "Proposal"
+    :proposal-create "Propose change"
+    :proposal-accept "Accept"
+    :proposal-reject "Reject"
+    :proposal-from "Proposal from {0}"
+    :proposal-original "Original text:"
+    :proposal-proposed "Proposed text:"
+    :proposal-pending "Pending"
+    :proposal-enter-text "Enter proposed text..."
+    :proposal-reason "Reason (optional)..."
+    :proposal-no-selection "Select text to propose a change"
+
     ;; Status
     :modified "Modified"
     :saving "Saving..."
     :saved "Saved"
+    :all-saved "All saved"
+    :autosave-in-progress "Autosave in progress..."
+    :read-only-not-owner "Read-only - you are not the owner of this chunk"
+    ;; Status bar - dual indicators
+    :backup-pending "Unsaved changes"
+    :backup-done "Backup done"
+    :file-dirty "File not saved"
+    :file-clean "File saved"
 
     ;; Settings modal
     :settings "Settings"
@@ -521,6 +657,7 @@
     :settings-browse "Browse..."
     :settings-always-use-folder "Always use this folder"
     :settings-no-folder "(no folder selected)"
+    :not-available-in-webapp "(not available in browser)"
 
     ;; Color labels
     :color-background "Background"
@@ -552,6 +689,16 @@
     :continue-work "Continue previous work"
     :new-project "New project"
     :open-file "Open file..."
+    :work-local "Work locally"
+    :work-local-desc "Create, edit and save projects directly on your computer"
+    :login-server "Connect to server"
+    :login-server-desc "Work as a team and sync your projects"
+    :login "Login"
+    :register "Register"
+    :have-account "Have an account?"
+    :no-account "Don't have an account?"
+    :username-min-chars "Username: at least 3 characters"
+    :password-min-chars "Password: at least 6 characters"
 
     ;; Tutorial
     :tutorial-welcome-title "Welcome to Tramando"
@@ -589,6 +736,21 @@
     :no-aspects "None"
     :no-annotations "No annotations"
     :none-fem "None"
+    :all-filtered "All filtered"
+
+    ;; Priority/Threshold
+    :priority "Priority"
+    :priority-hint "0=low, 10=high"
+    :decrease-threshold "Decrease threshold"
+    :increase-threshold "Increase threshold"
+    :aspect-filtered-out "Aspect hidden (below threshold)"
+
+    ;; Chat
+    :project-chat "Chat"
+    :chat-placeholder "Type a message..."
+    :chat-empty "No messages. Start the conversation!"
+    :expand "Expand"
+    :collapse "Collapse"
     :all-aspects-added "All aspects already added"
     :no-chunk-uses-aspect "No chunk uses this aspect"
     :select-chunk "Select a chunk from the outline or create a new one"
@@ -831,12 +993,24 @@
     :annotation-priority "Priority"
     :annotation-comment "Comment"
     :annotation-edit-title "Edit annotation"
+    :new-annotation "New annotation"
     :selected-text-label "Text"
     :priority-low "Low"
     :priority-medium "Medium"
     :priority-high "High"
     :comment-placeholder "Add a comment..."
+    :press-enter-to-confirm "Press Enter to confirm"
+    :optional "(optional)"
     :annotation-updated "Annotation updated"
+
+    ;; Aspect Link Context Menu
+    :go-to-aspect "Go to aspect"
+    :aspect-not-found "Aspect not found"
+
+    ;; Chunk Actions Menu
+    :edit-id "Edit ID..."
+    :move-to "Move to..."
+    :aspect "Aspect"
 
     ;; Versioning
     :version "Version"

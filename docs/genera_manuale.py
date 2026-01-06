@@ -283,34 +283,39 @@ IT = {
     'filename': 'Tramando_Manuale_Italiano.pdf',
     'tagline': 'Tessi la tua storia',
     'manual_title': 'Manuale Utente',
-    'version': 'Versione 1.2',
+    'version': 'Versione 2.0',
     'toc_title': 'Indice',
 
     'chapters': [
         '1. Introduzione',
-        '2. Primi passi',
-        '3. Cos\'e il markup',
-        '4. L\'interfaccia',
-        '5. La Struttura narrativa',
-        '6. Gli Aspetti',
-        '7. I collegamenti',
-        '8. Le annotazioni',
-        '9. Cerca e sostituisci',
-        '10. La mappa radiale',
-        '11. Export PDF',
-        '12. Impostazioni',
-        '13. Il formato file .trmd',
-        '14. Scorciatoie da tastiera',
-        '15. Assistente AI (opzionale)',
+        '2. Modalita di utilizzo',
+        '3. Primi passi',
+        '4. Cos\'e il markup',
+        '5. L\'interfaccia',
+        '6. La Struttura narrativa',
+        '7. Gli Aspetti',
+        '8. I collegamenti',
+        '9. Le annotazioni',
+        '10. Cerca e sostituisci',
+        '11. La mappa radiale',
+        '12. Export PDF, Word e Markdown',
+        '13. Impostazioni',
+        '14. Il formato file .trmd',
+        '15. Scorciatoie da tastiera',
+        '16. Assistente AI (opzionale)',
+        '17. Modalita collaborativa',
         'Appendice: Riferimento rapido',
     ],
 
     'captions': {
-        'splash': 'La schermata di benvenuto di Tramando',
+        'splash_tauri': 'La schermata di benvenuto (versione desktop)',
+        'splash_webapp': 'La schermata di benvenuto (versione webapp con login)',
         'main': 'L\'interfaccia principale di Tramando',
         'filter': 'Il filtro globale e la ricerca in azione',
         'map': 'La mappa radiale con i collegamenti tra elementi',
         'settings': 'Il pannello delle impostazioni',
+        'priority_sidebar': 'Il widget soglia priorita nella sidebar',
+        'priority_editor': 'Il campo priorita nell\'editor aspetto',
     },
 
     # =========================================================================
@@ -342,10 +347,67 @@ IT = {
     },
 
     # =========================================================================
-    # CAPITOLO 2: PRIMI PASSI
+    # CAPITOLO 2: MODALITA DI UTILIZZO
     # =========================================================================
-    'ch2': {
-        'title': '2. Primi passi',
+    'ch2_modes': {
+        'title': '2. Modalita di utilizzo',
+
+        'intro': 'Tramando e disponibile in tre diverse modalita, ognuna pensata per esigenze specifiche. Puoi scegliere quella piu adatta al tuo modo di lavorare.',
+
+        's1_title': 'Applicazione desktop (Tauri)',
+        's1_p1': 'La versione desktop e un\'applicazione nativa per <b>Mac</b>, <b>Windows</b> e <b>Linux</b>. Funziona completamente offline e salva i tuoi progetti come file .trmd sul tuo computer.',
+        's1_items': [
+            '<b>Funziona offline</b> - Non richiede connessione internet',
+            '<b>File locali</b> - I progetti sono salvati sul tuo disco come file .trmd',
+            '<b>Prestazioni native</b> - Interfaccia veloce e reattiva',
+            '<b>Integrazione sistema</b> - Supporto completo per scorciatoie, drag&drop, e gestione file',
+        ],
+        's1_note': 'Questa e la versione consigliata per la maggior parte degli utenti.',
+
+        's2_title': 'Webapp locale',
+        's2_p1': 'Puoi usare Tramando anche direttamente nel browser, aprendo la webapp su un server locale. Questa modalita e identica al desktop ma richiede un browser moderno.',
+        's2_items': [
+            '<b>Nessuna installazione</b> - Basta un browser web',
+            '<b>File locali</b> - Salvataggio su disco tramite API del browser',
+            '<b>Multipiattaforma</b> - Funziona su qualsiasi sistema con un browser moderno',
+        ],
+
+        's3_title': 'Webapp collaborativa',
+        's3_p1': 'La modalita collaborativa permette a piu persone di lavorare sullo stesso progetto. Richiede un server Tramando (self-hosted o in cloud).',
+        's3_items': [
+            '<b>Collaborazione in tempo reale</b> - Piu autori sullo stesso progetto',
+            '<b>Gestione ruoli</b> - Owner, Admin e Collaborator con permessi diversi',
+            '<b>Ownership chunk</b> - Ogni chunk ha un proprietario che puo essere trasferito',
+            '<b>Proposte e discussioni</b> - Sistema di proposte per suggerire modifiche',
+            '<b>Chat integrata</b> - Comunicazione tra collaboratori per ogni chunk',
+        ],
+        's3_note': 'Per i dettagli sulla modalita collaborativa, vedi il capitolo dedicato.',
+
+        's4_title': 'Differenze principali',
+        's4_table': [
+            ['Funzionalita', 'Desktop', 'Webapp locale', 'Collaborativa'],
+            ['Connessione', 'Offline', 'Offline', 'Richiesta'],
+            ['Salvataggio', 'File .trmd', 'File .trmd', 'Server'],
+            ['Versioni/Backup', 'Si', 'Si', 'No (server)'],
+            ['Collaborazione', 'No', 'No', 'Si'],
+            ['Ownership', 'No', 'No', 'Si'],
+            ['Chat', 'No', 'No', 'Si'],
+            ['Proposte', 'No', 'No', 'Si'],
+        ],
+
+        's5_title': 'Quale scegliere?',
+        's5_items': [
+            '<b>Scrivi da solo?</b> - Usa l\'applicazione desktop',
+            '<b>Non vuoi installare nulla?</b> - Usa la webapp locale',
+            '<b>Lavori in team?</b> - Usa la modalita collaborativa',
+        ],
+    },
+
+    # =========================================================================
+    # CAPITOLO 3: PRIMI PASSI
+    # =========================================================================
+    'ch3': {
+        'title': '3. Primi passi',
 
         's1_title': 'Avviare Tramando',
         's1_p1': 'Tramando e disponibile come applicazione desktop per Mac, Windows e Linux. Una volta installato e avviato, ti accogliera la schermata di benvenuto con tre opzioni chiare per iniziare:',
@@ -376,10 +438,10 @@ IT = {
     },
 
     # =========================================================================
-    # CAPITOLO 3: COS'E IL MARKUP
+    # CAPITOLO 4: COS'E IL MARKUP
     # =========================================================================
-    'ch3': {
-        'title': '3. Cos\'e il markup',
+    'ch4': {
+        'title': '4. Cos\'e il markup',
 
         'intro': 'Se hai sempre usato programmi come Microsoft Word o Google Docs, potresti non aver mai sentito parlare di "markup". Niente paura: e un concetto semplice che, una volta capito, ti sembrera naturale e potente.',
 
@@ -428,10 +490,10 @@ IT = {
     },
 
     # =========================================================================
-    # CAPITOLO 4: L'INTERFACCIA
+    # CAPITOLO 5: L'INTERFACCIA
     # =========================================================================
-    'ch4': {
-        'title': '4. L\'interfaccia',
+    'ch5': {
+        'title': '5. L\'interfaccia',
 
         's1_title': 'La barra superiore',
         's1_p1': 'La barra in alto contiene tutti i comandi principali dell\'applicazione:',
@@ -441,7 +503,7 @@ IT = {
             '<b>Carica</b> - Apre un file .trmd dal tuo computer',
             '<b>Salva</b> - Scarica il progetto corrente come file .trmd',
             '<b>Versione</b> - Menu per salvare versioni, vedere la lista versioni, o ripristinare un backup',
-            '<b>Esporta</b> - Menu a tendina per esportare in PDF o Markdown',
+            '<b>Esporta</b> - Menu a tendina per esportare in PDF, Markdown o Word (.docx)',
             '<b>Badge Annotazioni</b> - Mostra il numero totale di annotazioni; cliccandolo apri il pannello annotazioni',
             '<b>Toggle Mappa/Editor</b> - Alterna tra la vista mappa radiale e l\'editor di testo',
             '<b>Ingranaggio</b> - Apre il pannello delle impostazioni',
@@ -454,23 +516,23 @@ IT = {
         's2_sub2': 'STRUTTURA',
         's2_sub2_p': 'Questa sezione contiene la tua narrativa vera e propria: capitoli, scene, parti. E organizzata come un albero espandibile. Il numero tra parentesi indica quanti elementi contiene.',
         's2_sub3': 'ASPETTI',
-        's2_sub3_p': 'Qui trovi i cinque tipi di elementi trasversali, ognuno con il suo colore distintivo: <b>Personaggi</b> (rosso), <b>Luoghi</b> (verde), <b>Temi</b> (arancione), <b>Sequenze</b> (viola), <b>Timeline</b> (blu). Il numero tra parentesi indica in quante scene ogni elemento e utilizzato.',
+        's2_sub3_p': 'Qui trovi i cinque tipi di elementi trasversali, ognuno con la sua icona distintiva: <b>Personaggi</b> (👤), <b>Luoghi</b> (📍), <b>Temi</b> (💡), <b>Sequenze</b> (🔗), <b>Timeline</b> (📅). Per ogni categoria puoi impostare una soglia di priorita con i pulsanti −/+.',
 
         's3_title': 'L\'editor',
-        's3_p1': 'L\'area principale a destra e dove avviene la scrittura. Include tre tab:',
+        's3_p1': 'L\'area principale a destra e dove avviene la scrittura. Include tre tab (quattro per gli aspetti):',
         's3_items': [
-            '<b>Modifica</b> - L\'editor vero e proprio, con numeri di riga e syntax highlighting',
-            '<b>Figli / Usato da</b> - Mostra gli elementi contenuti (per la struttura) o le scene che usano questo elemento (per gli aspetti)',
+            '<b>Modifica</b> - L\'editor vero e proprio, con syntax highlighting per il markup',
+            '<b>Usato da</b> - Solo per gli aspetti: mostra le scene che usano questo elemento',
             '<b>Lettura</b> - Anteprima pulita del testo, senza markup visibile',
         ],
-        's3_p2': 'Sopra l\'editor trovi: il campo per modificare il titolo, i tag degli aspetti collegati, il pulsante "+ Aspetto" per aggiungere collegamenti, e il selettore "Parent" per spostare l\'elemento nella gerarchia.',
+        's3_p2': 'Sopra l\'editor trovi: il campo per modificare il titolo, i tag degli aspetti collegati, e il pulsante "+ Aspetto" per aggiungere collegamenti. Il menu contestuale (⋮) permette di spostare l\'elemento, creare figli, modificare l\'ID e altre azioni.',
     },
 
     # =========================================================================
-    # CAPITOLO 5: LA STRUTTURA NARRATIVA
+    # CAPITOLO 6: LA STRUTTURA NARRATIVA
     # =========================================================================
-    'ch5': {
-        'title': '5. La Struttura narrativa',
+    'ch6': {
+        'title': '6. La Struttura narrativa',
 
         's1_title': 'Organizzazione ad albero',
         's1_p1': 'La sezione STRUTTURA nella sidebar contiene il testo della tua storia, organizzato come un albero gerarchico. Ogni elemento puo contenere altri elementi, permettendoti di creare la struttura che preferisci.',
@@ -479,9 +541,9 @@ IT = {
         's2_title': 'Creare nuovi elementi',
         's2_items': [
             'Clicca <b>"+ Nuovo Chunk"</b> nella sidebar per creare un elemento al livello root',
-            'Clicca <b>"+ Figlio di [nome]"</b> per creare un elemento annidato dentro quello selezionato',
+            'Per creare un elemento annidato, seleziona un chunk e usa il menu (⋮) > <b>"+ Figlio"</b>',
             'Ogni chunk riceve automaticamente un ID unico (es. cap-1, scene-2)',
-            'Puoi modificare l\'ID per renderlo piu significativo (es. "prologo", "climax")',
+            'Puoi modificare l\'ID dal menu (⋮) > <b>"Modifica ID"</b> per renderlo piu significativo (es. "prologo", "climax")',
         ],
 
         's3_title': 'Numerazione automatica',
@@ -498,10 +560,10 @@ IT = {
     },
 
     # =========================================================================
-    # CAPITOLO 6: GLI ASPETTI
+    # CAPITOLO 7: GLI ASPETTI
     # =========================================================================
-    'ch6': {
-        'title': '6. Gli Aspetti',
+    'ch7': {
+        'title': '7. Gli Aspetti',
 
         'intro': 'Gli aspetti sono elementi che attraversano la storia in modo trasversale. Non fanno parte della sequenza narrativa lineare, ma si collegano ad essa in vari punti. Tramando definisce cinque tipi di aspetti, ognuno con un colore distintivo.',
 
@@ -533,13 +595,31 @@ IT = {
 
         's6_title': 'Creare aspetti',
         's6_p1': 'Per creare un nuovo aspetto, clicca il pulsante <b>"+ Nuovo aspetto"</b> nella sidebar, sotto la categoria desiderata. Ogni aspetto avra il suo ID univoco e potrai dargli un titolo descrittivo.',
+
+        's7_title': 'Priorita degli aspetti',
+        's7_p1': 'Ogni aspetto puo avere una <b>priorita</b> da 0 (bassa) a 10 (alta). Questo ti permette di distinguere tra elementi principali e secondari della tua storia.',
+        's7_items': [
+            'Nell\'editor di un aspetto, trovi il campo <b>Priorita</b> con un valore numerico',
+            'Aspetti con priorita piu alta appaiono per primi nella sidebar',
+            'Puoi usare la soglia per nascondere aspetti minori',
+        ],
+
+        's8_title': 'Filtro soglia',
+        's8_p1': 'In ogni categoria di aspetti (Personaggi, Luoghi, ecc.) trovi un widget <b>soglia</b> con i pulsanti −0+. Questo imposta il livello minimo di priorita visibile:',
+        's8_items': [
+            'Se la soglia e <b>0</b>, tutti gli aspetti sono visibili',
+            'Se la soglia e <b>3</b>, solo aspetti con priorita >= 3 sono visibili',
+            'Gli aspetti filtrati non compaiono nella sidebar ne nella mappa radiale',
+            'I tag degli aspetti filtrati appaiono sbiaditi nell\'editor',
+        ],
+        's8_tip': '<i>Consiglio: usa le priorita per concentrarti sui personaggi principali durante la scrittura, poi abbassa la soglia durante la revisione per verificare che anche i secondari siano coerenti.</i>',
     },
 
     # =========================================================================
-    # CAPITOLO 7: I COLLEGAMENTI
+    # CAPITOLO 8: I COLLEGAMENTI
     # =========================================================================
-    'ch7': {
-        'title': '7. I collegamenti',
+    'ch8': {
+        'title': '8. I collegamenti',
 
         'intro': 'La vera potenza di Tramando sta nei collegamenti tra la struttura narrativa e gli aspetti. Collegando scene a personaggi, luoghi e temi, crei una rete di relazioni che ti permette di navigare e analizzare la tua storia in modi impossibili con strumenti tradizionali.',
 
@@ -573,10 +653,10 @@ IT = {
     },
 
     # =========================================================================
-    # CAPITOLO 8: LE ANNOTAZIONI
+    # CAPITOLO 9: LE ANNOTAZIONI
     # =========================================================================
-    'ch8': {
-        'title': '8. Le annotazioni',
+    'ch9': {
+        'title': '9. Le annotazioni',
 
         'intro': 'Le annotazioni sono note che lasci per te stesso durante la scrittura. Sono visibili in Tramando ma non appariranno mai nel prodotto finale esportato. Sono il tuo spazio per appunti, promemoria e segnalazioni.',
 
@@ -612,10 +692,10 @@ IT = {
     },
 
     # =========================================================================
-    # CAPITOLO 9: CERCA E SOSTITUISCI
+    # CAPITOLO 10: CERCA E SOSTITUISCI
     # =========================================================================
-    'ch9': {
-        'title': '9. Cerca e sostituisci',
+    'ch10': {
+        'title': '10. Cerca e sostituisci',
 
         'intro': 'Tramando offre strumenti di ricerca potenti per navigare anche i progetti piu grandi. Ci sono due livelli di ricerca: globale (su tutto il progetto) e locale (sul chunk corrente).',
 
@@ -658,18 +738,18 @@ IT = {
     },
 
     # =========================================================================
-    # CAPITOLO 10: LA MAPPA RADIALE
+    # CAPITOLO 11: LA MAPPA RADIALE
     # =========================================================================
-    'ch10': {
-        'title': '10. La mappa radiale',
+    'ch11': {
+        'title': '11. La mappa radiale',
 
         'intro': 'La mappa radiale e una visualizzazione grafica della tua storia. Ti permette di "vedere" la trama nel suo insieme, con tutti i collegamenti tra struttura e aspetti rappresentati visivamente.',
 
         's1_title': 'Leggere la mappa',
         's1_items': [
             '<b>Centro</b> - Il titolo del progetto',
-            '<b>Anello interno (blu)</b> - La struttura narrativa: capitoli e scene',
-            '<b>Anelli esterni</b> - Gli aspetti, ognuno con il suo colore (rosso personaggi, verde luoghi, etc.)',
+            '<b>Anello interno (grigio)</b> - La struttura narrativa: capitoli e scene',
+            '<b>Anelli esterni</b> - Gli aspetti, ognuno con il suo colore',
             '<b>Linee</b> - I collegamenti tra scene e aspetti',
         ],
 
@@ -701,15 +781,15 @@ IT = {
     },
 
     # =========================================================================
-    # CAPITOLO 11: EXPORT PDF
+    # CAPITOLO 12: EXPORT PDF, WORD E MARKDOWN
     # =========================================================================
-    'ch11': {
-        'title': '11. Export PDF',
+    'ch12': {
+        'title': '12. Export PDF, Word e Markdown',
 
         's1_title': 'Come esportare',
         's1_items': [
             'Clicca su <b>"Esporta"</b> nella barra superiore',
-            'Scegli <b>"PDF"</b> dal menu',
+            'Scegli il formato desiderato: <b>PDF</b>, <b>Word (.docx)</b> o <b>Markdown</b>',
             'Il file viene generato e scaricato automaticamente',
         ],
 
@@ -732,7 +812,7 @@ IT = {
 
         's4_note': '<b>In pratica:</b> l\'export contiene solo la narrativa pulita, pronta per la lettura o la stampa. Tutto il "dietro le quinte" rimane nascosto.',
 
-        's5_title': 'Formato tecnico',
+        's5_title': 'Formato PDF - specifiche tecniche',
         's5_table': [
             ['Proprieta', 'Valore'],
             ['Formato pagina', 'A5'],
@@ -744,15 +824,18 @@ IT = {
             ['Numeri pagina', 'Centrati in basso'],
         ],
 
-        's6_title': 'Export Markdown',
-        's6_p1': 'In alternativa al PDF, puoi esportare in formato Markdown. Questo e utile se vuoi importare il testo in altri programmi (Scrivener, Word, etc.) o se vuoi un backup testuale del tuo lavoro.',
+        's6_title': 'Export Word (.docx)',
+        's6_p1': 'L\'export Word genera un documento .docx compatibile con Microsoft Word, LibreOffice e Google Docs. Mantiene la formattazione base (grassetto, corsivo, titoli) ed e ideale per la revisione con editor o agenti letterari.',
+
+        's7_title': 'Export Markdown',
+        's7_p1': 'L\'export Markdown genera un file .md in testo semplice. Utile per importare il testo in altri programmi (Scrivener, Obsidian, etc.) o per avere un backup testuale leggibile.',
     },
 
     # =========================================================================
-    # CAPITOLO 12: IMPOSTAZIONI
+    # CAPITOLO 13: IMPOSTAZIONI
     # =========================================================================
-    'ch12': {
-        'title': '12. Impostazioni',
+    'ch13': {
+        'title': '13. Impostazioni',
 
         's1_title': 'Temi',
         's1_p1': 'Tramando include quattro temi predefiniti:',
@@ -767,28 +850,21 @@ IT = {
         's2_title': 'Autosalvataggio',
         's2_p1': 'Uno slider ti permette di impostare l\'intervallo di autosalvataggio da 1 a 10 secondi. Il valore predefinito e 3 secondi. L\'autosalvataggio avviene dopo N secondi dall\'ultima modifica.',
 
-        's3_title': 'Colori personalizzati',
-        's3_p1': 'Puoi personalizzare tutti i colori dell\'interfaccia in due sezioni:',
-        's3_sub1': 'INTERFACCIA',
-        's3_sub1_items': ['Sfondo principale', 'Sfondo sidebar', 'Sfondo editor', 'Bordi', 'Testo principale', 'Testo secondario', 'Colore accento'],
-        's3_sub2': 'CATEGORIE',
-        's3_sub2_items': ['Struttura', 'Personaggi', 'Luoghi', 'Temi', 'Sequenze', 'Timeline'],
+        's3_title': 'Lingua',
+        's3_p1': 'Tramando e disponibile in Italiano e Inglese. Il cambio lingua modifica solo l\'interfaccia; il contenuto dei tuoi progetti non viene alterato.',
 
-        's4_title': 'Lingua',
-        's4_p1': 'Tramando e disponibile in Italiano e Inglese. Il cambio lingua modifica solo l\'interfaccia; il contenuto dei tuoi progetti non viene alterato.',
+        's4_title': 'Import/Export impostazioni',
+        's4_p1': 'Puoi esportare le tue impostazioni in un file .edn e reimportarle su un altro dispositivo. Utile per mantenere lo stesso tema e configurazione su piu computer.',
 
-        's5_title': 'Import/Export impostazioni',
-        's5_p1': 'Puoi esportare le tue impostazioni in un file .edn e reimportarle su un altro dispositivo. Utile per mantenere lo stesso tema e configurazione su piu computer.',
-
-        's6_title': 'Tutorial',
-        's6_p1': 'Il pulsante "Rivedi tutorial" riapre la guida interattiva che hai visto al primo avvio. Utile se vuoi rinfrescare la memoria sulle funzionalita.',
+        's5_title': 'Tutorial',
+        's5_p1': 'Il pulsante "Rivedi tutorial" riapre la guida interattiva che hai visto al primo avvio. Utile se vuoi rinfrescare la memoria sulle funzionalita.',
     },
 
     # =========================================================================
-    # CAPITOLO 13: IL FORMATO FILE .TRMD
+    # CAPITOLO 14: IL FORMATO FILE .TRMD
     # =========================================================================
-    'ch13': {
-        'title': '13. Il formato file .trmd',
+    'ch14': {
+        'title': '14. Il formato file .trmd',
 
         'intro': 'I file .trmd sono file di testo puro, leggibili con qualsiasi editor. Questo garantisce che i tuoi dati siano sempre accessibili, anche senza Tramando.',
 
@@ -830,13 +906,24 @@ Contenuto del chunk qui...
 
         's5_title': 'Annotazioni nel file',
         's5_code': 'Testo con [!TODO:da completare:1:urgente] annotazione.',
+
+        's6_title': 'Metadati estesi (v2.0)',
+        's6_p1': 'A partire dalla versione 2.0, i chunk possono avere metadati aggiuntivi:',
+        's6_table': [
+            ['Sintassi', 'Significato'],
+            ['[#owner:username]', 'Proprietario del chunk (modalita collaborativa)'],
+            ['[#priority:N]', 'Priorita dell\'aspetto (0-10)'],
+            ['[!DISCUSSION:base64]', 'Discussioni codificate in base64'],
+            ['[!PROPOSAL:testo_originale:testo_proposto]', 'Proposta di modifica inline'],
+        ],
+        's6_note': '<i>Questi metadati sono usati internamente e di solito non serve modificarli a mano.</i>',
     },
 
     # =========================================================================
-    # CAPITOLO 14: SCORCIATOIE DA TASTIERA
+    # CAPITOLO 15: SCORCIATOIE DA TASTIERA
     # =========================================================================
-    'ch14': {
-        'title': '14. Scorciatoie da tastiera',
+    'ch15': {
+        'title': '15. Scorciatoie da tastiera',
 
         's1_table': [
             ['Scorciatoia', 'Azione'],
@@ -857,10 +944,10 @@ Contenuto del chunk qui...
     },
 
     # =========================================================================
-    # CAPITOLO 15: ASSISTENTE AI
+    # CAPITOLO 16: ASSISTENTE AI
     # =========================================================================
-    'ch15': {
-        'title': '15. Assistente AI (opzionale)',
+    'ch16': {
+        'title': '16. Assistente AI (opzionale)',
 
         # Introduzione
         's1_title': 'Introduzione',
@@ -960,12 +1047,93 @@ Contenuto del chunk qui...
     },
 
     # =========================================================================
+    # CAPITOLO 17: MODALITA COLLABORATIVA
+    # =========================================================================
+    'ch17': {
+        'title': '17. Modalita collaborativa',
+
+        'intro': 'La modalita collaborativa permette a piu autori di lavorare insieme sullo stesso progetto. Questa funzionalita richiede un server Tramando e un account utente.',
+
+        's1_title': 'Requisiti',
+        's1_items': [
+            'Un server Tramando attivo (self-hosted o in cloud)',
+            'Un account utente sul server',
+            'Connessione internet durante il lavoro',
+        ],
+
+        's2_title': 'Login e progetti',
+        's2_p1': 'Dalla schermata di benvenuto, nella sezione <b>Server</b>, inserisci le credenziali del tuo account. Dopo il login vedrai la lista dei progetti a cui hai accesso.',
+        's2_items': [
+            '<b>I tuoi progetti</b> - Progetti creati da te',
+            '<b>Progetti condivisi</b> - Progetti a cui sei stato invitato come collaboratore',
+        ],
+
+        's3_title': 'Ruoli e permessi',
+        's3_p1': 'In ogni progetto collaborativo ci sono tre ruoli:',
+        's3_table': [
+            ['Ruolo', 'Permessi'],
+            ['Owner', 'Controllo totale: modifica tutto, gestisce collaboratori, trasferisce ownership'],
+            ['Admin', 'Puo modificare tutto, ma non gestisce collaboratori'],
+            ['Collaborator', 'Puo modificare solo i chunk di cui e owner'],
+        ],
+
+        's4_title': 'Ownership dei chunk',
+        's4_p1': 'In modalita collaborativa, ogni chunk ha un <b>owner</b> (proprietario). Questo determina chi puo modificare il contenuto:',
+        's4_items': [
+            'Quando crei un nuovo chunk, ne diventi automaticamente l\'owner',
+            'Solo l\'owner, un Admin o l\'Owner del progetto possono modificare un chunk',
+            'L\'ownership puo essere trasferita ad un altro collaboratore',
+            'Nell\'editor, il campo "Owner" mostra chi possiede il chunk',
+        ],
+
+        's5_title': 'Proposte (PROPOSAL)',
+        's5_p1': 'Se non sei l\'owner di un chunk ma vuoi suggerire una modifica, puoi creare una <b>proposta</b>:',
+        's5_items': [
+            'Seleziona il testo che vuoi modificare',
+            'Usa il menu contestuale e scegli "Proponi modifica"',
+            'Scrivi il testo alternativo che suggerisci',
+            'La proposta apparira evidenziata nel testo',
+        ],
+        's5_p2': 'L\'owner del chunk vedra la proposta e potra <b>accettarla</b> (il testo viene sostituito) o <b>rifiutarla</b> (la proposta viene rimossa).',
+
+        's6_title': 'Discussioni',
+        's6_p1': 'Ogni chunk ha una sezione <b>Discussion</b> dove i collaboratori possono lasciare commenti e discutere del contenuto senza modificare il testo principale.',
+        's6_items': [
+            'Clicca sulla tab "Discussion" nell\'editor',
+            'Scrivi il tuo commento nel campo in basso',
+            'I messaggi mostrano l\'autore e la data',
+            'Utile per feedback, domande, o coordinamento',
+        ],
+
+        's7_title': 'Chat di progetto',
+        's7_p1': 'Nella barra superiore, il pulsante <b>chat</b> (icona fumetto) apre la chat generale del progetto. Qui puoi comunicare con tutti i collaboratori in tempo reale, indipendentemente dal chunk su cui stai lavorando.',
+
+        's8_title': 'Sincronizzazione',
+        's8_p1': 'Le modifiche vengono sincronizzate automaticamente con il server. Nella barra superiore vedrai un indicatore di stato:',
+        's8_items': [
+            '<b>Sincronizzato</b> - Tutte le modifiche sono state salvate',
+            '<b>In sync...</b> - Sincronizzazione in corso',
+            '<b>Errore</b> - Problema di connessione (riprova o controlla la rete)',
+        ],
+
+        's9_title': 'Gestire i collaboratori',
+        's9_p1': 'Se sei l\'Owner del progetto, puoi gestire i collaboratori:',
+        's9_items': [
+            'Clicca sull\'icona collaboratori nella barra superiore',
+            'Per aggiungere: inserisci username e seleziona il ruolo',
+            'Per rimuovere: clicca sulla X accanto al nome',
+            'Per cambiare ruolo: usa il dropdown accanto al nome',
+        ],
+        's9_note': '<i>Solo l\'Owner del progetto puo aggiungere o rimuovere collaboratori.</i>',
+    },
+
+    # =========================================================================
     # APPENDICE
     # =========================================================================
     'appendix': {
         'title': 'Appendice: Riferimento rapido',
 
-        's1_title': 'Sintassi',
+        's1_title': 'Sintassi base',
         's1_table': [
             ['Elemento', 'Sintassi'],
             ['Chunk', '[C:id"Titolo"]'],
@@ -978,6 +1146,15 @@ Contenuto del chunk qui...
             ['Romano minuscolo', '[:ORD-rom]'],
             ['Lettera maiuscola', '[:ORD-ALPHA]'],
             ['Lettera minuscola', '[:ORD-alpha]'],
+        ],
+
+        's1b_title': 'Sintassi v2.0',
+        's1b_table': [
+            ['Elemento', 'Sintassi'],
+            ['Owner chunk', '[#owner:username]'],
+            ['Priorita aspetto', '[#priority:N]'],
+            ['Proposta', '[!PROPOSAL:originale:proposto]'],
+            ['Discussione', '[!DISCUSSION:base64]'],
         ],
 
         's2_title': 'ID riservati',
@@ -1020,34 +1197,39 @@ EN = {
     'filename': 'Tramando_Manual_English.pdf',
     'tagline': 'Weave your story',
     'manual_title': 'User Manual',
-    'version': 'Version 1.2',
+    'version': 'Version 2.0',
     'toc_title': 'Contents',
 
     'chapters': [
         '1. Introduction',
-        '2. Getting Started',
-        '3. What is Markup',
-        '4. The Interface',
-        '5. Narrative Structure',
-        '6. Aspects',
-        '7. Connections',
-        '8. Annotations',
-        '9. Search and Replace',
-        '10. Radial Map',
-        '11. PDF Export',
-        '12. Settings',
-        '13. The .trmd File Format',
-        '14. Keyboard Shortcuts',
-        '15. AI Assistant (optional)',
+        '2. Usage Modes',
+        '3. Getting Started',
+        '4. What is Markup',
+        '5. The Interface',
+        '6. Narrative Structure',
+        '7. Aspects',
+        '8. Connections',
+        '9. Annotations',
+        '10. Search and Replace',
+        '11. Radial Map',
+        '12. PDF, Word and Markdown Export',
+        '13. Settings',
+        '14. The .trmd File Format',
+        '15. Keyboard Shortcuts',
+        '16. AI Assistant (optional)',
+        '17. Collaborative Mode',
         'Appendix: Quick Reference',
     ],
 
     'captions': {
-        'splash': 'The Tramando welcome screen',
+        'splash_tauri': 'The welcome screen (desktop version)',
+        'splash_webapp': 'The welcome screen (webapp with login)',
         'main': 'Tramando\'s main interface',
         'filter': 'Global filter and search in action',
         'map': 'The radial map with connections between elements',
         'settings': 'The settings panel',
+        'priority_sidebar': 'The priority threshold widget in the sidebar',
+        'priority_editor': 'The priority field in the aspect editor',
     },
 
     # =========================================================================
@@ -1079,10 +1261,67 @@ EN = {
     },
 
     # =========================================================================
-    # CHAPTER 2: GETTING STARTED
+    # CHAPTER 2: USAGE MODES
     # =========================================================================
-    'ch2': {
-        'title': '2. Getting Started',
+    'ch2_modes': {
+        'title': '2. Usage Modes',
+
+        'intro': 'Tramando is available in three different modes, each designed for specific needs. You can choose the one that best fits your workflow.',
+
+        's1_title': 'Desktop Application (Tauri)',
+        's1_p1': 'The desktop version is a native application for <b>Mac</b>, <b>Windows</b>, and <b>Linux</b>. It works completely offline and saves your projects as .trmd files on your computer.',
+        's1_items': [
+            '<b>Works offline</b> - No internet connection required',
+            '<b>Local files</b> - Projects are saved on your disk as .trmd files',
+            '<b>Native performance</b> - Fast and responsive interface',
+            '<b>System integration</b> - Full support for shortcuts, drag&drop, and file management',
+        ],
+        's1_note': 'This is the recommended version for most users.',
+
+        's2_title': 'Local Webapp',
+        's2_p1': 'You can also use Tramando directly in your browser by opening the webapp on a local server. This mode is identical to desktop but requires a modern browser.',
+        's2_items': [
+            '<b>No installation</b> - Just a web browser',
+            '<b>Local files</b> - Save to disk via browser API',
+            '<b>Cross-platform</b> - Works on any system with a modern browser',
+        ],
+
+        's3_title': 'Collaborative Webapp',
+        's3_p1': 'The collaborative mode allows multiple people to work on the same project. It requires a Tramando server (self-hosted or cloud).',
+        's3_items': [
+            '<b>Real-time collaboration</b> - Multiple authors on the same project',
+            '<b>Role management</b> - Owner, Admin and Collaborator with different permissions',
+            '<b>Chunk ownership</b> - Each chunk has an owner who can be transferred',
+            '<b>Proposals and discussions</b> - System for suggesting changes',
+            '<b>Integrated chat</b> - Communication between collaborators for each chunk',
+        ],
+        's3_note': 'For details on collaborative mode, see the dedicated chapter.',
+
+        's4_title': 'Main Differences',
+        's4_table': [
+            ['Feature', 'Desktop', 'Local Webapp', 'Collaborative'],
+            ['Connection', 'Offline', 'Offline', 'Required'],
+            ['Saving', '.trmd file', '.trmd file', 'Server'],
+            ['Versions/Backup', 'Yes', 'Yes', 'No (server)'],
+            ['Collaboration', 'No', 'No', 'Yes'],
+            ['Ownership', 'No', 'No', 'Yes'],
+            ['Chat', 'No', 'No', 'Yes'],
+            ['Proposals', 'No', 'No', 'Yes'],
+        ],
+
+        's5_title': 'Which one to choose?',
+        's5_items': [
+            '<b>Writing alone?</b> - Use the desktop application',
+            '<b>Don\'t want to install anything?</b> - Use the local webapp',
+            '<b>Working in a team?</b> - Use collaborative mode',
+        ],
+    },
+
+    # =========================================================================
+    # CHAPTER 3: GETTING STARTED
+    # =========================================================================
+    'ch3': {
+        'title': '3. Getting Started',
 
         's1_title': 'Launching Tramando',
         's1_p1': 'Tramando is available as a desktop application for Mac, Windows, and Linux. Once installed and launched, you\'ll be greeted by the welcome screen with three clear options to get started:',
@@ -1113,10 +1352,10 @@ EN = {
     },
 
     # =========================================================================
-    # CHAPTER 3: WHAT IS MARKUP
+    # CHAPTER 4: WHAT IS MARKUP
     # =========================================================================
-    'ch3': {
-        'title': '3. What is Markup',
+    'ch4': {
+        'title': '4. What is Markup',
 
         'intro': 'If you\'ve always used programs like Microsoft Word or Google Docs, you may have never heard of "markup". Don\'t worry: it\'s a simple concept that, once understood, will seem natural and powerful.',
 
@@ -1165,10 +1404,10 @@ EN = {
     },
 
     # =========================================================================
-    # CHAPTER 4: THE INTERFACE
+    # CHAPTER 5: THE INTERFACE
     # =========================================================================
-    'ch4': {
-        'title': '4. The Interface',
+    'ch5': {
+        'title': '5. The Interface',
 
         's1_title': 'The Top Bar',
         's1_p1': 'The bar at the top contains all the main application commands:',
@@ -1178,7 +1417,7 @@ EN = {
             '<b>Load</b> - Opens a .trmd file from your computer',
             '<b>Save</b> - Downloads the current project as a .trmd file',
             '<b>Version</b> - Menu to save versions, view version list, or restore a backup',
-            '<b>Export</b> - Dropdown menu for exporting to PDF or Markdown',
+            '<b>Export</b> - Dropdown menu for exporting to PDF, Markdown or Word (.docx)',
             '<b>Annotations Badge</b> - Shows the total number of annotations; clicking it opens the annotations panel',
             '<b>Map/Editor Toggle</b> - Switches between the radial map view and text editor',
             '<b>Gear Icon</b> - Opens the settings panel',
@@ -1191,23 +1430,23 @@ EN = {
         's2_sub2': 'STRUCTURE',
         's2_sub2_p': 'This section contains your actual narrative: chapters, scenes, parts. It\'s organized as an expandable tree. The number in parentheses indicates how many elements it contains.',
         's2_sub3': 'ASPECTS',
-        's2_sub3_p': 'Here you\'ll find the five types of cross-cutting elements, each with its distinctive color: <b>Characters</b> (red), <b>Places</b> (green), <b>Themes</b> (orange), <b>Sequences</b> (purple), <b>Timeline</b> (blue). The number in parentheses indicates how many scenes each element is used in.',
+        's2_sub3_p': 'Here you\'ll find the five types of cross-cutting elements, each with its distinctive icon: <b>Characters</b> (👤), <b>Places</b> (📍), <b>Themes</b> (💡), <b>Sequences</b> (🔗), <b>Timeline</b> (📅). For each category you can set a priority threshold using the −/+ buttons.',
 
         's3_title': 'The Editor',
-        's3_p1': 'The main area on the right is where writing happens. It includes three tabs:',
+        's3_p1': 'The main area on the right is where writing happens. It includes three tabs (four for aspects):',
         's3_items': [
-            '<b>Edit</b> - The actual editor, with line numbers and syntax highlighting',
-            '<b>Children / Used by</b> - Shows contained elements (for structure) or scenes that use this element (for aspects)',
+            '<b>Edit</b> - The actual editor, with syntax highlighting for markup',
+            '<b>Used by</b> - Aspects only: shows the scenes that use this element',
             '<b>Reading</b> - Clean preview of the text, without visible markup',
         ],
-        's3_p2': 'Above the editor you\'ll find: the field to edit the title, tags of connected aspects, the "+ Aspect" button to add connections, and the "Parent" selector to move the element in the hierarchy.',
+        's3_p2': 'Above the editor you\'ll find: the field to edit the title, tags of connected aspects, and the "+ Aspect" button to add connections. The context menu (⋮) allows you to move the element, create children, edit the ID and other actions.',
     },
 
     # =========================================================================
-    # CHAPTER 5: NARRATIVE STRUCTURE
+    # CHAPTER 6: NARRATIVE STRUCTURE
     # =========================================================================
-    'ch5': {
-        'title': '5. Narrative Structure',
+    'ch6': {
+        'title': '6. Narrative Structure',
 
         's1_title': 'Tree Organization',
         's1_p1': 'The STRUCTURE section in the sidebar contains your story\'s text, organized as a hierarchical tree. Each element can contain other elements, allowing you to create whatever structure you prefer.',
@@ -1216,9 +1455,9 @@ EN = {
         's2_title': 'Creating New Elements',
         's2_items': [
             'Click <b>"+ New Chunk"</b> in the sidebar to create an element at the root level',
-            'Click <b>"+ Child of [name]"</b> to create a nested element inside the selected one',
+            'To create a nested element, select a chunk and use the menu (⋮) > <b>"+ Child"</b>',
             'Each chunk automatically receives a unique ID (e.g., cap-1, scene-2)',
-            'You can modify the ID to make it more meaningful (e.g., "prologue", "climax")',
+            'You can modify the ID from the menu (⋮) > <b>"Edit ID"</b> to make it more meaningful (e.g., "prologue", "climax")',
         ],
 
         's3_title': 'Automatic Numbering',
@@ -1235,10 +1474,10 @@ EN = {
     },
 
     # =========================================================================
-    # CHAPTER 6: ASPECTS
+    # CHAPTER 7: ASPECTS
     # =========================================================================
-    'ch6': {
-        'title': '6. Aspects',
+    'ch7': {
+        'title': '7. Aspects',
 
         'intro': 'Aspects are elements that cross through the story transversally. They\'re not part of the linear narrative sequence, but connect to it at various points. Tramando defines five types of aspects, each with a distinctive color.',
 
@@ -1270,13 +1509,31 @@ EN = {
 
         's6_title': 'Creating Aspects',
         's6_p1': 'To create a new aspect, click the <b>"+ New aspect"</b> button in the sidebar, under the desired category. Each aspect will have its own unique ID and you can give it a descriptive title.',
+
+        's7_title': 'Aspect Priority',
+        's7_p1': 'Each aspect can have a <b>priority</b> from 0 (low) to 10 (high). This lets you distinguish between main and minor elements of your story.',
+        's7_items': [
+            'In the aspect editor, you\'ll find the <b>Priority</b> field with a numeric value',
+            'Higher priority aspects appear first in the sidebar',
+            'You can use the threshold to hide minor aspects',
+        ],
+
+        's8_title': 'Threshold Filter',
+        's8_p1': 'In each aspect category (Characters, Places, etc.) you\'ll find a <b>threshold</b> widget with −0+ buttons. This sets the minimum priority level visible:',
+        's8_items': [
+            'If threshold is <b>0</b>, all aspects are visible',
+            'If threshold is <b>3</b>, only aspects with priority >= 3 are visible',
+            'Filtered aspects don\'t appear in sidebar or radial map',
+            'Tags for filtered aspects appear faded in the editor',
+        ],
+        's8_tip': '<i>Tip: use priorities to focus on main characters while writing, then lower the threshold during revision to check that minor characters are also consistent.</i>',
     },
 
     # =========================================================================
-    # CHAPTER 7: CONNECTIONS
+    # CHAPTER 8: CONNECTIONS
     # =========================================================================
-    'ch7': {
-        'title': '7. Connections',
+    'ch8': {
+        'title': '8. Connections',
 
         'intro': 'Tramando\'s real power lies in the connections between narrative structure and aspects. By connecting scenes to characters, places, and themes, you create a network of relationships that lets you navigate and analyze your story in ways impossible with traditional tools.',
 
@@ -1310,10 +1567,10 @@ EN = {
     },
 
     # =========================================================================
-    # CHAPTER 8: ANNOTATIONS
+    # CHAPTER 9: ANNOTATIONS
     # =========================================================================
-    'ch8': {
-        'title': '8. Annotations',
+    'ch9': {
+        'title': '9. Annotations',
 
         'intro': 'Annotations are notes you leave for yourself during writing. They\'re visible in Tramando but will never appear in the final exported product. They\'re your space for notes, reminders, and flags.',
 
@@ -1349,10 +1606,10 @@ EN = {
     },
 
     # =========================================================================
-    # CHAPTER 9: SEARCH AND REPLACE
+    # CHAPTER 10: SEARCH AND REPLACE
     # =========================================================================
-    'ch9': {
-        'title': '9. Search and Replace',
+    'ch10': {
+        'title': '10. Search and Replace',
 
         'intro': 'Tramando offers powerful search tools for navigating even the largest projects. There are two levels of search: global (across the entire project) and local (on the current chunk).',
 
@@ -1395,17 +1652,17 @@ EN = {
     },
 
     # =========================================================================
-    # CHAPTER 10: RADIAL MAP
+    # CHAPTER 11: RADIAL MAP
     # =========================================================================
-    'ch10': {
-        'title': '10. Radial Map',
+    'ch11': {
+        'title': '11. Radial Map',
 
         'intro': 'The radial map is a graphical visualization of your story. It lets you "see" the plot as a whole, with all the connections between structure and aspects represented visually.',
 
         's1_title': 'Reading the Map',
         's1_items': [
             '<b>Center</b> - The project title',
-            '<b>Inner ring (blue)</b> - The narrative structure: chapters and scenes',
+            '<b>Inner ring (gray)</b> - The narrative structure: chapters and scenes',
             '<b>Outer rings</b> - The aspects, each with its color (red characters, green places, etc.)',
             '<b>Lines</b> - The connections between scenes and aspects',
         ],
@@ -1438,15 +1695,15 @@ EN = {
     },
 
     # =========================================================================
-    # CHAPTER 11: PDF EXPORT
+    # CHAPTER 12: PDF, WORD AND MARKDOWN EXPORT
     # =========================================================================
-    'ch11': {
-        'title': '11. PDF Export',
+    'ch12': {
+        'title': '12. PDF, Word and Markdown Export',
 
         's1_title': 'How to Export',
         's1_items': [
             'Click on <b>"Export"</b> in the top bar',
-            'Choose <b>"PDF"</b> from the menu',
+            'Choose the desired format: <b>PDF</b>, <b>Word (.docx)</b> or <b>Markdown</b>',
             'The file is generated and downloaded automatically',
         ],
 
@@ -1469,7 +1726,7 @@ EN = {
 
         's4_note': '<b>In practice:</b> the export contains only clean narrative, ready for reading or printing. All the "behind the scenes" remains hidden.',
 
-        's5_title': 'Technical Format',
+        's5_title': 'PDF Format - Technical Specs',
         's5_table': [
             ['Property', 'Value'],
             ['Page format', 'A5'],
@@ -1481,15 +1738,18 @@ EN = {
             ['Page numbers', 'Centered at bottom'],
         ],
 
-        's6_title': 'Markdown Export',
-        's6_p1': 'As an alternative to PDF, you can export in Markdown format. This is useful if you want to import the text into other programs (Scrivener, Word, etc.) or if you want a text backup of your work.',
+        's6_title': 'Word Export (.docx)',
+        's6_p1': 'The Word export generates a .docx document compatible with Microsoft Word, LibreOffice and Google Docs. It maintains basic formatting (bold, italic, headings) and is ideal for revision with editors or literary agents.',
+
+        's7_title': 'Markdown Export',
+        's7_p1': 'The Markdown export generates a plain text .md file. Useful for importing text into other programs (Scrivener, Obsidian, etc.) or for having a readable text backup.',
     },
 
     # =========================================================================
-    # CHAPTER 12: SETTINGS
+    # CHAPTER 13: SETTINGS
     # =========================================================================
-    'ch12': {
-        'title': '12. Settings',
+    'ch13': {
+        'title': '13. Settings',
 
         's1_title': 'Themes',
         's1_p1': 'Tramando includes four preset themes:',
@@ -1504,28 +1764,21 @@ EN = {
         's2_title': 'Autosave',
         's2_p1': 'A slider lets you set the autosave interval from 1 to 10 seconds. The default value is 3 seconds. Autosave occurs N seconds after the last modification.',
 
-        's3_title': 'Custom Colors',
-        's3_p1': 'You can customize all interface colors in two sections:',
-        's3_sub1': 'INTERFACE',
-        's3_sub1_items': ['Main background', 'Sidebar background', 'Editor background', 'Borders', 'Main text', 'Secondary text', 'Accent color'],
-        's3_sub2': 'CATEGORIES',
-        's3_sub2_items': ['Structure', 'Characters', 'Places', 'Themes', 'Sequences', 'Timeline'],
+        's3_title': 'Language',
+        's3_p1': 'Tramando is available in Italian and English. Changing the language only modifies the interface; your project content is not altered.',
 
-        's4_title': 'Language',
-        's4_p1': 'Tramando is available in Italian and English. Changing the language only modifies the interface; your project content is not altered.',
+        's4_title': 'Import/Export Settings',
+        's4_p1': 'You can export your settings to an .edn file and reimport them on another device. Useful for maintaining the same theme and configuration across multiple computers.',
 
-        's5_title': 'Import/Export Settings',
-        's5_p1': 'You can export your settings to an .edn file and reimport them on another device. Useful for maintaining the same theme and configuration across multiple computers.',
-
-        's6_title': 'Tutorial',
-        's6_p1': 'The "Review tutorial" button reopens the interactive guide you saw on first launch. Useful if you want to refresh your memory on the features.',
+        's5_title': 'Tutorial',
+        's5_p1': 'The "Review tutorial" button reopens the interactive guide you saw on first launch. Useful if you want to refresh your memory on the features.',
     },
 
     # =========================================================================
-    # CHAPTER 13: THE .TRMD FILE FORMAT
+    # CHAPTER 14: THE .TRMD FILE FORMAT
     # =========================================================================
-    'ch13': {
-        'title': '13. The .trmd File Format',
+    'ch14': {
+        'title': '14. The .trmd File Format',
 
         'intro': '.trmd files are pure text files, readable with any editor. This ensures your data is always accessible, even without Tramando.',
 
@@ -1567,13 +1820,24 @@ Chunk content here...
 
         's5_title': 'Annotations in File',
         's5_code': 'Text with [!TODO:to complete:1:urgent] annotation.',
+
+        's6_title': 'Extended Metadata (v2.0)',
+        's6_p1': 'Starting from version 2.0, chunks can have additional metadata:',
+        's6_table': [
+            ['Syntax', 'Meaning'],
+            ['[#owner:username]', 'Chunk owner (collaborative mode)'],
+            ['[#priority:N]', 'Aspect priority (0-10)'],
+            ['[!DISCUSSION:base64]', 'Base64-encoded discussions'],
+            ['[!PROPOSAL:original_text:proposed_text]', 'Inline edit proposal'],
+        ],
+        's6_note': '<i>These metadata are used internally and usually don\'t need manual editing.</i>',
     },
 
     # =========================================================================
-    # CHAPTER 14: KEYBOARD SHORTCUTS
+    # CHAPTER 15: KEYBOARD SHORTCUTS
     # =========================================================================
-    'ch14': {
-        'title': '14. Keyboard Shortcuts',
+    'ch15': {
+        'title': '15. Keyboard Shortcuts',
 
         's1_table': [
             ['Shortcut', 'Action'],
@@ -1594,10 +1858,10 @@ Chunk content here...
     },
 
     # =========================================================================
-    # CHAPTER 15: AI ASSISTANT
+    # CHAPTER 16: AI ASSISTANT
     # =========================================================================
-    'ch15': {
-        'title': '15. AI Assistant (optional)',
+    'ch16': {
+        'title': '16. AI Assistant (optional)',
 
         # Introduction
         's1_title': 'Introduction',
@@ -1697,12 +1961,93 @@ Chunk content here...
     },
 
     # =========================================================================
+    # CHAPTER 17: COLLABORATIVE MODE
+    # =========================================================================
+    'ch17': {
+        'title': '17. Collaborative Mode',
+
+        'intro': 'Collaborative mode allows multiple authors to work together on the same project. This feature requires a Tramando server and a user account.',
+
+        's1_title': 'Requirements',
+        's1_items': [
+            'An active Tramando server (self-hosted or cloud)',
+            'A user account on the server',
+            'Internet connection during work',
+        ],
+
+        's2_title': 'Login and Projects',
+        's2_p1': 'From the welcome screen, in the <b>Server</b> section, enter your account credentials. After login, you\'ll see the list of projects you have access to.',
+        's2_items': [
+            '<b>Your projects</b> - Projects created by you',
+            '<b>Shared projects</b> - Projects you\'ve been invited to as a collaborator',
+        ],
+
+        's3_title': 'Roles and Permissions',
+        's3_p1': 'In each collaborative project there are three roles:',
+        's3_table': [
+            ['Role', 'Permissions'],
+            ['Owner', 'Full control: edit everything, manage collaborators, transfer ownership'],
+            ['Admin', 'Can edit everything, but cannot manage collaborators'],
+            ['Collaborator', 'Can only edit chunks they own'],
+        ],
+
+        's4_title': 'Chunk Ownership',
+        's4_p1': 'In collaborative mode, each chunk has an <b>owner</b>. This determines who can modify the content:',
+        's4_items': [
+            'When you create a new chunk, you automatically become its owner',
+            'Only the owner, an Admin, or the project Owner can modify a chunk',
+            'Ownership can be transferred to another collaborator',
+            'In the editor, the "Owner" field shows who owns the chunk',
+        ],
+
+        's5_title': 'Proposals (PROPOSAL)',
+        's5_p1': 'If you\'re not the owner of a chunk but want to suggest a change, you can create a <b>proposal</b>:',
+        's5_items': [
+            'Select the text you want to modify',
+            'Use the context menu and choose "Propose edit"',
+            'Write the alternative text you suggest',
+            'The proposal will appear highlighted in the text',
+        ],
+        's5_p2': 'The chunk owner will see the proposal and can <b>accept</b> (text is replaced) or <b>reject</b> it (proposal is removed).',
+
+        's6_title': 'Discussions',
+        's6_p1': 'Each chunk has a <b>Discussion</b> section where collaborators can leave comments and discuss the content without modifying the main text.',
+        's6_items': [
+            'Click the "Discussion" tab in the editor',
+            'Write your comment in the field below',
+            'Messages show author and date',
+            'Useful for feedback, questions, or coordination',
+        ],
+
+        's7_title': 'Project Chat',
+        's7_p1': 'In the top bar, the <b>chat</b> button (speech bubble icon) opens the general project chat. Here you can communicate with all collaborators in real time, regardless of which chunk you\'re working on.',
+
+        's8_title': 'Synchronization',
+        's8_p1': 'Changes are automatically synchronized with the server. In the top bar you\'ll see a status indicator:',
+        's8_items': [
+            '<b>Synchronized</b> - All changes have been saved',
+            '<b>Syncing...</b> - Synchronization in progress',
+            '<b>Error</b> - Connection problem (retry or check network)',
+        ],
+
+        's9_title': 'Managing Collaborators',
+        's9_p1': 'If you\'re the project Owner, you can manage collaborators:',
+        's9_items': [
+            'Click the collaborators icon in the top bar',
+            'To add: enter username and select role',
+            'To remove: click the X next to the name',
+            'To change role: use the dropdown next to the name',
+        ],
+        's9_note': '<i>Only the project Owner can add or remove collaborators.</i>',
+    },
+
+    # =========================================================================
     # APPENDIX
     # =========================================================================
     'appendix': {
         'title': 'Appendix: Quick Reference',
 
-        's1_title': 'Syntax',
+        's1_title': 'Base Syntax',
         's1_table': [
             ['Element', 'Syntax'],
             ['Chunk', '[C:id"Title"]'],
@@ -1715,6 +2060,15 @@ Chunk content here...
             ['Lowercase Roman', '[:ORD-rom]'],
             ['Uppercase letter', '[:ORD-ALPHA]'],
             ['Lowercase letter', '[:ORD-alpha]'],
+        ],
+
+        's1b_title': 'v2.0 Syntax',
+        's1b_table': [
+            ['Element', 'Syntax'],
+            ['Chunk owner', '[#owner:username]'],
+            ['Aspect priority', '[#priority:N]'],
+            ['Proposal', '[!PROPOSAL:original:proposed]'],
+            ['Discussion', '[!DISCUSSION:base64]'],
         ],
 
         's2_title': 'Reserved IDs',
@@ -1781,8 +2135,43 @@ def build_chapter_1(story, T, styles, lang):
 
 
 def build_chapter_2(story, T, styles, lang):
-    """Capitolo 2: Primi passi"""
-    ch = T['ch2']
+    """Capitolo 2: Modalita di utilizzo"""
+    ch = T['ch2_modes']
+    story.append(Paragraph(ch['title'], styles['ChapterTitle']))
+    story.append(Paragraph(ch['intro'], styles['Body']))
+
+    # Desktop
+    story.append(Paragraph(ch['s1_title'], styles['SectionTitle']))
+    story.append(Paragraph(ch['s1_p1'], styles['Body']))
+    add_bullet_list(story, ch['s1_items'], styles)
+    story.append(Paragraph(ch['s1_note'], styles['Note']))
+
+    # Webapp locale
+    story.append(Paragraph(ch['s2_title'], styles['SectionTitle']))
+    story.append(Paragraph(ch['s2_p1'], styles['Body']))
+    add_bullet_list(story, ch['s2_items'], styles)
+
+    # Collaborativa
+    story.append(Paragraph(ch['s3_title'], styles['SectionTitle']))
+    story.append(Paragraph(ch['s3_p1'], styles['Body']))
+    add_bullet_list(story, ch['s3_items'], styles)
+    story.append(Paragraph(ch['s3_note'], styles['Note']))
+
+    # Tabella differenze
+    story.append(Paragraph(ch['s4_title'], styles['SectionTitle']))
+    story.append(make_table(ch['s4_table'], col_widths=[4*cm, 3*cm, 3*cm, 4*cm]))
+    story.append(Spacer(1, 0.3*cm))
+
+    # Quale scegliere
+    story.append(Paragraph(ch['s5_title'], styles['SectionTitle']))
+    add_bullet_list(story, ch['s5_items'], styles)
+
+    story.append(PageBreak())
+
+
+def build_chapter_3(story, T, styles, lang):
+    """Capitolo 3: Primi passi"""
+    ch = T['ch3']
     story.append(Paragraph(ch['title'], styles['ChapterTitle']))
 
     # Avviare
@@ -1790,7 +2179,7 @@ def build_chapter_2(story, T, styles, lang):
     story.append(Paragraph(ch['s1_p1'], styles['Body']))
     add_bullet_list(story, ch['s1_items'], styles)
     story.append(Spacer(1, 0.3*cm))
-    add_image(story, lang, 'splash.png', T['captions']['splash'], styles, width=13*cm)
+    add_image(story, lang, 'splash_tauri.png', T['captions']['splash_tauri'], styles, width=13*cm)
 
     # Primo progetto
     story.append(Paragraph(ch['s2_title'], styles['SectionTitle']))
@@ -1813,9 +2202,9 @@ def build_chapter_2(story, T, styles, lang):
     story.append(PageBreak())
 
 
-def build_chapter_3(story, T, styles, lang):
-    """Capitolo 3: Cos'e il markup"""
-    ch = T['ch3']
+def build_chapter_4(story, T, styles, lang):
+    """Capitolo 4: Cos'e il markup"""
+    ch = T['ch4']
     story.append(Paragraph(ch['title'], styles['ChapterTitle']))
     story.append(Paragraph(ch['intro'], styles['Body']))
 
@@ -1853,9 +2242,9 @@ def build_chapter_3(story, T, styles, lang):
     story.append(PageBreak())
 
 
-def build_chapter_4(story, T, styles, lang):
-    """Capitolo 4: L'interfaccia"""
-    ch = T['ch4']
+def build_chapter_5(story, T, styles, lang):
+    """Capitolo 5: L'interfaccia"""
+    ch = T['ch5']
     story.append(Paragraph(ch['title'], styles['ChapterTitle']))
     add_image(story, lang, 'main.png', T['captions']['main'], styles, width=16*cm)
 
@@ -1883,9 +2272,9 @@ def build_chapter_4(story, T, styles, lang):
     story.append(PageBreak())
 
 
-def build_chapter_5(story, T, styles, lang):
-    """Capitolo 5: La Struttura narrativa"""
-    ch = T['ch5']
+def build_chapter_6(story, T, styles, lang):
+    """Capitolo 6: La Struttura narrativa"""
+    ch = T['ch6']
     story.append(Paragraph(ch['title'], styles['ChapterTitle']))
 
     # Organizzazione
@@ -1908,9 +2297,9 @@ def build_chapter_5(story, T, styles, lang):
     story.append(PageBreak())
 
 
-def build_chapter_6(story, T, styles, lang):
-    """Capitolo 6: Gli Aspetti"""
-    ch = T['ch6']
+def build_chapter_7(story, T, styles, lang):
+    """Capitolo 7: Gli Aspetti"""
+    ch = T['ch7']
     story.append(Paragraph(ch['title'], styles['ChapterTitle']))
     story.append(Paragraph(ch['intro'], styles['Body']))
 
@@ -1949,12 +2338,27 @@ def build_chapter_6(story, T, styles, lang):
     story.append(Paragraph(ch['s6_title'], styles['SectionTitle']))
     story.append(Paragraph(ch['s6_p1'], styles['Body']))
 
+    # Priorita (v2.0)
+    story.append(Paragraph(ch['s7_title'], styles['SectionTitle']))
+    story.append(Paragraph(ch['s7_p1'], styles['Body']))
+    add_bullet_list(story, ch['s7_items'], styles)
+    story.append(Spacer(1, 0.3*cm))
+    add_image(story, lang, 'priority_editor.png', T['captions']['priority_editor'], styles, width=10*cm)
+
+    # Filtro soglia (v2.0)
+    story.append(Paragraph(ch['s8_title'], styles['SectionTitle']))
+    story.append(Paragraph(ch['s8_p1'], styles['Body']))
+    add_bullet_list(story, ch['s8_items'], styles)
+    story.append(Spacer(1, 0.3*cm))
+    add_image(story, lang, 'priority_sidebar.png', T['captions']['priority_sidebar'], styles, width=8*cm)
+    story.append(Paragraph(ch['s8_tip'], styles['Note']))
+
     story.append(PageBreak())
 
 
-def build_chapter_7(story, T, styles, lang):
-    """Capitolo 7: I collegamenti"""
-    ch = T['ch7']
+def build_chapter_8(story, T, styles, lang):
+    """Capitolo 8: I collegamenti"""
+    ch = T['ch8']
     story.append(Paragraph(ch['title'], styles['ChapterTitle']))
     story.append(Paragraph(ch['intro'], styles['Body']))
 
@@ -1984,9 +2388,9 @@ def build_chapter_7(story, T, styles, lang):
     story.append(PageBreak())
 
 
-def build_chapter_8(story, T, styles, lang):
-    """Capitolo 8: Le annotazioni"""
-    ch = T['ch8']
+def build_chapter_9(story, T, styles, lang):
+    """Capitolo 9: Le annotazioni"""
+    ch = T['ch9']
     story.append(Paragraph(ch['title'], styles['ChapterTitle']))
     story.append(Paragraph(ch['intro'], styles['Body']))
 
@@ -2019,9 +2423,9 @@ def build_chapter_8(story, T, styles, lang):
     story.append(PageBreak())
 
 
-def build_chapter_9(story, T, styles, lang):
-    """Capitolo 9: Cerca e sostituisci"""
-    ch = T['ch9']
+def build_chapter_10(story, T, styles, lang):
+    """Capitolo 10: Cerca e sostituisci"""
+    ch = T['ch10']
     story.append(Paragraph(ch['title'], styles['ChapterTitle']))
     add_image(story, lang, 'filter.png', T['captions']['filter'], styles, width=14*cm)
     story.append(Paragraph(ch['intro'], styles['Body']))
@@ -2049,9 +2453,9 @@ def build_chapter_9(story, T, styles, lang):
     story.append(PageBreak())
 
 
-def build_chapter_10(story, T, styles, lang):
-    """Capitolo 10: La mappa radiale"""
-    ch = T['ch10']
+def build_chapter_11(story, T, styles, lang):
+    """Capitolo 11: La mappa radiale"""
+    ch = T['ch11']
     story.append(Paragraph(ch['title'], styles['ChapterTitle']))
     add_image(story, lang, 'map.png', T['captions']['map'], styles, width=14*cm)
     story.append(Paragraph(ch['intro'], styles['Body']))
@@ -2078,9 +2482,9 @@ def build_chapter_10(story, T, styles, lang):
     story.append(PageBreak())
 
 
-def build_chapter_11(story, T, styles, lang):
-    """Capitolo 11: Export PDF"""
-    ch = T['ch11']
+def build_chapter_12(story, T, styles, lang):
+    """Capitolo 12: Export PDF, Word e Markdown"""
+    ch = T['ch12']
     story.append(Paragraph(ch['title'], styles['ChapterTitle']))
 
     # Come esportare
@@ -2097,21 +2501,25 @@ def build_chapter_11(story, T, styles, lang):
 
     story.append(Paragraph(ch['s4_note'], styles['Note']))
 
-    # Formato tecnico
+    # Formato PDF tecnico
     story.append(Paragraph(ch['s5_title'], styles['SectionTitle']))
     story.append(make_table(ch['s5_table'], col_widths=[6*cm, 8*cm]))
     story.append(Spacer(1, 0.3*cm))
 
-    # Markdown
+    # Word
     story.append(Paragraph(ch['s6_title'], styles['SectionTitle']))
     story.append(Paragraph(ch['s6_p1'], styles['Body']))
+
+    # Markdown
+    story.append(Paragraph(ch['s7_title'], styles['SectionTitle']))
+    story.append(Paragraph(ch['s7_p1'], styles['Body']))
 
     story.append(PageBreak())
 
 
-def build_chapter_12(story, T, styles, lang):
-    """Capitolo 12: Impostazioni"""
-    ch = T['ch12']
+def build_chapter_13(story, T, styles, lang):
+    """Capitolo 13: Impostazioni"""
+    ch = T['ch13']
     story.append(Paragraph(ch['title'], styles['ChapterTitle']))
     add_image(story, lang, 'settings.png', T['captions']['settings'], styles, width=10*cm)
 
@@ -2125,32 +2533,24 @@ def build_chapter_12(story, T, styles, lang):
     story.append(Paragraph(ch['s2_title'], styles['SectionTitle']))
     story.append(Paragraph(ch['s2_p1'], styles['Body']))
 
-    # Colori
+    # Lingua
     story.append(Paragraph(ch['s3_title'], styles['SectionTitle']))
     story.append(Paragraph(ch['s3_p1'], styles['Body']))
-    story.append(Paragraph(ch['s3_sub1'], styles['SubsectionTitle']))
-    add_bullet_list(story, ch['s3_sub1_items'], styles)
-    story.append(Paragraph(ch['s3_sub2'], styles['SubsectionTitle']))
-    add_bullet_list(story, ch['s3_sub2_items'], styles)
 
-    # Lingua
+    # Import/Export
     story.append(Paragraph(ch['s4_title'], styles['SectionTitle']))
     story.append(Paragraph(ch['s4_p1'], styles['Body']))
 
-    # Import/Export
+    # Tutorial
     story.append(Paragraph(ch['s5_title'], styles['SectionTitle']))
     story.append(Paragraph(ch['s5_p1'], styles['Body']))
-
-    # Tutorial
-    story.append(Paragraph(ch['s6_title'], styles['SectionTitle']))
-    story.append(Paragraph(ch['s6_p1'], styles['Body']))
 
     story.append(PageBreak())
 
 
-def build_chapter_13(story, T, styles, lang):
-    """Capitolo 13: Il formato file .trmd"""
-    ch = T['ch13']
+def build_chapter_14(story, T, styles, lang):
+    """Capitolo 14: Il formato file .trmd"""
+    ch = T['ch14']
     story.append(Paragraph(ch['title'], styles['ChapterTitle']))
     story.append(Paragraph(ch['intro'], styles['Body']))
 
@@ -2178,12 +2578,19 @@ def build_chapter_13(story, T, styles, lang):
     story.append(Paragraph(ch['s5_title'], styles['SectionTitle']))
     story.append(Paragraph(ch['s5_code'], styles['CodeBlock']))
 
+    # Metadati estesi (v2.0)
+    story.append(Paragraph(ch['s6_title'], styles['SectionTitle']))
+    story.append(Paragraph(ch['s6_p1'], styles['Body']))
+    story.append(make_table(ch['s6_table'], col_widths=[6*cm, 8*cm]))
+    story.append(Spacer(1, 0.3*cm))
+    story.append(Paragraph(ch['s6_note'], styles['Note']))
+
     story.append(PageBreak())
 
 
-def build_chapter_14(story, T, styles, lang):
-    """Capitolo 14: Scorciatoie da tastiera"""
-    ch = T['ch14']
+def build_chapter_15(story, T, styles, lang):
+    """Capitolo 15: Scorciatoie da tastiera"""
+    ch = T['ch15']
     story.append(Paragraph(ch['title'], styles['ChapterTitle']))
 
     story.append(make_table(ch['s1_table'], col_widths=[6*cm, 8*cm]))
@@ -2197,9 +2604,9 @@ def build_chapter_14(story, T, styles, lang):
     story.append(PageBreak())
 
 
-def build_chapter_15(story, T, styles, lang):
-    """Capitolo 15: Assistente AI"""
-    ch = T['ch15']
+def build_chapter_16(story, T, styles, lang):
+    """Capitolo 16: Assistente AI"""
+    ch = T['ch16']
     story.append(Paragraph(ch['title'], styles['ChapterTitle']))
 
     # Introduzione
@@ -2260,14 +2667,74 @@ def build_chapter_15(story, T, styles, lang):
     story.append(PageBreak())
 
 
+def build_chapter_17(story, T, styles, lang):
+    """Capitolo 17: Modalita collaborativa"""
+    ch = T['ch17']
+    story.append(Paragraph(ch['title'], styles['ChapterTitle']))
+    story.append(Paragraph(ch['intro'], styles['Body']))
+
+    # Requisiti
+    story.append(Paragraph(ch['s1_title'], styles['SectionTitle']))
+    add_bullet_list(story, ch['s1_items'], styles)
+
+    # Login e progetti
+    story.append(Paragraph(ch['s2_title'], styles['SectionTitle']))
+    story.append(Paragraph(ch['s2_p1'], styles['Body']))
+    add_bullet_list(story, ch['s2_items'], styles)
+
+    # Ruoli e permessi
+    story.append(Paragraph(ch['s3_title'], styles['SectionTitle']))
+    story.append(Paragraph(ch['s3_p1'], styles['Body']))
+    story.append(make_table(ch['s3_table'], col_widths=[3*cm, 11*cm]))
+    story.append(Spacer(1, 0.3*cm))
+
+    # Ownership
+    story.append(Paragraph(ch['s4_title'], styles['SectionTitle']))
+    story.append(Paragraph(ch['s4_p1'], styles['Body']))
+    add_bullet_list(story, ch['s4_items'], styles)
+
+    # Proposte
+    story.append(Paragraph(ch['s5_title'], styles['SectionTitle']))
+    story.append(Paragraph(ch['s5_p1'], styles['Body']))
+    add_numbered_list(story, ch['s5_items'], styles)
+    story.append(Paragraph(ch['s5_p2'], styles['Body']))
+
+    # Discussioni
+    story.append(Paragraph(ch['s6_title'], styles['SectionTitle']))
+    story.append(Paragraph(ch['s6_p1'], styles['Body']))
+    add_bullet_list(story, ch['s6_items'], styles)
+
+    # Chat
+    story.append(Paragraph(ch['s7_title'], styles['SectionTitle']))
+    story.append(Paragraph(ch['s7_p1'], styles['Body']))
+
+    # Sincronizzazione
+    story.append(Paragraph(ch['s8_title'], styles['SectionTitle']))
+    story.append(Paragraph(ch['s8_p1'], styles['Body']))
+    add_bullet_list(story, ch['s8_items'], styles)
+
+    # Gestire collaboratori
+    story.append(Paragraph(ch['s9_title'], styles['SectionTitle']))
+    story.append(Paragraph(ch['s9_p1'], styles['Body']))
+    add_bullet_list(story, ch['s9_items'], styles)
+    story.append(Paragraph(ch['s9_note'], styles['Note']))
+
+    story.append(PageBreak())
+
+
 def build_appendix(story, T, styles, lang):
     """Appendice: Riferimento rapido"""
     ch = T['appendix']
     story.append(Paragraph(ch['title'], styles['ChapterTitle']))
 
-    # Sintassi
+    # Sintassi base
     story.append(Paragraph(ch['s1_title'], styles['SectionTitle']))
     story.append(make_table(ch['s1_table'], col_widths=[5*cm, 9*cm]))
+    story.append(Spacer(1, 0.3*cm))
+
+    # Sintassi v2.0
+    story.append(Paragraph(ch['s1b_title'], styles['SectionTitle']))
+    story.append(make_table(ch['s1b_table'], col_widths=[5*cm, 9*cm]))
     story.append(Spacer(1, 0.5*cm))
 
     # ID riservati
@@ -2315,7 +2782,7 @@ def build_manual(lang):
     story.append(Spacer(1, 0.5*cm))
     story.append(Paragraph(T['manual_title'], styles['CoverSubtitle']))
     story.append(Spacer(1, 1*cm))
-    add_image(story, lang, 'splash.png', '', styles, width=12*cm)
+    add_image(story, lang, 'splash_tauri.png', '', styles, width=12*cm)
     story.append(Spacer(1, 1*cm))
     story.append(Paragraph(T['version'], styles['Body']))
     story.append(PageBreak())
@@ -2343,6 +2810,8 @@ def build_manual(lang):
     build_chapter_13(story, T, styles, lang)
     build_chapter_14(story, T, styles, lang)
     build_chapter_15(story, T, styles, lang)
+    build_chapter_16(story, T, styles, lang)
+    build_chapter_17(story, T, styles, lang)
     build_appendix(story, T, styles, lang)
 
     # BUILD

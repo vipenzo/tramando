@@ -22,7 +22,13 @@
            :drag-start nil
            :highlighted-chunk nil
            :locked-chunk nil
-           :hovered-node nil}))
+           :hovered-node nil
+           ;; Filtri per tipo di aspetto (tutti attivi di default)
+           :filters {:personaggi true
+                     :luoghi true
+                     :temi true
+                     :sequenze true
+                     :timeline true}}))
 
 ;; =============================================================================
 ;; Math Utilities
@@ -169,18 +175,29 @@
                  end-angle
                  (into (conj result chapter-layout) children-layouts)))))))
 
+(defn- filter-aspects-by-threshold
+  "Filter aspects by priority threshold"
+  [aspects container-id]
+  (let [threshold (settings/get-aspect-threshold container-id)]
+    (filter #(>= (or (:priority %) 0) threshold) aspects)))
+
 (defn- calculate-aspects-layout
   "Calculate layout for aspect containers and their children"
-  [cx cy r-inner r-outer]
-  (let [containers model/aspect-containers
-        ;; Count children for each container
+  [cx cy r-inner r-outer filters]
+  (let [;; Filtra solo i container attivi
+        active-containers (filter (fn [{:keys [id]}]
+                                    (get filters (keyword id) true))
+                                  model/aspect-containers)
+        ;; Count children for each container (filtered by priority threshold)
         container-counts (map (fn [{:keys [id]}]
-                                {:id id
-                                 :count (count (model/build-aspect-tree id))})
-                              containers)
+                                (let [all-children (model/build-aspect-tree id)
+                                      filtered-children (filter-aspects-by-threshold all-children id)]
+                                  {:id id
+                                   :count (count filtered-children)}))
+                              active-containers)
         total-items (reduce + (map :count container-counts))
         ;; Calculate angles - minimum 10 degrees per container
-        base-angle (/ (* 2 js/Math.PI) (count containers))
+        base-angle (/ (* 2 js/Math.PI) (count active-containers))
         assign-angles (fn [counts]
                         (let [total-weighted (reduce + (map #(max 1 (:count %)) counts))
                               available-angle (* 2 js/Math.PI)]
@@ -204,7 +221,8 @@
         (let [{:keys [id cnt] :as info} (first containers-info)
               sector-angle (:angle info)
               end-angle (+ angle sector-angle)
-              children (model/build-aspect-tree id)
+              all-children (model/build-aspect-tree id)
+              children (filter-aspects-by-threshold all-children id)
               child-count (count children)
               ;; Container sector layout
               container-layout {:id id
@@ -345,7 +363,8 @@
            rotation (if (and (>= tangent-angle 90) (< tangent-angle 270))
                       (+ tangent-angle 180)
                       tangent-angle)
-           summary (or (:summary chunk) "")]
+           ;; Expand macros like [:ORD] -> "4"
+           summary (model/expand-summary-macros (or (:summary chunk) "") chunk)]
        [:foreignObject {:x (- tx (/ text-width 2))
                         :y (- ty (/ text-height 2))
                         :width text-width
@@ -414,7 +433,8 @@
              rotation (if (and (>= tangent-angle 90) (< tangent-angle 270))
                         (+ tangent-angle 180)
                         tangent-angle)
-             summary (or (:summary chunk) "")]
+             ;; Expand macros like [:ORD] -> "4"
+             summary (model/expand-summary-macros (or (:summary chunk) "") chunk)]
          [:foreignObject {:x (- tx (/ text-width 2))
                           :y (- ty (/ text-height 2))
                           :width text-width
@@ -440,18 +460,30 @@
         container-key (keyword container-id)
         line-color (get colors container-key (:accent colors))
         {:keys [highlighted-chunk locked-chunk]} @view-state
-        is-highlighted? (or (= from-id highlighted-chunk)
-                            (= to-id highlighted-chunk)
-                            (= from-id locked-chunk)
-                            (= to-id locked-chunk))
+        ;; Distinguish between locked (selected) and hovered connections
+        is-locked? (and locked-chunk
+                        (or (= from-id locked-chunk)
+                            (= to-id locked-chunk)))
+        is-hovered? (and highlighted-chunk
+                         (not= highlighted-chunk locked-chunk)  ; Don't double-highlight
+                         (or (= from-id highlighted-chunk)
+                             (= to-id highlighted-chunk)))
         has-lock? (some? locked-chunk)
+        ;; Locked lines: full color, thick, with glow
+        ;; Hovered lines: slightly desaturated, thinner, no glow
+        ;; Other lines: very faint when there's a selection
         opacity (cond
-                  is-highlighted? 1.0
+                  is-locked? 1.0
+                  is-hovered? 0.7
                   has-lock? 0.05
-                  :else 0.3)]
+                  :else 0.3)
+        stroke-width (cond
+                       is-locked? 4
+                       is-hovered? 2.5
+                       :else 1.5)]
     [:g
-     ;; Glow effect for highlighted lines
-     (when is-highlighted?
+     ;; Glow effect only for locked (selected) lines
+     (when is-locked?
        [:path {:d (bezier-curve-path cx cy from-center to-center)
                :fill "none"
                :stroke line-color
@@ -462,9 +494,10 @@
      [:path {:d (bezier-curve-path cx cy from-center to-center)
              :fill "none"
              :stroke line-color
-             :stroke-width (if is-highlighted? 4 1.5)
+             :stroke-width stroke-width
              :stroke-opacity opacity
-             :stroke-linecap "round"}]]))
+             :stroke-linecap "round"
+             :stroke-dasharray (when is-hovered? "6,3")}]]))
 
 ;; =============================================================================
 ;; Info Panel Component
@@ -497,7 +530,11 @@
 (defn- info-panel-content
   "Render the content of an info panel for a given node"
   [chunk node-type chunks colors]
-  (let [connections (when chunk (count-connections (:id chunk) chunks))]
+  (let [connections (when chunk (count-connections (:id chunk) chunks))
+        ;; Expand macros like [:ORD] -> "4"
+        title (if chunk
+                (model/expand-summary-macros (or (:summary chunk) "(senza titolo)") chunk)
+                "(senza titolo)")]
     [:div
      ;; Title
      [:div {:style {:color (:text colors)
@@ -507,7 +544,7 @@
                     :white-space "nowrap"
                     :overflow "hidden"
                     :text-overflow "ellipsis"}}
-      (or (:summary chunk) "(senza titolo)")]
+      title]
      ;; Type
      [:div {:style {:display "flex"
                     :justify-content "space-between"
@@ -621,6 +658,61 @@
          "Clicca su un elemento per selezionarlo"])]]))
 
 ;; =============================================================================
+;; Filters Panel Component
+;; =============================================================================
+
+(def ^:private filter-labels
+  {:personaggi "Personaggi"
+   :luoghi "Luoghi"
+   :temi "Temi"
+   :sequenze "Sequenze"
+   :timeline "Timeline"})
+
+(defn- filters-panel []
+  (let [colors (:colors @settings/settings)
+        filters (:filters @view-state)]
+    [:div {:style {:position "absolute"
+                   :top "16px"
+                   :left "16px"
+                   :background (str (:sidebar colors) "ee")
+                   :border (str "1px solid " (:border colors))
+                   :border-radius "8px"
+                   :padding "12px 16px"
+                   :z-index 10}}
+     [:div {:style {:color (:text-muted colors)
+                    :font-size "0.7rem"
+                    :text-transform "uppercase"
+                    :letter-spacing "0.5px"
+                    :margin-bottom "8px"}}
+      "Filtri"]
+     (doall
+      (for [filter-key [:personaggi :luoghi :temi :sequenze :timeline]]
+        (let [active? (get filters filter-key true)
+              filter-color (get colors filter-key (:accent colors))]
+          ^{:key filter-key}
+          [:label {:style {:display "flex"
+                           :align-items "center"
+                           :gap "8px"
+                           :cursor "pointer"
+                           :margin-bottom "4px"
+                           :color (if active? (:text colors) (:text-muted colors))
+                           :font-size "0.85rem"}
+                   :on-click (fn [e]
+                               (.preventDefault e)
+                               (swap! view-state update-in [:filters filter-key] not))}
+           [:div {:style {:width "16px"
+                          :height "16px"
+                          :border-radius "3px"
+                          :border (str "2px solid " filter-color)
+                          :background (if active? filter-color "transparent")
+                          :display "flex"
+                          :align-items "center"
+                          :justify-content "center"}}
+            (when active?
+              [:span {:style {:color "#fff" :font-size "11px" :font-weight "bold"}} "✓"])]
+           (get filter-labels filter-key)])))]))
+
+;; =============================================================================
 ;; Main Radial Component
 ;; =============================================================================
 
@@ -673,7 +765,8 @@
       :reagent-render
       (fn []
         (let [{:keys [width height]} @size
-              {:keys [zoom pan-x pan-y dragging?]} @view-state
+              {:keys [zoom pan-x pan-y dragging? filters]} @view-state
+              ;; Subscribe to settings changes (includes thresholds)
               colors (:colors @settings/settings)
 
               ;; Calculate center and radii based on size
@@ -691,7 +784,7 @@
 
               ;; Calculate layouts
               structure-layout (calculate-structure-layout cx cy struct-inner struct-outer)
-              aspects-layout (calculate-aspects-layout cx cy aspect-inner aspect-outer)
+              aspects-layout (calculate-aspects-layout cx cy aspect-inner aspect-outer filters)
               connections (calculate-connections structure-layout aspects-layout)
 
               ;; Get project title from filename (without extension)
@@ -787,11 +880,13 @@
                     :fill (:text-muted colors)
                     :font-size "12px"}
              (str "Zoom: " (.toFixed zoom 1) "x")]]
+           ;; Filters panel (top-left corner)
+           [filters-panel]
            ;; Info panel (outside SVG, inside container)
            [info-panel]
-           ;; Help tooltip (top-right corner)
+           ;; Help tooltip (top-right corner - opens below and left to avoid clipping)
            [:div {:style {:position "absolute"
                           :top "16px"
                           :right "16px"
                           :z-index 10}}
-            [help/help-icon :mappa-radiale]]]))})))
+            [help/help-icon :mappa-radiale {:below? true :right? true}]]]))})))

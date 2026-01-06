@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tramando - Slide Video Promozionale</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Georgia&family=Inter:wght@300;400;500;600&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #1a1a1a;
+            color: #ffffff;
+        }
+        
+        .slide {
+            width: 1920px;
+            height: 1080px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 80px;
+            position: relative;
+            overflow: hidden;
+            margin: 40px auto;
+            border: 1px solid #333;
+            border-radius: 8px;
+        }
+        
+        .slide-label {
+            position: absolute;
+            top: -30px;
+            left: 0;
+            font-size: 14px;
+            color: #666;
+            font-weight: 500;
+        }
+        
+        /* Colori Tramando */
+        :root {
+            --accent: #4a9f8e;
+            --accent-light: #5bbfab;
+            --bg-dark: #1e1e1e;
+            --bg-darker: #141414;
+            --text-primary: #ffffff;
+            --text-secondary: #a0a0a0;
+        }
+        
+        /* SLIDE 1: Il problema */
+        .slide-1 {
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+        }
+        
+        .chaos-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 60px;
+            opacity: 0.7;
+        }
+        
+        .folder {
+            background: #3a3a3a;
+            border: 1px solid #555;
+            border-radius: 4px;
+            padding: 12px 20px;
+            font-size: 14px;
+            color: #ccc;
+            transform: rotate(var(--rotation, 0deg));
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        
+        .folder:nth-child(1) { --rotation: -3deg; }
+        .folder:nth-child(2) { --rotation: 2deg; }
+        .folder:nth-child(3) { --rotation: -1deg; }
+        .folder:nth-child(4) { --rotation: 4deg; }
+        .folder:nth-child(5) { --rotation: -2deg; }
+        
+        .questions {
+            text-align: center;
+        }
+        
+        .question {
+            font-size: 36px;
+            font-weight: 300;
+            color: var(--text-secondary);
+            margin: 20px 0;
+            font-style: italic;
+        }
+        
+        .question:nth-child(2) {
+            font-size: 38px;
+            color: #b0b0b0;
+        }
+        
+        .question:nth-child(3) {
+            font-size: 40px;
+            color: #c0c0c0;
+        }
+        
+        /* SLIDE 2: La soluzione */
+        .slide-2 {
+            background: radial-gradient(ellipse at center, #252525 0%, #1a1a1a 70%);
+        }
+        
+        .logo-container {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+            margin-bottom: 50px;
+        }
+        
+        .logo-icon {
+            width: 80px;
+            height: 80px;
+        }
+        
+        .logo-text {
+            font-family: 'Georgia', serif;
+            font-style: italic;
+            font-size: 72px;
+            font-weight: 400;
+            letter-spacing: 2px;
+        }
+        
+        .logo-text .t {
+            color: #5b9aa9;
+        }
+        
+        .tagline {
+            font-size: 42px;
+            font-weight: 300;
+            color: var(--accent-light);
+            letter-spacing: 1px;
+        }
+        
+        /* SLIDE 7: Intro collaborazione */
+        .slide-7 {
+            background: linear-gradient(135deg, #1a1a1a 0%, #252530 100%);
+        }
+        
+        .collab-visual {
+            display: flex;
+            align-items: center;
+            gap: 60px;
+            margin-bottom: 60px;
+        }
+        
+        .person-icon {
+            width: 120px;
+            height: 120px;
+            background: var(--bg-dark);
+            border: 3px solid var(--accent);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 60px;
+        }
+        
+        .arrows {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .arrow {
+            font-size: 40px;
+            color: var(--accent);
+        }
+        
+        .collab-question {
+            font-size: 56px;
+            font-weight: 400;
+            color: var(--text-primary);
+        }
+        
+        /* SLIDE 12: Multi-piattaforma */
+        .slide-12 {
+            background: linear-gradient(180deg, #1a1a1a 0%, #202020 100%);
+        }
+        
+        .platforms {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 50px;
+            margin-bottom: 60px;
+        }
+        
+        .platform {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+        }
+        
+        .platform-icon {
+            width: 100px;
+            height: 100px;
+            background: #2a2a2a;
+            border: 2px solid #444;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+            transition: all 0.3s;
+        }
+        
+        .platform-icon:hover {
+            border-color: var(--accent);
+            transform: translateY(-5px);
+        }
+        
+        .platform-label {
+            font-size: 18px;
+            color: var(--text-secondary);
+        }
+        
+        .connector-line {
+            width: 2px;
+            height: 60px;
+            background: linear-gradient(180deg, transparent, var(--accent), transparent);
+        }
+        
+        .platform-tagline {
+            font-size: 48px;
+            font-weight: 400;
+            color: var(--text-primary);
+            margin-top: 40px;
+        }
+        
+        /* SLIDE 13: Chiusura */
+        .slide-13 {
+            background: radial-gradient(ellipse at center, #1e2a28 0%, #1a1a1a 70%);
+        }
+        
+        .final-logo {
+            display: flex;
+            align-items: center;
+            gap: 30px;
+            margin-bottom: 80px;
+        }
+        
+        .final-logo .logo-icon {
+            width: 100px;
+            height: 100px;
+        }
+        
+        .final-logo .logo-text {
+            font-size: 96px;
+        }
+        
+        .final-taglines {
+            text-align: center;
+            margin-bottom: 60px;
+        }
+        
+        .final-tagline {
+            font-size: 36px;
+            font-weight: 300;
+            color: var(--text-secondary);
+            margin: 16px 0;
+        }
+        
+        .final-url {
+            font-size: 48px;
+            font-weight: 500;
+            color: var(--accent-light);
+            margin: 40px 0;
+            letter-spacing: 2px;
+        }
+        
+        .cta-button {
+            background: var(--accent);
+            color: white;
+            font-size: 28px;
+            font-weight: 500;
+            padding: 20px 60px;
+            border-radius: 12px;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 8px 30px rgba(74, 159, 142, 0.3);
+            transition: all 0.3s;
+        }
+        
+        .cta-button:hover {
+            background: var(--accent-light);
+            transform: translateY(-3px);
+            box-shadow: 0 12px 40px rgba(74, 159, 142, 0.4);
+        }
+        
+        /* Titoli overlay per screencast */
+        .overlay-title {
+            background: rgba(0, 0, 0, 0.85);
+            padding: 40px 80px;
+            border-radius: 12px;
+            border-left: 4px solid var(--accent);
+        }
+        
+        .overlay-title h2 {
+            font-size: 32px;
+            font-weight: 500;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        
+        .overlay-title .icon {
+            font-size: 28px;
+        }
+        
+        /* Text overlays per screencast */
+        .text-overlay {
+            background: rgba(0, 0, 0, 0.8);
+            padding: 24px 48px;
+            border-radius: 8px;
+            max-width: 800px;
+        }
+        
+        .text-overlay p {
+            font-size: 28px;
+            font-weight: 400;
+            color: var(--text-primary);
+            text-align: center;
+            line-height: 1.5;
+        }
+        
+        /* Sezione istruzioni */
+        .instructions {
+            max-width: 1200px;
+            margin: 60px auto;
+            padding: 40px;
+            background: #252525;
+            border-radius: 12px;
+        }
+        
+        .instructions h2 {
+            color: var(--accent);
+            margin-bottom: 20px;
+        }
+        
+        .instructions p {
+            color: #aaa;
+            line-height: 1.8;
+            margin-bottom: 16px;
+        }
+        
+        .instructions code {
+            background: #333;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        /* Thumbnails navigation */
+        .nav {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #252525;
+            padding: 16px;
+            border-radius: 8px;
+            z-index: 100;
+        }
+        
+        .nav a {
+            display: block;
+            color: #888;
+            text-decoration: none;
+            padding: 8px 12px;
+            font-size: 14px;
+            border-radius: 4px;
+        }
+        
+        .nav a:hover {
+            background: #333;
+            color: var(--accent);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Navigazione -->
+    <nav class="nav">
+        <a href="#slide1">1. Il problema</a>
+        <a href="#slide2">2. La soluzione</a>
+        <a href="#slide7">7. Collaborazione</a>
+        <a href="#slide12">12. Piattaforme</a>
+        <a href="#slide13">13. Chiusura</a>
+        <a href="#overlays">Overlay</a>
+    </nav>
+
+    <!-- SLIDE 1: Il problema -->
+    <div id="slide1">
+        <span class="slide-label">SLIDE 1 — Il problema (15 sec)</span>
+        <div class="slide slide-1">
+            <div class="chaos-container">
+                <div class="folder">📁 Romanzo_v1.docx</div>
+                <div class="folder">📁 Romanzo_v2_FINALE.docx</div>
+                <div class="folder">📁 Romanzo_FINALE_davvero.docx</div>
+                <div class="folder">📁 Personaggi_note.docx</div>
+                <div class="folder">📁 Capitolo7_backup.docx</div>
+            </div>
+            <div class="questions">
+                <p class="question">"Capitolo 7... o era l'8?"</p>
+                <p class="question">"Dov'era la scena del confronto?"</p>
+                <p class="question">"Come si chiamava quel personaggio secondario?"</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- SLIDE 2: La soluzione -->
+    <div id="slide2">
+        <span class="slide-label">SLIDE 2 — La soluzione (5 sec)</span>
+        <div class="slide slide-2">
+            <div class="logo-container">
+                <!-- Sostituire con l'icona reale di Tramando -->
+                <svg class="logo-icon" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="10" y="20" width="80" height="60" rx="4" stroke="#5b9aa9" stroke-width="3" fill="none"/>
+                    <line x1="10" y1="35" x2="90" y2="35" stroke="#5b9aa9" stroke-width="2"/>
+                    <line x1="35" y1="35" x2="35" y2="80" stroke="#5b9aa9" stroke-width="2"/>
+                    <rect x="15" y="25" width="15" height="6" rx="1" fill="#5b9aa9" opacity="0.5"/>
+                    <rect x="15" y="42" width="12" height="4" rx="1" fill="#5b9aa9" opacity="0.3"/>
+                    <rect x="15" y="50" width="14" height="4" rx="1" fill="#5b9aa9" opacity="0.3"/>
+                    <rect x="15" y="58" width="10" height="4" rx="1" fill="#5b9aa9" opacity="0.3"/>
+                    <rect x="42" y="42" width="40" height="3" rx="1" fill="#888" opacity="0.4"/>
+                    <rect x="42" y="50" width="35" height="3" rx="1" fill="#888" opacity="0.4"/>
+                    <rect x="42" y="58" width="42" height="3" rx="1" fill="#888" opacity="0.4"/>
+                    <rect x="42" y="66" width="30" height="3" rx="1" fill="#888" opacity="0.4"/>
+                </svg>
+                <span class="logo-text"><span class="t">T</span>ramando</span>
+            </div>
+            <p class="tagline">C'è un altro modo.</p>
+        </div>
+    </div>
+
+    <!-- SLIDE 7: Intro collaborazione -->
+    <div id="slide7">
+        <span class="slide-label">SLIDE 7 — Intro collaborazione (5 sec)</span>
+        <div class="slide slide-7">
+            <div class="collab-visual">
+                <div class="person-icon">👤</div>
+                <div class="arrows">
+                    <span class="arrow">→</span>
+                    <span class="arrow">←</span>
+                </div>
+                <div class="person-icon">👤</div>
+            </div>
+            <p class="collab-question">Scrivi con altri?</p>
+        </div>
+    </div>
+
+    <!-- SLIDE 12: Multi-piattaforma -->
+    <div id="slide12">
+        <span class="slide-label">SLIDE 12 — Multi-piattaforma (10 sec)</span>
+        <div class="slide slide-12">
+            <div class="platforms">
+                <div class="platform">
+                    <div class="platform-icon">🍎</div>
+                    <span class="platform-label">macOS</span>
+                </div>
+                <div class="platform">
+                    <div class="platform-icon">🪟</div>
+                    <span class="platform-label">Windows</span>
+                </div>
+                <div class="platform">
+                    <div class="platform-icon">🐧</div>
+                    <span class="platform-label">Linux</span>
+                </div>
+                <div class="platform">
+                    <div class="platform-icon">🌐</div>
+                    <span class="platform-label">Browser</span>
+                </div>
+            </div>
+            <p class="platform-tagline">Desktop. Web. Ovunque tu scriva.</p>
+        </div>
+    </div>
+
+    <!-- SLIDE 13: Chiusura -->
+    <div id="slide13">
+        <span class="slide-label">SLIDE 13 — Chiusura (10 sec)</span>
+        <div class="slide slide-13">
+            <div class="final-logo">
+                <svg class="logo-icon" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="10" y="20" width="80" height="60" rx="4" stroke="#5b9aa9" stroke-width="3" fill="none"/>
+                    <line x1="10" y1="35" x2="90" y2="35" stroke="#5b9aa9" stroke-width="2"/>
+                    <line x1="35" y1="35" x2="35" y2="80" stroke="#5b9aa9" stroke-width="2"/>
+                    <rect x="15" y="25" width="15" height="6" rx="1" fill="#5b9aa9" opacity="0.5"/>
+                    <rect x="15" y="42" width="12" height="4" rx="1" fill="#5b9aa9" opacity="0.3"/>
+                    <rect x="15" y="50" width="14" height="4" rx="1" fill="#5b9aa9" opacity="0.3"/>
+                    <rect x="15" y="58" width="10" height="4" rx="1" fill="#5b9aa9" opacity="0.3"/>
+                    <rect x="42" y="42" width="40" height="3" rx="1" fill="#888" opacity="0.4"/>
+                    <rect x="42" y="50" width="35" height="3" rx="1" fill="#888" opacity="0.4"/>
+                    <rect x="42" y="58" width="42" height="3" rx="1" fill="#888" opacity="0.4"/>
+                    <rect x="42" y="66" width="30" height="3" rx="1" fill="#888" opacity="0.4"/>
+                </svg>
+                <span class="logo-text"><span class="t">T</span>ramando</span>
+            </div>
+            <div class="final-taglines">
+                <p class="final-tagline">Gratuito. Open source.</p>
+                <p class="final-url">tramando.app</p>
+            </div>
+            <button class="cta-button">Scarica ora</button>
+        </div>
+    </div>
+
+    <!-- OVERLAY TITLES per screencast -->
+    <div id="overlays">
+        <div class="instructions">
+            <h2>Titoli Overlay per Screencast</h2>
+            <p>Questi sono i titoli da sovrapporre durante le registrazioni. 
+            Puoi crearli come PNG trasparenti o aggiungerli in post-produzione.</p>
+        </div>
+
+        <!-- Overlay: Autore -->
+        <span class="slide-label">OVERLAY — Prospettiva Autore</span>
+        <div class="slide" style="background: transparent; border: 1px dashed #444;">
+            <div class="overlay-title" style="position: absolute; top: 40px; left: 40px;">
+                <h2><span class="icon">👤</span> Mario — Autore</h2>
+            </div>
+        </div>
+
+        <!-- Overlay: Beta reader -->
+        <span class="slide-label">OVERLAY — Prospettiva Beta reader</span>
+        <div class="slide" style="background: transparent; border: 1px dashed #444;">
+            <div class="overlay-title" style="position: absolute; top: 40px; left: 40px;">
+                <h2><span class="icon">👤</span> Elena — Beta reader</h2>
+            </div>
+        </div>
+
+        <!-- Text overlays -->
+        <div class="instructions">
+            <h2>Testi Overlay per Screencast</h2>
+            <p>Da posizionare in basso al centro durante le scene screencast.</p>
+        </div>
+
+        <span class="slide-label">OVERLAY TESTO — Scena 3</span>
+        <div class="slide" style="background: transparent; border: 1px dashed #444;">
+            <div class="text-overlay" style="position: absolute; bottom: 80px;">
+                <p>Tutto il tuo romanzo in un colpo d'occhio.</p>
+            </div>
+        </div>
+
+        <span class="slide-label">OVERLAY TESTO — Scena 3b</span>
+        <div class="slide" style="background: transparent; border: 1px dashed #444;">
+            <div class="text-overlay" style="position: absolute; bottom: 80px;">
+                <p>Capitoli, scene, personaggi — sempre a portata di click.</p>
+            </div>
+        </div>
+
+        <span class="slide-label">OVERLAY TESTO — Scena 4</span>
+        <div class="slide" style="background: transparent; border: 1px dashed #444;">
+            <div class="text-overlay" style="position: absolute; bottom: 80px;">
+                <p>Chi era Sofia? Dove compare?<br>Un click e lo sai.</p>
+            </div>
+        </div>
+
+        <span class="slide-label">OVERLAY TESTO — Scena 5</span>
+        <div class="slide" style="background: transparent; border: 1px dashed #444;">
+            <div class="text-overlay" style="position: absolute; bottom: 80px;">
+                <p>Visualizza le connessioni della tua storia.</p>
+            </div>
+        </div>
+
+        <span class="slide-label">OVERLAY TESTO — Scena 6</span>
+        <div class="slide" style="background: transparent; border: 1px dashed #444;">
+            <div class="text-overlay" style="position: absolute; bottom: 80px;">
+                <p>Segna dove tornare. Non perderai più nulla.</p>
+            </div>
+        </div>
+
+        <span class="slide-label">OVERLAY TESTO — Scena 8</span>
+        <div class="slide" style="background: transparent; border: 1px dashed #444;">
+            <div class="text-overlay" style="position: absolute; bottom: 80px;">
+                <p>Stesso progetto. Due prospettive.</p>
+            </div>
+        </div>
+
+        <span class="slide-label">OVERLAY TESTO — Scena 9</span>
+        <div class="slide" style="background: transparent; border: 1px dashed #444;">
+            <div class="text-overlay" style="position: absolute; bottom: 80px;">
+                <p>Feedback in tempo reale.</p>
+            </div>
+        </div>
+
+        <span class="slide-label">OVERLAY TESTO — Scena 10</span>
+        <div class="slide" style="background: transparent; border: 1px dashed #444;">
+            <div class="text-overlay" style="position: absolute; bottom: 80px;">
+                <p>Proponi. Rivedi. Decidi.<br>L'autore ha sempre l'ultima parola.</p>
+            </div>
+        </div>
+
+        <span class="slide-label">OVERLAY TESTO — Scena 11</span>
+        <div class="slide" style="background: transparent; border: 1px dashed #444;">
+            <div class="text-overlay" style="position: absolute; bottom: 80px;">
+                <p>L'AI conosce già i tuoi personaggi.<br>Chiedi. Esplora. Lasciati ispirare.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Istruzioni finali -->
+    <div class="instructions">
+        <h2>Come usare queste slide</h2>
+        <p><strong>Opzione 1 — Screenshot:</strong> Apri questo file in un browser a schermo intero (F11), naviga a ogni slide e fai screenshot a 1920x1080. Importa gli screenshot in Screen Charm o nel video editor.</p>
+        <p><strong>Opzione 2 — Keynote:</strong> Ricrea queste slide in Keynote usando i colori e i testi indicati. Font: Inter per il testo, Georgia Italic per "Tramando". Colore accent: <code>#4a9f8e</code> (teal), sfondo: <code>#1a1a1a</code> (grigio scuro).</p>
+        <p><strong>Opzione 3 — Screen recording:</strong> Registra direttamente questo file HTML mentre scorri tra le slide. Meno elegante ma funziona per una prima bozza.</p>
+        <p><strong>Per gli overlay:</strong> Esporta come PNG con sfondo trasparente (usa uno strumento come Figma o fai screenshot e rimuovi lo sfondo) oppure aggiungi i testi direttamente nel video editor.</p>
+        <p><strong>Icona logo:</strong> Sostituisci l'SVG placeholder con l'icona reale di Tramando (32x32.png scalata).</p>
+    </div>
+
+</body>
+</html>

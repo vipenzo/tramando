@@ -9,10 +9,13 @@
             [tramando.context-menu :as context-menu]
             [tramando.events :as events]
             [tramando.chunk-selector :as selector]
+            [tramando.auth :as auth]
+            [tramando.api :as api]
+            [tramando.store.protocol :as protocol]
+            [tramando.store.remote :as remote-store]
             ["@codemirror/state" :refer [EditorState StateField StateEffect RangeSetBuilder]]
-            ["@codemirror/view" :refer [EditorView keymap lineNumbers highlightActiveLine
-                                        highlightActiveLineGutter drawSelection
-                                        Decoration ViewPlugin MatchDecorator WidgetType]]
+            ["@codemirror/view" :refer [EditorView keymap highlightActiveLine
+                                        drawSelection Decoration ViewPlugin WidgetType]]
             ["@codemirror/commands" :refer [defaultKeymap history historyKeymap
                                             indentWithTab]]
             ["@codemirror/language" :refer [indentOnInput bracketMatching
@@ -28,33 +31,41 @@
 (def tramando-theme
   (.theme EditorView
           #js {".cm-content" #js {:color "var(--color-text)"
-                                  :caretColor "var(--color-accent)"}
+                                  :caretColor "var(--color-accent)"
+                                  :fontFamily "'SF Mono', 'Fira Code', 'Consolas', monospace"
+                                  :fontSize "14px"
+                                  :lineHeight "1.8"}
                ".cm-cursor" #js {:borderLeftColor "var(--color-accent)"}
-               "&.cm-focused .cm-selectionBackground" #js {:backgroundColor "rgba(233, 69, 96, 0.3)"}
-               ".cm-selectionBackground" #js {:backgroundColor "rgba(233, 69, 96, 0.2)"}
-               ".cm-activeLine" #js {:backgroundColor "rgba(233, 69, 96, 0.08)"}
+               "&.cm-focused .cm-selectionBackground" #js {:backgroundColor "rgba(74, 159, 142, 0.3)"}
+               ".cm-selectionBackground" #js {:backgroundColor "rgba(74, 159, 142, 0.2)"}
+               ".cm-activeLine" #js {:backgroundColor "var(--color-accent-muted)"}
                ".cm-gutters" #js {:backgroundColor "var(--color-sidebar)"
                                   :color "var(--color-text-muted)"
                                   :borderRight "1px solid var(--color-border)"}
                ".cm-activeLineGutter" #js {:backgroundColor "var(--color-editor-bg)"}
                "&" #js {:backgroundColor "var(--color-background)"}
-               ;; Annotation styles - full markup mode
-               ".cm-annotation-todo" #js {:backgroundColor "rgba(255, 193, 7, 0.3)"
+               ;; Annotation styles - full markup mode (all use accent color)
+               ".cm-annotation-todo" #js {:backgroundColor "var(--color-accent-muted)"
                                           :borderRadius "3px"}
-               ".cm-annotation-note" #js {:backgroundColor "rgba(33, 150, 243, 0.25)"
+               ".cm-annotation-note" #js {:backgroundColor "var(--color-accent-muted)"
                                           :borderRadius "3px"}
-               ".cm-annotation-fix" #js {:backgroundColor "rgba(244, 67, 54, 0.25)"
+               ".cm-annotation-fix" #js {:backgroundColor "var(--color-accent-muted)"
                                          :borderRadius "3px"}
+               ".cm-annotation-proposal" #js {:backgroundColor "var(--color-accent-muted)"
+                                              :borderRadius "3px"}
                ;; Reading mode - highlighted text only
-               ".cm-annotation-text-todo" #js {:backgroundColor "rgba(255, 193, 7, 0.4)"
+               ".cm-annotation-text-todo" #js {:backgroundColor "rgba(74, 159, 142, 0.3)"
                                                :borderRadius "2px"
                                                :padding "0 2px"}
-               ".cm-annotation-text-note" #js {:backgroundColor "rgba(33, 150, 243, 0.35)"
+               ".cm-annotation-text-note" #js {:backgroundColor "rgba(74, 159, 142, 0.3)"
                                                :borderRadius "2px"
                                                :padding "0 2px"}
-               ".cm-annotation-text-fix" #js {:backgroundColor "rgba(244, 67, 54, 0.35)"
+               ".cm-annotation-text-fix" #js {:backgroundColor "rgba(74, 159, 142, 0.3)"
                                               :borderRadius "2px"
                                               :padding "0 2px"}
+               ".cm-annotation-text-proposal" #js {:backgroundColor "rgba(74, 159, 142, 0.3)"
+                                                   :borderRadius "2px"
+                                                   :padding "0 2px"}
                ;; Hidden parts in reading mode
                ".cm-annotation-hidden" #js {:fontSize "0"
                                             :color "transparent"
@@ -68,18 +79,39 @@
                                               :marginRight "4px"}
                ;; Alternative text (normal)
                ".cm-ai-alternative-text" #js {:borderBottom "2px dotted var(--color-accent)"}
+               ;; Proposal text (when selected)
+               ".cm-proposal-text" #js {:borderBottom "2px dotted var(--color-accent)"}
                ;; AI selected annotation in markup mode
-               ".cm-ai-selected" #js {:backgroundColor "rgba(76, 175, 80, 0.25)"
+               ".cm-ai-selected" #js {:backgroundColor "var(--color-accent-muted)"
                                       :borderRadius "3px"}
+               ;; PROPOSAL selected annotation in markup mode
+               ".cm-proposal-selected" #js {:backgroundColor "var(--color-accent-muted)"
+                                            :borderRadius "3px"}
                ;; Search match highlighting
-               ".cm-search-match" #js {:backgroundColor "rgba(255, 230, 0, 0.3)"
+               ".cm-search-match" #js {:backgroundColor "rgba(74, 159, 142, 0.3)"
                                        :borderRadius "2px"}
-               ".cm-search-match-current" #js {:backgroundColor "rgba(255, 165, 0, 0.5)"
+               ".cm-search-match-current" #js {:backgroundColor "rgba(74, 159, 142, 0.5)"
                                                :borderRadius "2px"
-                                               :boxShadow "0 0 2px rgba(255, 165, 0, 0.8)"}
+                                               :boxShadow "0 0 2px rgba(74, 159, 142, 0.8)"}
                ;; Flash highlight for navigation
                ".cm-annotation-flash" #js {:animation "annotation-flash 2.5s ease-out"
-                                           :borderRadius "3px"}}))
+                                           :borderRadius "3px"}
+               ;; Aspect link styles - markup mode
+               ".cm-aspect-link" #js {:backgroundColor "var(--color-accent-muted)"
+                                      :borderRadius "3px"
+                                      :padding "0 2px"}
+               ;; Aspect link styles - reading mode (resolved name)
+               ".cm-aspect-link-resolved" #js {:backgroundColor "rgba(74, 159, 142, 0.2)"
+                                               :borderBottom "1px dashed var(--color-accent)"
+                                               :borderRadius "2px"
+                                               :padding "0 3px"
+                                               :cursor "pointer"}
+               ;; Aspect link - not found
+               ".cm-aspect-link-missing" #js {:backgroundColor "rgba(74, 159, 142, 0.1)"
+                                              :borderBottom "1px dashed var(--color-text-muted)"
+                                              :borderRadius "2px"
+                                              :padding "0 2px"
+                                              :color "var(--color-text-muted)"}}))
 
 ;; =============================================================================
 ;; Editor Search State
@@ -168,7 +200,7 @@
 
 (def ^:private annotation-regex-for-ranges
   "Regex to find annotations and their parts: [!TYPE:text:priority:comment]"
-  (js/RegExp. "\\[!(TODO|NOTE|FIX):([^:]*):([^:]*):([^\\]]*)\\]" "g"))
+  (js/RegExp. "\\[!(TODO|NOTE|FIX|PROPOSAL):([^:]*):([^:]*):([^\\]]*)\\]" "g"))
 
 (defn- get-hidden-ranges
   "Returns vector of {:from :to} for hidden parts of annotations.
@@ -391,7 +423,7 @@
        (let [doc-text (.. view -state -doc (toString))
              ;; Find the annotation pattern containing this selected-text using JS regex for position
              escaped-text (str/replace selected-text #"[.*+?^${}()|\\[\\]\\\\]" "\\\\$&")
-             js-pattern (js/RegExp. (str "\\[!(TODO|NOTE|FIX):" escaped-text ":[^\\]]*\\]") "g")
+             js-pattern (js/RegExp. (str "\\[!(TODO|NOTE|FIX|PROPOSAL):" escaped-text ":[^\\]]*\\]") "g")
              match (.exec js-pattern doc-text)]
          (when match
            (let [idx (.-index match)
@@ -483,6 +515,47 @@
           (js/setTimeout update-search! 50))))))
 
 ;; =============================================================================
+;; Scroll to Pattern (for navigation from "Usato da")
+;; =============================================================================
+
+(defonce pending-scroll-pattern (atom nil))
+
+(defn scroll-to-pattern!
+  "Scroll to the first occurrence of a pattern in the editor.
+   Pattern should be a string (will be escaped for regex)."
+  [pattern]
+  (when-let [^js view @editor-view-ref]
+    (let [doc-text (.. view -state -doc (toString))
+          ;; Escape special regex characters and create pattern
+          escaped (-> pattern
+                      (str/replace #"[\[\]\\^$.|?*+(){}]" "\\$&"))
+          regex (js/RegExp. escaped "i")
+          match (.exec regex doc-text)]
+      (when match
+        (let [from (.-index match)
+              to (+ from (count (aget match 0)))]
+          ;; Select the match and scroll into view
+          (.dispatch view #js {:selection #js {:anchor from :head to}
+                               :scrollIntoView true})
+          (.focus view))))))
+
+(defn set-pending-scroll-pattern!
+  "Set a pattern to scroll to after the next editor load."
+  [pattern]
+  (reset! pending-scroll-pattern pattern))
+
+(defn execute-pending-scroll!
+  "Execute pending scroll if there is one. Called after editor loads."
+  []
+  (when-let [pattern @pending-scroll-pattern]
+    (reset! pending-scroll-pattern nil)
+    ;; Small delay to ensure editor is fully rendered
+    (js/setTimeout #(scroll-to-pattern! pattern) 100)))
+
+;; Register the pending scroll function with events module
+(events/set-pending-scroll-fn! set-pending-scroll-pattern!)
+
+;; =============================================================================
 ;; Search Highlight ViewPlugin
 ;; =============================================================================
 
@@ -506,7 +579,26 @@
 ;; =============================================================================
 
 ;; Syntax: [!TYPE:selected text:priority:comment]
-(def ^:private annotation-regex (js/RegExp. "\\[!(TODO|NOTE|FIX):([^:]*):([^:]*):([^\\]]*)\\]" "g"))
+(def ^:private annotation-regex (js/RegExp. "\\[!(TODO|NOTE|FIX|PROPOSAL):([^:]*):([^:]*):([^\\]]*)\\]" "g"))
+
+;; Syntax: [@aspect-id] - links to aspects
+(def ^:private aspect-link-regex (js/RegExp. "\\[@([^\\]]+)\\]" "g"))
+
+(defn- find-aspect-by-id
+  "Find an aspect chunk by its ID. Returns the chunk or nil."
+  [aspect-id]
+  (first (filter #(= (:id %) aspect-id) (model/get-all-aspects))))
+
+(defn- get-aspect-display-name
+  "Get display name for an aspect: 'Name - Summary' or just 'Summary'"
+  [aspect]
+  (when aspect
+    (let [summary (:summary aspect)
+          ;; Try to extract a title from content if it starts with #
+          content (:content aspect)
+          title-from-content (when (and content (str/starts-with? (str/trim content) "#"))
+                               (-> content str/trim (str/split #"\n") first (str/replace #"^#+ *" "")))]
+      (or title-from-content summary (:id aspect)))))
 
 ;; Create a widget class that properly extends WidgetType
 ;; Using JavaScript class syntax via eval for proper inheritance
@@ -613,6 +705,14 @@
               ;; Get alternative text if selected
               alt-text (when has-ai-selection?
                          (nth ai-alts (dec ai-sel)))
+              ;; Check if this is a PROPOSAL annotation with selection
+              is-proposal? (= type-str "PROPOSAL")
+              proposal-data (when is-proposal?
+                              (annotations/parse-proposal-data comment-text))
+              proposal-sel (when proposal-data (or (:sel proposal-data) 0))
+              has-proposal-selection? (and is-proposal? (pos? proposal-sel))
+              proposal-text (when has-proposal-selection?
+                              (:text proposal-data))
               ;; Calculate positions of parts: [!TYPE:text:priority:comment]
               prefix-end (+ start 2 (count type-str) 1) ; after [!TYPE:
               text-start prefix-end
@@ -623,6 +723,11 @@
               tooltip (cond
                         has-ai-selection?
                         (str "AI alternative #" ai-sel " selected")
+                        ;; For PROPOSAL: show the proposed text, not the base64
+                        is-proposal?
+                        (if-let [proposed (:text proposal-data)]
+                          (str (t :proposal) ": " proposed)
+                          (t :proposal))
                         (and (seq priority-str) (seq comment-text))
                         (str "[" priority-str "] " comment-text)
                         (seq comment-text) comment-text
@@ -633,6 +738,7 @@
             (let [css-class (cond
                               has-ai-selection? "cm-ai-selected"
                               is-ai-done? "cm-annotation-note"
+                              has-proposal-selection? "cm-proposal-selected"
                               :else (str "cm-annotation-" type-lower))]
               (.push builder (.range (.mark Decoration #js {:class css-class})
                                      start end)))
@@ -641,7 +747,9 @@
                   annotation-text (subs text start end)
                   spans-lines? (str/includes? annotation-text "\n")
                   ;; Also check if alt-text contains newlines
-                  alt-spans-lines? (and alt-text (str/includes? alt-text "\n"))]
+                  alt-spans-lines? (and alt-text (str/includes? alt-text "\n"))
+                  ;; Also check if proposal-text contains newlines
+                  proposal-spans-lines? (and proposal-text (str/includes? proposal-text "\n"))]
               (cond
                 ;; AI-DONE with selection (single line annotation AND alternative): use widget with strikethrough
                 (and has-ai-selection? (not spans-lines?) (not alt-spans-lines?))
@@ -661,6 +769,24 @@
                                                        :side 1})
                                          start)))
 
+                ;; PROPOSAL with selection (sel=1): show proposed text with widget
+                (and has-proposal-selection? (not spans-lines?) (not proposal-spans-lines?))
+                (.push builder (.range (.replace Decoration
+                                                 #js {:widget (create-ai-alternative-widget selected-text proposal-text)})
+                                       start end))
+
+                ;; PROPOSAL with selection but multiline: hide annotation, show proposal as plain text
+                (and has-proposal-selection? (or spans-lines? proposal-spans-lines?))
+                (do
+                  ;; Hide the entire annotation
+                  (.push builder (.range (.mark Decoration #js {:class "cm-annotation-hidden"})
+                                         start end))
+                  ;; Insert widget with proposal text at start position
+                  (.push builder (.range (.widget Decoration
+                                                  #js {:widget (create-text-widget proposal-text "cm-proposal-text")
+                                                       :side 1})
+                                         start)))
+
                 ;; Normal annotation: hide prefix/suffix, highlight text
                 :else
                 (do
@@ -675,6 +801,32 @@
                   (.push builder (.range (.mark Decoration #js {:class "cm-annotation-hidden"})
                                          suffix-start end))))))
         (recur))))
+    ;; Process aspect links [@id]
+    (set! (.-lastIndex aspect-link-regex) 0)
+    (loop []
+      (when-let [match (.exec aspect-link-regex text)]
+        (let [full-match (aget match 0)
+              aspect-id (aget match 1)
+              start (.-index match)
+              end (+ start (count full-match))
+              aspect (find-aspect-by-id aspect-id)
+              display-name (get-aspect-display-name aspect)]
+          (if show-markup?
+            ;; Markup mode: highlight the whole [@id]
+            (.push builder (.range (.mark Decoration #js {:class "cm-aspect-link"
+                                                          :attributes #js {:title (or display-name (str "Aspetto non trovato: " aspect-id))}})
+                                   start end))
+            ;; Reading mode: replace with aspect name or show as missing
+            (if aspect
+              ;; Found - replace with widget showing the name
+              (.push builder (.range (.replace Decoration
+                                               #js {:widget (create-text-widget display-name "cm-aspect-link-resolved")})
+                                     start end))
+              ;; Not found - show as missing
+              (.push builder (.range (.replace Decoration
+                                               #js {:widget (create-text-widget (str "?" aspect-id) "cm-aspect-link-missing")})
+                                     start end)))))
+        (recur)))
     ;; Sort by position and create DecorationSet
     (.sort builder (fn [a b] (- (.-from a) (.-from b))))
     (.set Decoration builder true)))
@@ -704,8 +856,17 @@
   (.of (.-updateListener EditorView)
        (fn [^js update]
          (when (.-docChanged update)
-           (let [content (.. update -state -doc (toString))]
-             (model/update-chunk! chunk-id {:content content})))
+           (let [content (.. update -state -doc (toString))
+                 chunk (model/get-chunk chunk-id)
+                 owner (:owner chunk)
+                 current-user (model/get-current-owner)
+                 ;; Assign ownership if chunk has no real owner yet (legacy chunks with "local")
+                 should-claim? (and (= "local" owner)
+                                    (not= "local" current-user))
+                 changes (if should-claim?
+                           {:content content :owner current-user}
+                           {:content content})]
+             (model/update-chunk! chunk-id changes)))
          js/undefined)))
 
 ;; Forward declarations for functions defined later in the file
@@ -714,6 +875,23 @@
 (declare build-parent-tree)
 (declare build-aspects-tree)
 (declare adjust-menu-position)
+
+(defn- find-aspect-link-at-position
+  "Find aspect link [@id] at a specific position in text.
+   Returns {:aspect-id :start :end :aspect} or nil."
+  [text pos]
+  (let [pattern (js/RegExp. "\\[@([^\\]]+)\\]" "g")]
+    (loop []
+      (when-let [match (.exec pattern text)]
+        (let [start (.-index match)
+              end (+ start (count (aget match 0)))
+              aspect-id (aget match 1)]
+          (if (and (>= pos start) (< pos end))
+            {:aspect-id aspect-id
+             :start start
+             :end end
+             :aspect (find-aspect-by-id aspect-id)}
+            (recur)))))))
 
 (defn make-contextmenu-extension [chunk-id]
   "CodeMirror extension for handling right-click context menu"
@@ -734,35 +912,71 @@
                  click-pos (try
                              (.posAtCoords view #js {:x x :y y})
                              (catch :default _ nil))
+                 ;; Check for aspect link at click position
+                 aspect-link-at-click (when click-pos
+                                        (find-aspect-link-at-position doc-text click-pos))
                  ;; Check for annotation at click position, cursor, or selection
-                 annotation-at-click (when click-pos
+                 annotation-at-click (when (and click-pos (not aspect-link-at-click))
                                        (find-annotation-at-position doc-text click-pos chunk-id))
-                 annotation-at-cursor (find-annotation-at-position doc-text sel-from chunk-id)]
+                 annotation-at-cursor (when (not aspect-link-at-click)
+                                        (find-annotation-at-position doc-text sel-from chunk-id))]
              (.preventDefault event)
              (cond
+               ;; Aspect link at click position - show aspect link menu
+               aspect-link-at-click
+               (let [aspect-menu-height 60
+                     viewport-height (.-innerHeight js/window)
+                     aspect-adj-y (if (> (+ y aspect-menu-height) viewport-height)
+                                    (- y aspect-menu-height 10)
+                                    y)]
+                 (context-menu/show-menu! adj-x aspect-adj-y nil nil
+                                          :aspect-link aspect-link-at-click
+                                          :menu-type :aspect-link))
+
                ;; Annotation at click position - show annotation menu
                annotation-at-click
-               (do
-                 (let [priority (:priority annotation-at-click)
-                       menu-type (cond
-                                   (annotations/is-ai-done? annotation-at-click) :annotation-ai-done
-                                   (= priority :AI) :annotation-ai-pending
-                                   :else :annotation-normal)]
-                   (context-menu/show-menu! adj-x adj-y nil nil
-                                            :annotation annotation-at-click
-                                            :menu-type menu-type)))
+               (let [priority (:priority annotation-at-click)
+                     menu-type (cond
+                                 (annotations/is-ai-done? annotation-at-click) :annotation-ai-done
+                                 (= priority :AI) :annotation-ai-pending
+                                 (annotations/is-proposal? annotation-at-click) :annotation-proposal
+                                 :else :annotation-normal)
+                     ;; Use appropriate menu height for position adjustment
+                     menu-height (case menu-type
+                                   :annotation-ai-done 300
+                                   :annotation-ai-pending 60
+                                   :annotation-proposal 350
+                                   :annotation-normal 100
+                                   300)
+                     viewport-height (.-innerHeight js/window)
+                     ann-adj-y (if (> (+ y menu-height) viewport-height)
+                                 (- y menu-height 10)
+                                 y)]
+                 (context-menu/show-menu! adj-x ann-adj-y nil nil
+                                          :annotation annotation-at-click
+                                          :menu-type menu-type))
 
                ;; Annotation at cursor position - show annotation menu
                annotation-at-cursor
-               (do
-                 (let [priority (:priority annotation-at-cursor)
-                       menu-type (cond
-                                   (annotations/is-ai-done? annotation-at-cursor) :annotation-ai-done
-                                   (= priority :AI) :annotation-ai-pending
-                                   :else :annotation-normal)]
-                   (context-menu/show-menu! adj-x adj-y nil nil
-                                            :annotation annotation-at-cursor
-                                            :menu-type menu-type)))
+               (let [priority (:priority annotation-at-cursor)
+                     menu-type (cond
+                                 (annotations/is-ai-done? annotation-at-cursor) :annotation-ai-done
+                                 (= priority :AI) :annotation-ai-pending
+                                 (annotations/is-proposal? annotation-at-cursor) :annotation-proposal
+                                 :else :annotation-normal)
+                     menu-height (case menu-type
+                                   :annotation-ai-done 300
+                                   :annotation-ai-pending 60
+                                   :annotation-proposal 350
+                                   :annotation-normal 100
+                                   300)
+                     viewport-height (.-innerHeight js/window)
+                     ann-adj-y (if (> (+ y menu-height) viewport-height)
+                                 (- y menu-height 10)
+                                 y)]
+                 (context-menu/show-menu! adj-x ann-adj-y nil nil
+                                          :annotation annotation-at-cursor
+                                          :menu-type menu-type))
 
                ;; Has selection - show selection menu
                has-selection?
@@ -772,17 +986,26 @@
                      annotation (or annotation-at-end annotation-from-text)]
                  (when (seq (str/trim selected-text))
                    (if annotation
-                     (do
-                       (let [priority (:priority annotation)
-                             menu-type (cond
-                                         (annotations/is-ai-done? annotation) :annotation-ai-done
-                                         (= priority :AI) :annotation-ai-pending
-                                         :else :annotation-normal)]
-                         (context-menu/show-menu! adj-x adj-y nil nil
-                                                  :annotation annotation
-                                                  :menu-type menu-type)))
-                     (do
-                       (context-menu/show-menu! adj-x adj-y chunk selected-text)))))
+                     (let [priority (:priority annotation)
+                           menu-type (cond
+                                       (annotations/is-ai-done? annotation) :annotation-ai-done
+                                       (= priority :AI) :annotation-ai-pending
+                                       (annotations/is-proposal? annotation) :annotation-proposal
+                                       :else :annotation-normal)
+                           menu-height (case menu-type
+                                         :annotation-ai-done 300
+                                         :annotation-ai-pending 60
+                                         :annotation-proposal 350
+                                         :annotation-normal 100
+                                         300)
+                           viewport-height (.-innerHeight js/window)
+                           ann-adj-y (if (> (+ y menu-height) viewport-height)
+                                       (- y menu-height 10)
+                                       y)]
+                       (context-menu/show-menu! adj-x ann-adj-y nil nil
+                                                :annotation annotation
+                                                :menu-type menu-type))
+                     (context-menu/show-menu! adj-x adj-y chunk selected-text))))
 
                ;; Nothing to show - no action needed
                :else nil)
@@ -935,28 +1158,35 @@
                      (prev-match!)
                      true))}])
 
-(defn create-editor-state [content chunk-id]
-  (.create EditorState
-           #js {:doc content
-                :extensions #js [tramando-theme
-                                 (lineNumbers)
-                                 (highlightActiveLine)
-                                 (highlightActiveLineGutter)
-                                 (drawSelection)
-                                 (.-lineWrapping EditorView)
-                                 (history)
-                                 (indentOnInput)
-                                 (bracketMatching)
-                                 (highlightSelectionMatches)
-                                 (syntaxHighlighting defaultHighlightStyle)
-                                 (markdown)
-                                 annotation-highlight
-                                 search-highlight-plugin
-                                 flash-highlight-plugin
-                                 (.of keymap search-keymap)  ;; Our search keymap first (higher priority)
-                                 (.of keymap (.concat defaultKeymap historyKeymap searchKeymap #js [indentWithTab]))
-                                 (make-update-listener chunk-id)
-                                 (make-contextmenu-extension chunk-id)]}))
+(defn create-editor-state
+  "Create CodeMirror editor state. If read-only? is true, editor will be non-editable."
+  ([content chunk-id]
+   (create-editor-state content chunk-id false))
+  ([content chunk-id read-only?]
+   (let [base-extensions #js [tramando-theme
+                              ;; lineNumbers removed for cleaner writing experience
+                              (highlightActiveLine)
+                              (drawSelection)
+                              (.-lineWrapping EditorView)
+                              (history)
+                              (indentOnInput)
+                              (bracketMatching)
+                              (highlightSelectionMatches)
+                              (syntaxHighlighting defaultHighlightStyle)
+                              (markdown)
+                              annotation-highlight
+                              search-highlight-plugin
+                              flash-highlight-plugin
+                              (.of keymap search-keymap)
+                              (.of keymap (.concat defaultKeymap historyKeymap searchKeymap #js [indentWithTab]))
+                              (make-update-listener chunk-id)
+                              (make-contextmenu-extension chunk-id)]
+         extensions (if read-only?
+                      (.concat base-extensions #js [(.of (.-readOnly EditorState) true)])
+                      base-extensions)]
+     (.create EditorState
+              #js {:doc content
+                   :extensions extensions}))))
 
 (defn create-editor-view [parent-element state]
   (EditorView. #js {:state state
@@ -971,11 +1201,11 @@
 (defn- contains-annotation?
   "Check if text contains any annotation markers"
   [text]
-  (boolean (re-find #"\[!(TODO|NOTE|FIX):" text)))
+  (boolean (re-find #"\[!(TODO|NOTE|FIX|PROPOSAL):" text)))
 
 (defn- wrap-selection-with-annotation!
   "Wrap selected text with annotation syntax [!TYPE:text:priority:comment]"
-  [annotation-type chunk selected-text]
+  [annotation-type chunk selected-text & [priority comment]]
   ;; Prevent nested annotations
   (if (contains-annotation? selected-text)
     (events/show-toast! (t :error-nested-annotation))
@@ -986,9 +1216,12 @@
         (when (and idx (>= idx 0))
           (let [from idx
                 to (+ from (count selected-text))
-                wrapped-text (str "[!" annotation-type ":" selected-text "::]")
-                ;; Position cursor after the second : (where priority goes)
-                cursor-pos (+ from 2 (count annotation-type) 1 (count selected-text) 1)]
+                ;; Build annotation with provided priority and comment
+                priority-str (or priority "")
+                comment-str (or comment "")
+                wrapped-text (str "[!" annotation-type ":" selected-text ":" priority-str ":" comment-str "]")
+                ;; Position cursor at end of annotation
+                cursor-pos (+ from (count wrapped-text))]
             (.dispatch view #js {:changes #js {:from from :to to :insert wrapped-text}
                                  :selection #js {:anchor cursor-pos}})
             (.focus view)))))))
@@ -1019,7 +1252,7 @@
    Returns annotation map or nil."
   [text chunk-id]
   (when (and text (str/starts-with? text "[!"))
-    (let [pattern (js/RegExp. "^\\[!(TODO|NOTE|FIX):([^:]*):([^:]*):([^\\]]*)\\]$")]
+    (let [pattern (js/RegExp. "^\\[!(TODO|NOTE|FIX|PROPOSAL):([^:]*):([^:]*):([^\\]]*)\\]$")]
       (when-let [match (.exec pattern text)]
         {:type (keyword (aget match 1))
          :selected-text (str/trim (aget match 2))
@@ -1032,7 +1265,7 @@
    Uses JavaScript RegExp with lastIndex to accurately find match positions."
   [text pos chunk-id]
   ;; Use JavaScript RegExp with global flag to get match positions
-  (let [pattern (js/RegExp. "\\[!(TODO|NOTE|FIX):([^:]*):([^:]*):([^\\]]*)\\]" "g")]
+  (let [pattern (js/RegExp. "\\[!(TODO|NOTE|FIX|PROPOSAL):([^:]*):([^:]*):([^\\]]*)\\]" "g")]
     (loop []
       (let [match (.exec pattern text)]
         (when match
@@ -1056,31 +1289,16 @@
               (recur))))))))
 
 ;; =============================================================================
-;; Markup Toggle Checkbox
-;; =============================================================================
-
-(defn markup-toggle []
-  (let [colors (:colors @settings/settings)]
-    [:label {:style {:display "flex"
-                     :align-items "center"
-                     :gap "6px"
-                     :font-size "0.8rem"
-                     :color (:text-muted colors)
-                     :cursor "pointer"
-                     :user-select "none"}}
-     [:input {:type "checkbox"
-              :checked @annotations/show-markup?
-              :on-change (fn [_]
-                           (swap! annotations/show-markup? not)
-                           ;; Re-run search to update visible matches
-                           (when (:visible @editor-search-state)
-                             (update-search!)))
-              :style {:cursor "pointer"}}]
-     (t :show-markup)]))
-
-;; =============================================================================
 ;; Editor Component
 ;; =============================================================================
+
+(defn- can-edit-chunk?
+  "Check if current user can edit the given chunk's main text.
+   In local mode, always true. In remote mode, only if user is owner."
+  [chunk-id]
+  (if-let [store (protocol/get-store)]
+    (protocol/can-edit? store chunk-id)
+    true)) ;; Default to editable if no store
 
 (defn editor-component []
   (let [editor-view (r/atom nil)
@@ -1094,14 +1312,26 @@
       :component-did-mount
       (fn [this]
         (when-let [chunk (model/get-selected-chunk)]
-          (let [state (create-editor-state (:content chunk) (:id chunk))
-                view (create-editor-view @editor-ref state)]
+          (let [read-only? (not (can-edit-chunk? (:id chunk)))
+                state (create-editor-state (:content chunk) (:id chunk) read-only?)
+                view (create-editor-view @editor-ref state)
+                saved-pos (model/get-cursor-pos (:id chunk))]
             (reset! editor-view view)
             (reset! editor-view-ref view) ;; Store in global ref for search
             (reset! last-chunk-id (:id chunk))
             (reset! last-show-markup @annotations/show-markup?)
             ;; Store view in local-editor-view for annotation handler
-            (reset! local-editor-view view))))
+            (reset! local-editor-view view)
+            ;; Restore cursor position if saved (and no pending scroll)
+            (when (and saved-pos (nil? @pending-scroll-pattern))
+              (let [doc-length (.. view -state -doc -length)
+                    safe-pos (min saved-pos doc-length)]
+                (.dispatch view #js {:selection #js {:anchor safe-pos}
+                                     :scrollIntoView true})
+                ;; Focus the editor after a small delay to ensure DOM is ready
+                (js/setTimeout #(.focus view) 10)))
+            ;; Execute any pending scroll (from "Usato da" navigation)
+            (execute-pending-scroll!))))
 
       :component-did-update
       (fn [this old-argv]
@@ -1112,35 +1342,73 @@
           (when (or (and chunk (not= (:id chunk) @last-chunk-id))
                     (not= show-markup? @last-show-markup)
                     (not= refresh-counter @last-refresh-counter))
+            ;; Save cursor position of old chunk before destroying
+            (when (and @editor-view @last-chunk-id (not= (:id chunk) @last-chunk-id))
+              (let [pos (.. @editor-view -state -selection -main -head)]
+                (model/set-cursor-pos! @last-chunk-id pos)))
             (when @editor-view
               (.destroy @editor-view))
             ;; Re-run search on new content
             (when (and chunk (not= (:id chunk) @last-chunk-id))
               (update-search!))
             (when chunk
-              (let [state (create-editor-state (:content chunk) (:id chunk))
-                    view (create-editor-view @editor-ref state)]
+              (let [read-only? (not (can-edit-chunk? (:id chunk)))
+                    state (create-editor-state (:content chunk) (:id chunk) read-only?)
+                    view (create-editor-view @editor-ref state)
+                    chunk-changed? (not= (:id chunk) @last-chunk-id)
+                    has-pending-scroll? (some? @pending-scroll-pattern)
+                    saved-pos (when chunk-changed? (model/get-cursor-pos (:id chunk)))]
                 (reset! editor-view view)
                 (reset! editor-view-ref view) ;; Update global ref
                 (reset! last-chunk-id (:id chunk))
                 (reset! last-show-markup show-markup?)
                 (reset! last-refresh-counter refresh-counter)
                 ;; Store view in local-editor-view for annotation handler
-                (reset! local-editor-view view))))))
+                (reset! local-editor-view view)
+                ;; When chunk changed: prefer pending scroll, fallback to saved position
+                (when chunk-changed?
+                  (if has-pending-scroll?
+                    (execute-pending-scroll!)
+                    ;; No pending scroll - restore saved cursor position
+                    (when saved-pos
+                      (let [doc-length (.. view -state -doc -length)
+                            safe-pos (min saved-pos doc-length)]
+                        (.dispatch view #js {:selection #js {:anchor safe-pos}
+                                             :scrollIntoView true})
+                        (js/setTimeout #(.focus view) 10))))))))))
 
       :component-will-unmount
       (fn [this]
+        ;; Save cursor position before destroying
+        (when (and @editor-view @last-chunk-id)
+          (let [pos (.. @editor-view -state -selection -main -head)]
+            (model/set-cursor-pos! @last-chunk-id pos)))
         (when @editor-view
           (.destroy @editor-view))
         (reset! editor-view-ref nil))
 
       :reagent-render
       (fn []
-        (let [_selected (model/get-selected-id) ; trigger re-render on selection change
+        (let [selected-id (model/get-selected-id) ; trigger re-render on selection change
               _show-markup @annotations/show-markup? ; trigger re-render on toggle
-              _refresh @events/editor-refresh-counter] ; trigger re-render on external content change
-          [:div.editor-container
-           {:ref #(reset! editor-ref %)}]))})))
+              _refresh @events/editor-refresh-counter ; trigger re-render on external content change
+              read-only? (and selected-id (not (can-edit-chunk? selected-id)))
+              colors (:colors @settings/settings)]
+          [:div {:style {:display "flex" :flex-direction "column" :height "100%"}}
+           (when read-only?
+             [:div {:style {:background-color "var(--color-accent-muted)"
+                            :border-bottom (str "1px solid " (:border colors))
+                            :padding "6px 12px"
+                            :font-size "0.85rem"
+                            :color (:text-muted colors)
+                            :display "flex"
+                            :align-items "center"
+                            :gap "8px"}}
+              [:span {:style {:font-size "1rem"}} "🔒"]
+              [:span (t :read-only-not-owner)]])
+           [:div.editor-container
+            {:ref #(reset! editor-ref %)
+             :style {:flex "1"}}]]))})))
 
 ;; =============================================================================
 ;; ID Input Component
@@ -1196,7 +1464,7 @@
                                        (reset! error-msg (:error result))))))}]
              [:span {:style {:color (:text-muted colors) :font-size "0.85rem"}} "]"]
              (when @error-msg
-               [:span {:style {:color "#ff6b6b" :font-size "0.75rem" :margin-left "8px"}}
+               [:span {:style {:color (settings/get-color :danger) :font-size "0.75rem" :margin-left "8px"}}
                 @error-msg])]
 
             ;; Display mode
@@ -1310,7 +1578,7 @@
               [:span (str parent-display)]
               [:span {:style {:font-size "0.7rem"}} "▼"]]
              (when @error-msg
-               [:span {:style {:color "#ff6b6b" :font-size "0.75rem"}}
+               [:span {:style {:color (settings/get-color :danger) :font-size "0.75rem"}}
                 @error-msg])]))))))
 
 ;; =============================================================================
@@ -1328,8 +1596,8 @@
            (if @confirming-delete?
              ;; Confirm delete state
              [:div {:style {:display "flex" :gap "8px" :align-items "center"}}
-              [:span {:style {:color "#ff6b6b" :font-size "0.85rem"}} (t :confirm)]
-              [:button {:style {:background "#ff6b6b"
+              [:span {:style {:color (settings/get-color :danger) :font-size "0.85rem"}} (t :confirm)]
+              [:button {:style {:background (settings/get-color :danger)
                                 :color "white"
                                 :border "none"
                                 :padding "6px 12px"
@@ -1355,18 +1623,20 @@
              ;; Normal state - both buttons on same line
              [:div
               [:div {:style {:display "flex" :gap "8px"}}
+               ;; Only show create-child if user can create at this parent
+               (when (model/can-create-chunk-at? (:id chunk))
+                 [:button {:style {:background "transparent"
+                                   :color (:accent colors)
+                                   :border (str "1px solid " (:accent colors))
+                                   :padding "6px 12px"
+                                   :border-radius "4px"
+                                   :cursor "pointer"
+                                   :font-size "0.85rem"}
+                           :on-click #(model/add-chunk! :parent-id (:id chunk))}
+                  (t :create-child)])
                [:button {:style {:background "transparent"
-                                 :color (:accent colors)
-                                 :border (str "1px solid " (:accent colors))
-                                 :padding "6px 12px"
-                                 :border-radius "4px"
-                                 :cursor "pointer"
-                                 :font-size "0.85rem"}
-                         :on-click #(model/add-chunk! :parent-id (:id chunk))}
-                (t :create-child)]
-               [:button {:style {:background "transparent"
-                                 :color "#ff6b6b"
-                                 :border "1px solid #ff6b6b"
+                                 :color (settings/get-color :danger)
+                                 :border (str "1px solid " (settings/get-color :danger))
                                  :padding "6px 12px"
                                  :border-radius "4px"
                                  :cursor "pointer"
@@ -1374,258 +1644,244 @@
                          :on-click #(reset! confirming-delete? true)}
                 (t :delete-chunk)]]
               (when @error-msg
-                [:span {:style {:color "#ff6b6b" :font-size "0.75rem" :margin-top "4px" :display "block"}}
+                [:span {:style {:color (settings/get-color :danger) :font-size "0.75rem" :margin-top "4px" :display "block"}}
                  @error-msg])])])))))
 
 ;; Keep old name for backwards compatibility
 (def delete-button chunk-actions)
 
 ;; =============================================================================
-;; Compact Header (ID + Title on row 1, controls on row 2)
+;; Compact Header (clean design with dropdown menu)
 ;; =============================================================================
 
 (defn compact-header []
-  (let [editing-id? (r/atom false)
+  (let [menu-open? (r/atom false)
+        editing-id? (r/atom false)
         temp-id (r/atom "")
         id-error (r/atom nil)
-        parent-error (r/atom nil)
         confirming-delete? (r/atom false)
-        delete-error (r/atom nil)
         last-chunk-id (r/atom nil)]
     (fn []
       (let [chunk (model/get-selected-chunk)
             colors (:colors @settings/settings)
             is-aspect? (model/is-aspect-chunk? chunk)
             is-container? (model/is-aspect-container? (:id chunk))]
-        ;; Reset editing state when chunk changes
+
+        ;; Reset state when chunk changes
         (when (and chunk (not= (:id chunk) @last-chunk-id))
           (reset! last-chunk-id (:id chunk))
+          (reset! menu-open? false)
           (reset! editing-id? false)
-          (reset! id-error nil)
           (reset! confirming-delete? false))
 
         (when chunk
-          [:div
-           ;; Row 1: ID (for aspects) + Title
-           [:div {:style {:display "flex" :align-items "center" :gap "8px" :margin-bottom "8px"}}
-            ;; ID field (only for aspects)
+          [:div.chunk-header
+           ;; Row 1: Title + Menu button
+           [:div.chunk-header-title
+            ;; ID badge (for aspects only - read-only display)
             (when is-aspect?
-              (if @editing-id?
-                [:<>
-                 [:span {:style {:color (:text-muted colors) :font-size "0.85rem"}} "["]
-                 [:input {:type "text"
-                          :value @temp-id
-                          :auto-focus true
-                          :style {:background "transparent"
-                                  :border (str "1px solid " (:border colors))
-                                  :border-radius "3px"
-                                  :color (:accent colors)
-                                  :font-size "0.85rem"
-                                  :font-family "monospace"
-                                  :padding "2px 6px"
-                                  :width "120px"
-                                  :outline "none"}
-                          :on-change #(do (reset! temp-id (.. % -target -value))
-                                          (reset! id-error nil))
-                          :on-key-down (fn [e]
-                                         (case (.-key e)
-                                           "Enter" (let [result (model/rename-chunk-id! (:id chunk) @temp-id)]
-                                                     (if (:ok result)
-                                                       (reset! editing-id? false)
-                                                       (reset! id-error (:error result))))
-                                           "Escape" (reset! editing-id? false)
-                                           nil))
-                          :on-blur #(when-not @id-error
-                                      (let [result (model/rename-chunk-id! (:id chunk) @temp-id)]
-                                        (when (:ok result) (reset! editing-id? false))))}]
-                 [:span {:style {:color (:text-muted colors) :font-size "0.85rem"}} "]"]
-                 [:span.help-icon {:title (t :help-id)} "?"]]
-                [:span {:style {:color (:text-muted colors)
-                                :font-size "0.85rem"
-                                :font-family "monospace"
-                                :cursor "pointer"
-                                :padding "2px 6px"
-                                :border-radius "3px"
-                                :background (:editor-bg colors)
-                                :display "flex"
-                                :align-items "center"
-                                :gap "4px"}
-                        :title "Clicca per modificare l'ID"
-                        :on-click #(do (reset! temp-id (:id chunk))
-                                       (reset! id-error nil)
-                                       (reset! editing-id? true))}
-                 (str "[" (:id chunk) "]")
-                 [:span.help-icon {:title (t :help-id)} "?"]]))
+              [:span {:style {:color (:text-muted colors)
+                              :font-size "12px"
+                              :font-family "monospace"
+                              :padding "2px 6px"
+                              :border-radius "3px"
+                              :background (:tertiary colors)}}
+               (str "[" (:id chunk) "]")])
 
-            ;; Title input
+            ;; Title input (clean, borderless)
             [:input {:type "text"
                      :value (:summary chunk)
                      :placeholder (t :chunk-title-placeholder)
-                     :style {:background "transparent"
-                             :border (str "1px solid " (:border colors))
-                             :border-radius "4px"
-                             :color (:text colors)
-                             :padding "6px 10px"
-                             :font-size "1rem"
-                             :flex 1
-                             :outline "none"}
                      :on-change #(model/update-chunk! (:id chunk) {:summary (.. % -target -value)})}]
-            [:span.help-icon {:title (t :help-summary)} "?"]]
 
-           ;; ID error message
-           (when @id-error
-             [:div {:style {:color "#ff6b6b" :font-size "0.75rem" :margin-bottom "4px"}}
-              @id-error])
+            ;; Menu button (⋮) - only for non-containers
+            (when-not is-container?
+              [:div {:style {:position "relative"}}
+               [:button {:style {:background "transparent"
+                                 :border "none"
+                                 :color (:text-muted colors)
+                                 :font-size "18px"
+                                 :cursor "pointer"
+                                 :padding "4px 8px"
+                                 :border-radius "4px"
+                                 :line-height "1"}
+                         :on-click #(swap! menu-open? not)}
+                "⋮"]
 
-           ;; Row 2: Aspect tags (only for non-containers)
-           (when (and (not is-container?) (seq (:aspects chunk)))
-             [:div {:style {:display "flex" :flex-wrap "wrap" :align-items "center" :gap "8px" :margin-bottom "8px"}}
+               ;; Dropdown menu
+               (when @menu-open?
+                 [:div.dropdown-menu
+                  {:on-mouse-leave #(when-not (or @editing-id? @confirming-delete?)
+                                      (reset! menu-open? false))}
+
+                  ;; Edit ID (for aspects only)
+                  (when is-aspect?
+                    (if @editing-id?
+                      [:div {:style {:padding "8px 12px"}}
+                       [:input {:type "text"
+                                :value @temp-id
+                                :auto-focus true
+                                :placeholder "nuovo-id"
+                                :style {:background (:editor-bg colors)
+                                        :border (str "1px solid " (:border colors))
+                                        :border-radius "3px"
+                                        :color (:text colors)
+                                        :font-size "12px"
+                                        :padding "4px 8px"
+                                        :width "100%"
+                                        :outline "none"}
+                                :on-change #(do (reset! temp-id (.. % -target -value))
+                                                (reset! id-error nil))
+                                :on-key-down (fn [e]
+                                               (case (.-key e)
+                                                 "Enter" (let [result (model/rename-chunk-id! (:id chunk) @temp-id)]
+                                                           (if (:ok result)
+                                                             (do (reset! editing-id? false)
+                                                                 (reset! menu-open? false))
+                                                             (reset! id-error (:error result))))
+                                                 "Escape" (reset! editing-id? false)
+                                                 nil))}]
+                       (when @id-error
+                         [:div {:style {:color (:danger colors) :font-size "10px" :margin-top "4px"}}
+                          @id-error])]
+                      [:button.dropdown-item
+                       {:on-click #(do (reset! temp-id (:id chunk))
+                                       (reset! id-error nil)
+                                       (reset! editing-id? true))}
+                       (t :edit-id)]))
+
+                  ;; Priority field (for aspects only)
+                  (when is-aspect?
+                    [:div {:style {:padding "8px 12px"
+                                   :display "flex"
+                                   :align-items "center"
+                                   :gap "8px"}}
+                     [:span {:style {:color (:text-muted colors) :font-size "11px"}}
+                      (t :priority)]
+                     [:input {:type "number"
+                              :min 0
+                              :max 10
+                              :value (or (:priority chunk) 0)
+                              :style {:width "50px"
+                                      :background (:editor-bg colors)
+                                      :border (str "1px solid " (:border colors))
+                                      :border-radius "3px"
+                                      :color (:text colors)
+                                      :font-size "12px"
+                                      :padding "4px 6px"
+                                      :text-align "center"}
+                              :on-change (fn [e]
+                                           (let [v (js/parseInt (.. e -target -value) 10)]
+                                             (when (and (not (js/isNaN v)) (<= 0 v 10))
+                                               (model/update-chunk! (:id chunk) {:priority (when (pos? v) v)}))))
+                              :on-click #(.stopPropagation %)}]
+                     [:span {:style {:color (:text-dim colors) :font-size "9px"}}
+                      (t :priority-hint)]])
+
+                  (when is-aspect?
+                    [:div.dropdown-divider])
+
+                  ;; Create child
+                  (when (model/can-create-chunk-at? (:id chunk))
+                    [:button.dropdown-item
+                     {:on-click #(do (model/add-chunk! :parent-id (:id chunk))
+                                     (reset! menu-open? false))}
+                     (t :create-child)])
+
+                  ;; Move to...
+                  [:button.dropdown-item
+                   {:on-click #(do (selector/open-selector!
+                                    {:title (t :select-parent)
+                                     :items (build-parent-tree (:id chunk))
+                                     :filter-placeholder (t :search-placeholder)
+                                     :show-categories-as-selectable true
+                                     :on-select (fn [item]
+                                                  (model/change-parent! (:id chunk) (:id item)))})
+                                   (reset! menu-open? false))}
+                   (t :move-to)]
+
+                  [:div.dropdown-divider]
+
+                  ;; Show in hierarchy
+                  [:button.dropdown-item
+                   {:on-click #(do (events/navigate-to-chunk! (:id chunk))
+                                   (reset! menu-open? false))}
+                   (t :show-in-hierarchy)]
+
+                  [:div.dropdown-divider]
+
+                  ;; Delete
+                  (if @confirming-delete?
+                    [:div {:style {:padding "8px 12px"}}
+                     [:div {:style {:color (:danger colors) :font-size "11px" :margin-bottom "8px"}}
+                      (t :confirm)]
+                     [:div {:style {:display "flex" :gap "8px"}}
+                      [:button {:style {:background (:danger colors)
+                                        :color "white"
+                                        :border "none"
+                                        :padding "4px 12px"
+                                        :border-radius "4px"
+                                        :cursor "pointer"
+                                        :font-size "11px"}
+                                :on-click #(do (model/try-delete-chunk! (:id chunk))
+                                               (reset! confirming-delete? false)
+                                               (reset! menu-open? false))}
+                       (t :delete)]
+                      [:button {:style {:background "transparent"
+                                        :color (:text-muted colors)
+                                        :border (str "1px solid " (:border colors))
+                                        :padding "4px 12px"
+                                        :border-radius "4px"
+                                        :cursor "pointer"
+                                        :font-size "11px"}
+                                :on-click #(reset! confirming-delete? false)}
+                       (t :cancel)]]]
+                    [:button.dropdown-item.danger
+                     {:on-click #(reset! confirming-delete? true)}
+                     (t :delete-chunk)])])])]
+
+           ;; Row 2: Meta info (tags/aspects) - with reduced opacity
+           (when-not is-container?
+             [:div.chunk-meta-info
+              {:style {:display "flex" :flex-wrap "wrap" :align-items "center" :gap "6px"}}
+
+              ;; Aspect tags (pill style)
               (doall
                (for [aspect-id (:aspects chunk)]
-                 (let [aspect (first (filter #(= (:id %) aspect-id) (model/get-chunks)))]
+                 (let [aspect (first (filter #(= (:id %) aspect-id) (model/get-chunks)))
+                       container-id (:parent-id aspect)
+                       threshold (settings/get-aspect-threshold container-id)
+                       aspect-priority (or (:priority aspect) 0)
+                       is-filtered-out? (< aspect-priority threshold)]
                    ^{:key aspect-id}
-                   [:span {:style {:background (:editor-bg colors)
-                                   :color (:accent colors)
-                                   :padding "2px 8px"
-                                   :border-radius "3px"
-                                   :font-size "0.8rem"
-                                   :display "flex"
-                                   :align-items "center"
-                                   :gap "4px"}}
-                    [:span {:style {:cursor "pointer"}
-                            :title (t :click-to-navigate)
-                            :on-click #(events/navigate-to-aspect! aspect-id)}
+                   [:span.tag-pill {:class (when is-filtered-out? "tag-filtered")}
+                    [:span {:on-click (when-not is-filtered-out?
+                                        #(events/navigate-to-aspect! aspect-id))
+                            :title (if is-filtered-out?
+                                     (t :aspect-filtered-out)
+                                     (t :click-to-navigate))}
                      (str "@" (or (:summary aspect) aspect-id))]
-                    [:button {:style {:background "none"
-                                      :border "none"
-                                      :color (:text-muted colors)
-                                      :cursor "pointer"
-                                      :padding "0 2px"
-                                      :font-size "0.9rem"
-                                      :line-height "1"}
-                              :title (t :remove)
-                              :on-click #(model/remove-aspect-from-chunk! (:id chunk) aspect-id)}
-                     "×"]])))])
+                    [:button.tag-remove
+                     {:on-click #(model/remove-aspect-from-chunk! (:id chunk) aspect-id)
+                      :title (t :remove)}
+                     "×"]])))
 
-           ;; Row 3: Controls (only for non-containers)
-           (when-not is-container?
-             [:div {:style {:display "flex" :flex-wrap "wrap" :align-items "center" :gap "8px"}}
-              ;; Add aspect button
-              [:button {:style {:background "transparent"
-                                :color (:text-muted colors)
-                                :border (str "1px dashed " (:border colors))
-                                :padding "2px 8px"
-                                :border-radius "3px"
-                                :font-size "0.8rem"
-                                :cursor "pointer"}
-                        :on-click #(selector/open-selector!
-                                    {:title (t :select-aspect)
-                                     :items (build-aspects-tree)
-                                     :filter-placeholder (t :search-placeholder)
-                                     :on-select (fn [item]
-                                                  (when (and (:id item) (not= :category (:type item)))
-                                                    (model/add-aspect-to-chunk! (:id chunk) (:id item))))})}
-               (t :add-aspect)]
-              [:span.help-icon {:title (t :help-add-aspect)} "?"]
-
-              ;; Separator
-              [:span {:style {:color (:border colors)}} "|"]
-
-              ;; Parent selector
-              (let [current-parent-id (:parent-id chunk)
-                    current-parent (when current-parent-id
-                                     (first (filter #(= (:id %) current-parent-id) (model/get-chunks))))
-                    parent-display (if current-parent
-                                     (or (:summary current-parent) current-parent-id)
-                                     (t :root))]
-                [:<>
-                 [:span {:style {:color (:text-muted colors) :font-size "0.8rem"}} (t :parent)]
-                 [:span.help-icon {:title (t :help-parent)} "?"]
-                 [:button {:style {:background (:editor-bg colors)
-                                   :color (:text colors)
-                                   :border (str "1px solid " (:border colors))
-                                   :border-radius "3px"
-                                   :padding "2px 8px"
-                                   :font-size "0.8rem"
-                                   :cursor "pointer"
-                                   :display "flex"
-                                   :align-items "center"
-                                   :gap "4px"}
-                           :on-click #(selector/open-selector!
-                                       {:title (t :select-parent)
-                                        :items (build-parent-tree (:id chunk))
-                                        :filter-placeholder (t :search-placeholder)
-                                        :show-categories-as-selectable true
-                                        :on-select (fn [item]
-                                                     (let [result (model/change-parent! (:id chunk) (:id item))]
-                                                       (when (:error result)
-                                                         (reset! parent-error (:error result)))))})}
-                  [:span {:style {:max-width "100px" :overflow "hidden" :text-overflow "ellipsis" :white-space "nowrap"}}
-                   parent-display]
-                  [:span {:style {:font-size "0.7rem"}} "▼"]]])
-
-              ;; Separator
-              [:span {:style {:color (:border colors)}} "|"]
-
-              ;; Create child button
-              [:button {:style {:background "transparent"
-                                :color (:accent colors)
-                                :border (str "1px solid " (:accent colors))
-                                :padding "2px 8px"
-                                :border-radius "3px"
-                                :font-size "0.8rem"
-                                :cursor "pointer"}
-                        :on-click #(model/add-chunk! :parent-id (:id chunk))}
-               (t :create-child)]
-
-              ;; Delete button
-              (if @confirming-delete?
-                [:<>
-                 [:span {:style {:color "#ff6b6b" :font-size "0.8rem"}} (t :confirm)]
-                 [:button {:style {:background "#ff6b6b"
-                                   :color "white"
-                                   :border "none"
-                                   :padding "2px 8px"
-                                   :border-radius "3px"
-                                   :cursor "pointer"
-                                   :font-size "0.8rem"}
-                           :on-click #(let [result (model/try-delete-chunk! (:id chunk))]
-                                        (when (:error result)
-                                          (reset! delete-error (:error result)))
-                                        (reset! confirming-delete? false))}
-                  (t :delete)]
-                 [:button {:style {:background "transparent"
-                                   :color (:text-muted colors)
-                                   :border (str "1px solid " (:text-muted colors))
-                                   :padding "2px 8px"
-                                   :border-radius "3px"
-                                   :cursor "pointer"
-                                   :font-size "0.8rem"}
-                           :on-click #(reset! confirming-delete? false)}
-                  (t :cancel)]]
-                [:button {:style {:background "transparent"
-                                  :color "#ff6b6b"
-                                  :border "1px solid #ff6b6b"
-                                  :padding "2px 8px"
-                                  :border-radius "3px"
-                                  :font-size "0.8rem"
-                                  :cursor "pointer"}
-                          :on-click #(reset! confirming-delete? true)}
-                 (t :delete-chunk)])])
-
-           ;; Error messages
-           (when @parent-error
-             [:div {:style {:color "#ff6b6b" :font-size "0.75rem" :margin-top "4px"}}
-              @parent-error])
-           (when @delete-error
-             [:div {:style {:color "#ff6b6b" :font-size "0.75rem" :margin-top "4px"}}
-              @delete-error])])))))
+              ;; Add aspect button (pill style, dashed)
+              [:span.tag-pill.tag-pill-add
+               {:on-click #(selector/open-selector!
+                            {:title (t :select-aspect)
+                             :items (build-aspects-tree)
+                             :filter-placeholder (t :search-placeholder)
+                             :on-select (fn [item]
+                                          (when (and (:id item) (not= :category (:type item)))
+                                            (model/add-aspect-to-chunk! (:id chunk) (:id item))))})}
+               (str "+ " (t :aspect))]])])))))
 
 ;; =============================================================================
 ;; Tab State
 ;; =============================================================================
 
-(defonce active-tab (r/atom :edit)) ;; :edit, :refs, :read
+(defonce active-tab (r/atom :edit)) ;; :edit, :refs, :read, :discussion
 
 (defn set-tab! [tab]
   (reset! active-tab tab))
@@ -1637,45 +1893,29 @@
 (defn tab-bar []
   (let [current @active-tab
         chunk (model/get-selected-chunk)
-        has-children? (seq (model/get-children (:id chunk)))
-        is-aspect? (model/is-aspect-chunk? chunk)
-        colors (:colors @settings/settings)]
-    [:div {:style {:display "flex" :gap "0" :border-bottom (str "1px solid " (:border colors)) :margin-bottom "12px" :align-items "center"}}
-     [:button {:style {:background (if (= current :edit) (:editor-bg colors) "transparent")
-                       :color (if (= current :edit) (:accent colors) (:text-muted colors))
-                       :border "none"
-                       :padding "8px 16px"
-                       :cursor "pointer"
-                       :font-size "0.85rem"
-                       :border-bottom (when (= current :edit) (str "2px solid " (:accent colors)))}
-               :title (t :help-tab-modifica)
-               :on-click #(set-tab! :edit)}
+        is-aspect? (model/is-aspect-chunk? chunk)]
+    ;; Se siamo sul tab refs ma il chunk non è un aspetto, torna a edit
+    (when (and (= current :refs) (not is-aspect?))
+      (set-tab! :edit))
+    [:div.tab-bar
+     [:button.tab {:class (when (= current :edit) "active")
+                   :title (t :help-tab-modifica)
+                   :on-click #(set-tab! :edit)}
       (t :edit)]
-     [:button {:style {:background (if (= current :refs) (:editor-bg colors) "transparent")
-                       :color (if (= current :refs) (:accent colors) (:text-muted colors))
-                       :border "none"
-                       :padding "8px 16px"
-                       :cursor "pointer"
-                       :font-size "0.85rem"
-                       :border-bottom (when (= current :refs) (str "2px solid " (:accent colors)))}
-               :title (if is-aspect? (t :help-tab-usato-da) (t :help-tab-figli))
-               :on-click #(set-tab! :refs)}
-      (if is-aspect? (t :used-by) (t :children))]
-     [:button {:style {:background (if (= current :read) (:editor-bg colors) "transparent")
-                       :color (if (= current :read) (:accent colors) (:text-muted colors))
-                       :border "none"
-                       :padding "8px 16px"
-                       :cursor "pointer"
-                       :font-size "0.85rem"
-                       :border-bottom (when (= current :read) (str "2px solid " (:accent colors)))}
-               :title (t :help-tab-lettura)
-               :on-click #(set-tab! :read)}
+     ;; Tab "Usato da" solo per gli aspetti
+     (when is-aspect?
+       [:button.tab {:class (when (= current :refs) "active")
+                     :title (t :help-tab-usato-da)
+                     :on-click #(set-tab! :refs)}
+        (t :used-by)])
+     [:button.tab {:class (when (= current :read) "active")
+                   :title (t :help-tab-lettura)
+                   :on-click #(set-tab! :read)}
       (t :reading)]
-     ;; Spacer to push markup toggle to the right
-     [:div {:style {:flex 1}}]
-     ;; Markup toggle
-     [:div {:style {:padding-right "12px"}}
-      [markup-toggle]]]))
+     [:button.tab {:class (when (= current :discussion) "active")
+                   :title (t :help-tab-discussion)
+                   :on-click #(set-tab! :discussion)}
+      (t :discussion)]]))
 
 ;; =============================================================================
 ;; Tree Builders for Chunk Selector
@@ -1813,15 +2053,19 @@
             [:div {:style {:display "flex" :flex-direction "column" :gap "8px"}}
              (doall
               (for [c users]
-                ^{:key (:id c)}
-                [:div {:style {:background (:sidebar colors)
-                               :padding "10px 14px"
-                               :border-radius "4px"
-                               :cursor "pointer"
-                               :border-left (str "3px solid " (:accent colors))}
-                       :on-click #(model/select-chunk! (:id c))}
-                 [:div {:style {:color (:text colors)}}
-                  (model/get-chunk-path c)]]))])])
+                (let [aspect-id (:id chunk)
+                      scroll-pattern (str "[@" aspect-id "]")]
+                  ^{:key (:id c)}
+                  [:div {:style {:background (:sidebar colors)
+                                 :padding "10px 14px"
+                                 :border-radius "4px"
+                                 :cursor "pointer"
+                                 :border-left (str "3px solid " (:accent colors))}
+                         :on-click #(do
+                                      (set-tab! :edit)
+                                      (events/navigate-to-chunk-and-scroll! (:id c) scroll-pattern))}
+                   [:div {:style {:color (:text colors)}}
+                    (model/get-chunk-path c)]])))])])
 
        ;; Show children
        (let [children (model/get-children (:id chunk))
@@ -1841,7 +2085,7 @@
                               :border-radius "4px"
                               :cursor "pointer"
                               :border-left (str "3px solid " (:border colors))}
-                      :on-click #(model/select-chunk! (:id c))}
+                      :on-click #(events/navigate-to-chunk! (:id c))}
                 [:div {:style {:color (:text colors) :margin-bottom "4px"}}
                  (model/expand-summary-macros (:summary c) c)]
                 (when (seq (:content c))
@@ -1998,7 +2242,7 @@
                      :placeholder (t :search-placeholder)
                      :style {:flex 1
                              :background "transparent"
-                             :border (str "1px solid " (if invalid-regex "#ff6b6b" (:border colors)))
+                             :border (str "1px solid " (if invalid-regex (:danger colors) (:border colors)))
                              :border-radius "4px"
                              :color (:text colors)
                              :padding "6px 10px"
@@ -2164,6 +2408,281 @@
               [help/help-icon :help-replace]])])))))
 
 ;; =============================================================================
+;; Discussion View
+;; =============================================================================
+
+(defn- format-timestamp
+  "Format ISO timestamp to readable date/time"
+  [iso-string]
+  (try
+    (let [date (js/Date. iso-string)]
+      (str (.toLocaleDateString date) " " (.toLocaleTimeString date)))
+    (catch :default _
+      iso-string)))
+
+(defn- discussion-entry
+  "Render a single discussion entry (comment or resolved proposal)"
+  [entry colors]
+  (let [is-proposal? (= (:type entry) :proposal)]
+    [:div {:style {:padding "12px"
+                   :margin-bottom "8px"
+                   :background (:sidebar-bg colors)
+                   :border-radius "6px"
+                   :border-left (str "3px solid " (if is-proposal?
+                                                    (:accent colors)
+                                                    (:accent colors)))}}
+     ;; Header: author + timestamp
+     [:div {:style {:display "flex"
+                    :justify-content "space-between"
+                    :margin-bottom "8px"
+                    :font-size "0.8rem"
+                    :color (:text-muted colors)}}
+      [:span {:style {:font-weight "500"}} (:author entry)]
+      [:span (format-timestamp (:timestamp entry))]]
+     ;; Content based on type
+     (if is-proposal?
+       ;; Proposal entry
+       [:div
+        [:div {:style {:font-size "0.75rem"
+                       :text-transform "uppercase"
+                       :margin-bottom "6px"
+                       :color (:accent colors)}}
+         (if (= (:answer entry) :accepted)
+           (t :discussion-proposal-accepted)
+           (t :discussion-proposal-rejected))]
+        [:div {:style {:background (:editor-bg colors)
+                       :padding "8px"
+                       :border-radius "4px"
+                       :font-size "0.85rem"
+                       :margin-bottom "6px"}}
+         [:div {:style {:text-decoration "line-through"
+                        :color (:text-muted colors)
+                        :margin-bottom "4px"}}
+          (:previous-text entry)]
+         [:div {:style {:color (:text colors)}}
+          (:proposed-text entry)]]
+        (when (:reason entry)
+          [:div {:style {:font-style "italic"
+                         :font-size "0.85rem"
+                         :color (:text-muted colors)}}
+           (:reason entry)])]
+       ;; Comment entry
+       [:div {:style {:font-size "0.9rem"
+                      :color (:text colors)
+                      :white-space "pre-wrap"}}
+        (:text entry)])]))
+
+(defn discussion-view []
+  (let [new-comment (r/atom "")
+        show-transfer? (r/atom false)
+        transfer-to (r/atom "")
+        collaborators (r/atom nil)
+        load-collaborators! (fn [project-id]
+                              (when project-id
+                                (-> (api/list-collaborators project-id)
+                                    (.then (fn [result]
+                                             (when (:ok result)
+                                               (reset! collaborators (:data result))))))))]
+    (fn []
+      (let [chunk (model/get-selected-chunk)
+            discussion (or (:discussion chunk) [])
+            colors (:colors @settings/settings)
+            chunk-id (:id chunk)
+            current-owner (or (:owner chunk) "local")
+            previous-owner (:previous-owner chunk)
+            current-user (auth/get-username)
+            is-chunk-owner? (or (= current-owner "local")
+                                (= current-owner current-user))
+            is-project-owner? (model/is-project-owner?)
+            ;; Only project owner can transfer ownership
+            can-transfer? (and is-project-owner? (auth/logged-in?))
+            ;; Only chunk owner can return ownership to previous owner
+            can-return? (and is-chunk-owner?
+                             previous-owner
+                             (not= previous-owner "local")
+                             (not= previous-owner current-owner))]
+        [:div {:style {:display "flex"
+                       :flex-direction "column"
+                       :height "100%"
+                       :overflow "hidden"}}
+         ;; Header with owner info
+         [:div {:style {:padding "12px 16px"
+                        :border-bottom (str "1px solid " (:border colors))
+                        :display "flex"
+                        :justify-content "space-between"
+                        :align-items "center"
+                        :flex-wrap "wrap"
+                        :gap "8px"}}
+          [:div {:style {:font-size "0.85rem" :color (:text-muted colors)}}
+           (str (t :discussion-owner) ": ")
+           [:span {:style {:color (:text colors) :font-weight "500"}}
+            current-owner]
+           (when previous-owner
+             [:span {:style {:margin-left "8px" :font-size "0.8rem"}}
+              (str "(da " previous-owner ")")])]
+          [:div {:style {:display "flex" :gap "8px" :align-items "center"}}
+           ;; Return ownership button (when there's a previous owner)
+           (when can-return?
+             [:button {:style {:background "transparent"
+                               :border (str "1px solid " (:border colors))
+                               :color (:text-muted colors)
+                               :padding "4px 8px"
+                               :border-radius "4px"
+                               :font-size "0.75rem"
+                               :cursor "pointer"}
+                       :on-click #(do
+                                    (model/update-chunk! chunk-id {:owner previous-owner
+                                                                   :previous-owner current-owner})
+                                    (events/show-toast! (str "Ownership restituita a " previous-owner)))}
+              "Restituisci"])
+           ;; Claim ownership button (only for project owner when not already owner)
+           (when (and is-project-owner? (not is-chunk-owner?))
+             [:button {:style {:background (:accent colors)
+                               :border "none"
+                               :color "white"
+                               :padding "4px 8px"
+                               :border-radius "4px"
+                               :font-size "0.75rem"
+                               :cursor "pointer"}
+                       :on-click #(do
+                                    (model/set-chunk-owner! chunk-id current-user)
+                                    (events/show-toast! (t :ownership-claimed)))}
+              (t :claim-ownership)])
+           ;; Transfer ownership button (only for project owner in remote mode)
+           (when can-transfer?
+             [:button {:style {:background "transparent"
+                               :border (str "1px solid " (:border colors))
+                               :color (:text-muted colors)
+                               :padding "4px 8px"
+                               :border-radius "4px"
+                               :font-size "0.75rem"
+                               :cursor "pointer"}
+                       :on-click #(do
+                                    (reset! show-transfer? true)
+                                    (load-collaborators! (remote-store/get-project-id)))}
+              "Trasferisci"])
+           ;; Clear button (only if there are entries)
+           (when (seq discussion)
+             [:button {:style {:background "transparent"
+                               :border (str "1px solid " (:border colors))
+                               :color (:text-muted colors)
+                               :padding "4px 8px"
+                               :border-radius "4px"
+                               :font-size "0.75rem"
+                               :cursor "pointer"}
+                       :on-click #(when (js/confirm (t :discussion-clear-confirm))
+                                    (model/clear-discussion! chunk-id))}
+              (t :discussion-clear)])]]
+
+         ;; Transfer ownership form
+         (when @show-transfer?
+           [:div {:style {:padding "12px 16px"
+                          :background (:sidebar colors)
+                          :border-bottom (str "1px solid " (:border colors))}}
+            [:div {:style {:font-size "0.85rem"
+                           :color (:text colors)
+                           :margin-bottom "8px"}}
+             "Trasferisci ownership a:"]
+            [:div {:style {:display "flex" :gap "8px" :flex-wrap "wrap"}}
+             [:input {:type "text"
+                      :placeholder "Username collaboratore"
+                      :value @transfer-to
+                      :on-change #(reset! transfer-to (-> % .-target .-value))
+                      :style {:flex "1"
+                              :min-width "150px"
+                              :padding "6px 10px"
+                              :border (str "1px solid " (:border colors))
+                              :border-radius "4px"
+                              :background (:editor-bg colors)
+                              :color (:text colors)
+                              :font-size "0.85rem"}}]
+             [:button {:on-click (fn []
+                                   (when (seq @transfer-to)
+                                     (model/update-chunk! chunk-id {:owner @transfer-to
+                                                                    :previous-owner current-owner})
+                                     (events/show-toast! (str "Ownership trasferita a " @transfer-to))
+                                     (reset! transfer-to "")
+                                     (reset! show-transfer? false)))
+                       :disabled (empty? @transfer-to)
+                       :style {:padding "6px 12px"
+                               :background (:accent colors)
+                               :color "white"
+                               :border "none"
+                               :border-radius "4px"
+                               :cursor "pointer"
+                               :font-size "0.85rem"
+                               :opacity (if (empty? @transfer-to) 0.5 1)}}
+              "Trasferisci"]
+             [:button {:on-click #(do (reset! show-transfer? false)
+                                      (reset! transfer-to ""))
+                       :style {:padding "6px 12px"
+                               :background "transparent"
+                               :color (:text-muted colors)
+                               :border (str "1px solid " (:border colors))
+                               :border-radius "4px"
+                               :cursor "pointer"
+                               :font-size "0.85rem"}}
+              "Annulla"]]
+            ;; Show collaborators if loaded
+            (when (and @collaborators (seq (:collaborators @collaborators)))
+              [:div {:style {:margin-top "8px"
+                             :font-size "0.8rem"
+                             :color (:text-muted colors)}}
+               "Collaboratori: "
+               (for [collab (:collaborators @collaborators)]
+                 ^{:key (:id collab)}
+                 [:span {:style {:margin-right "8px"
+                                 :cursor "pointer"
+                                 :color (:accent colors)}
+                         :on-click #(reset! transfer-to (:username collab))}
+                  (:username collab)])])])
+         ;; Scrollable content (discussion entries)
+         [:div {:style {:flex 1
+                        :overflow-y "auto"
+                        :padding "16px"}}
+          (if (empty? discussion)
+            [:div {:style {:text-align "center"
+                           :color (:text-muted colors)
+                           :padding "32px"
+                           :font-style "italic"}}
+             (t :discussion-empty)]
+            [:div
+             (for [[idx entry] (map-indexed vector discussion)]
+               ^{:key (str "disc-" idx)}
+               [discussion-entry entry colors])])]
+         ;; New comment input
+         [:div {:style {:padding "12px"
+                        :border-top (str "1px solid " (:border colors))
+                        :display "flex"
+                        :gap "8px"}}
+          [:textarea {:style {:flex 1
+                              :padding "8px 12px"
+                              :border (str "1px solid " (:border colors))
+                              :border-radius "4px"
+                              :background (:editor-bg colors)
+                              :color (:text colors)
+                              :font-size "0.9rem"
+                              :resize "none"
+                              :min-height "60px"
+                              :font-family "inherit"}
+                      :placeholder (t :discussion-add-comment)
+                      :value @new-comment
+                      :on-change #(reset! new-comment (-> % .-target .-value))}]
+          [:button {:style {:padding "8px 16px"
+                            :background (:accent colors)
+                            :color "white"
+                            :border "none"
+                            :border-radius "4px"
+                            :cursor "pointer"
+                            :font-size "0.85rem"
+                            :align-self "flex-end"}
+                    :disabled (empty? (str/trim @new-comment))
+                    :on-click #(when-not (empty? (str/trim @new-comment))
+                                 (model/add-comment! chunk-id {:text @new-comment})
+                                 (reset! new-comment ""))}
+           (t :discussion-send)]]]))))
+
+;; =============================================================================
 ;; Tab Content
 ;; =============================================================================
 
@@ -2171,7 +2690,9 @@
   (case @active-tab
     :edit [:div {:style {:display "flex" :flex-direction "column" :flex 1 :overflow "hidden"}}
            [search-bar]
-           [editor-component]]
+           [:div.editor-content-wrapper
+            [editor-component]]]
     :refs [refs-view]
     :read [read-view]
+    :discussion [discussion-view]
     nil))
