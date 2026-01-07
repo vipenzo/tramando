@@ -2249,7 +2249,7 @@
      ;; Projects list
      (= @app-mode :projects)
      [:div {:style {:min-height "100vh"
-                    :background (settings/get-color :bg)}}
+                    :background (settings/get-color :background)}}
       [:div {:style {:display "flex"
                      :justify-content "space-between"
                      :align-items "center"

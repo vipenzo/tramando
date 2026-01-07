@@ -770,7 +770,7 @@
                  :justify-content "center"
                  :min-height "100vh"
                  :padding "20px"
-                 :background (settings/get-color :bg)}}
+                 :background (settings/get-color :background)}}
    [:h1 {:style {:font-size "2.5rem"
                  :font-weight "300"
                  :color (settings/get-color :text)
@@ -842,7 +842,7 @@
          :on-click (fn [e]
                      (when (= (.-target e) (.-currentTarget e))
                        (on-close)))}
-   [:div {:style {:background (settings/get-color :bg)
+   [:div {:style {:background (settings/get-color :background)
                   :border-radius "8px"
                   :width "450px"
                   :max-height "80vh"
@@ -907,7 +907,7 @@
              :on-click (fn [e]
                          (when (= (.-target e) (.-currentTarget e))
                            (on-close)))}
-       [:div {:style {:background (settings/get-color :bg)
+       [:div {:style {:background (settings/get-color :background)
                       :border-radius "8px"
                       :width "600px"
                       :max-height "80vh"

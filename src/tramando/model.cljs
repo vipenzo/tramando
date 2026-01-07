@@ -627,17 +627,19 @@
 
 (defn can-edit-chunk?
   "Check if current user can edit a specific chunk.
-   Strict ownership: only the chunk owner can edit.
+   - Project owner can edit ALL chunks (to handle imported files)
    - Chunks with nil or 'local' owner: only project owner can edit
-   - Chunks with explicit owner: only that owner can edit"
+   - Chunks with explicit owner: that owner OR project owner can edit"
   [chunk-id]
   (let [chunk (get-chunk chunk-id)
         chunk-owner (:owner chunk)]
-    (if (or (nil? chunk-owner) (= "local" chunk-owner))
-      ;; Unowned chunks: only project owner can edit
-      (is-project-owner?)
+    (cond
+      ;; Project owner can edit everything
+      (is-project-owner?) true
+      ;; Unowned chunks: only project owner can edit (already handled above)
+      (or (nil? chunk-owner) (= "local" chunk-owner)) false
       ;; Owned chunks: only the chunk owner can edit
-      (= chunk-owner @current-user))))
+      :else (= chunk-owner @current-user))))
 
 (defn get-current-owner
   "Get the owner to use for new chunks. Returns username if in collaborative mode, 'local' otherwise."
