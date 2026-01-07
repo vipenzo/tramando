@@ -6,6 +6,56 @@
   (:import [java.time Instant Duration]))
 
 ;; =============================================================================
+;; Rate Limiting for Registration (anti-spam)
+;; =============================================================================
+
+;; In-memory store: {ip -> [{timestamp} ...]}
+(defonce registration-attempts (atom {}))
+
+(def ^:private max-attempts-per-hour 5)
+(def ^:private one-hour-ms (* 60 60 1000))
+
+(defn- clean-old-attempts!
+  "Remove attempts older than 1 hour"
+  []
+  (let [cutoff (- (System/currentTimeMillis) one-hour-ms)]
+    (swap! registration-attempts
+           (fn [attempts]
+             (into {}
+                   (for [[ip timestamps] attempts
+                         :let [valid (filterv #(> % cutoff) timestamps)]
+                         :when (seq valid)]
+                     [ip valid]))))))
+
+(defn- get-client-ip
+  "Extract client IP from request, handling X-Forwarded-For for proxies"
+  [request]
+  (or (get-in request [:headers "x-forwarded-for"])
+      (get-in request [:headers "x-real-ip"])
+      (:remote-addr request)
+      "unknown"))
+
+(defn check-rate-limit
+  "Check if IP has exceeded registration rate limit.
+   Returns {:ok true} if allowed, {:error message} if blocked."
+  [request]
+  (clean-old-attempts!)
+  (let [ip (get-client-ip request)
+        attempts (get @registration-attempts ip [])]
+    (if (>= (count attempts) max-attempts-per-hour)
+      {:error "Troppe richieste. Riprova più tardi."}
+      {:ok true})))
+
+(defn record-registration-attempt!
+  "Record a registration attempt for rate limiting"
+  [request]
+  (let [ip (get-client-ip request)]
+    (swap! registration-attempts
+           update ip
+           (fn [attempts]
+             (conj (or attempts []) (System/currentTimeMillis))))))
+
+;; =============================================================================
 ;; Password Hashing
 ;; =============================================================================
 

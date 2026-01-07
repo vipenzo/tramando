@@ -96,11 +96,42 @@
 ;; =============================================================================
 
 (defonce server (atom nil))
+(defonce cleanup-scheduler (atom nil))
+
+(defn- start-cleanup-scheduler!
+  "Start a background thread that cleans up old pending users every hour"
+  []
+  (when-not @cleanup-scheduler
+    (reset! cleanup-scheduler
+            (future
+              (loop []
+                ;; Wait 1 hour between cleanup runs
+                (Thread/sleep (* 60 60 1000))
+                (try
+                  (let [deleted (db/cleanup-old-pending-users!)]
+                    (when (pos? deleted)
+                      (println (str "[Cleanup] Deleted " deleted " old pending user(s)"))))
+                  (catch Exception e
+                    (println (str "[Cleanup] Error: " (.getMessage e)))))
+                (recur))))))
+
+(defn- stop-cleanup-scheduler!
+  "Stop the cleanup scheduler"
+  []
+  (when @cleanup-scheduler
+    (future-cancel @cleanup-scheduler)
+    (reset! cleanup-scheduler nil)))
 
 (defn start-server! []
   (when @server
     (.stop @server))
   (db/init-db!)
+  ;; Run initial cleanup on startup
+  (let [deleted (db/cleanup-old-pending-users!)]
+    (when (pos? deleted)
+      (println (str "[Cleanup] Deleted " deleted " old pending user(s) on startup"))))
+  ;; Start background cleanup scheduler
+  (start-cleanup-scheduler!)
   (println (str "Starting server on port " (:port config) "..."))
   (println (str "Database: " (:db-path config)))
   (println (str "Projects: " (:projects-path config)))
@@ -111,6 +142,7 @@
   (println "Server started."))
 
 (defn stop-server! []
+  (stop-cleanup-scheduler!)
   (when @server
     (.stop @server)
     (reset! server nil)

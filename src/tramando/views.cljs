@@ -1774,6 +1774,7 @@
 (defonce splash-login-error (r/atom nil))
 (defonce splash-login-loading? (r/atom false))
 (defonce splash-register-mode? (r/atom false))
+(defonce splash-honeypot (r/atom "")) ;; Anti-spam: bots fill this, humans won't see it
 ;; Auto-detect server URL from current page location (use same origin + path for subpath deployments)
 ;; In dev mode (port 8080), use port 3000 for the backend server
 (defonce splash-server-url (r/atom (let [loc js/window.location
@@ -1919,7 +1920,7 @@
                             ;; Set server URL before login
                             (api/set-server-url! @splash-server-url)
                             (-> (if @splash-register-mode?
-                                  (auth/register! @splash-login-username @splash-login-password)
+                                  (auth/register! @splash-login-username @splash-login-password @splash-honeypot)
                                   (auth/login! @splash-login-username @splash-login-password))
                                 (.then (fn [result]
                                          (reset! splash-login-loading? false)
@@ -1971,6 +1972,20 @@
                      :color (:text colors)
                      :font-size "0.95rem"
                      :box-sizing "border-box"}}]
+    ;; Honeypot field - hidden from humans, bots will fill it
+    ;; Only shown in register mode (conceptually), but always hidden via CSS
+    [:input {:type "text"
+             :name "website"
+             :placeholder "Website"
+             :value @splash-honeypot
+             :on-change #(reset! splash-honeypot (-> % .-target .-value))
+             :tab-index -1
+             :auto-complete "off"
+             :style {:position "absolute"
+                     :left "-9999px"
+                     :opacity 0
+                     :height 0
+                     :width 0}}]
     [:button {:type "submit"
               :disabled @splash-login-loading?
               :style {:width "100%"

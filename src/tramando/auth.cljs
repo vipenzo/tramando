@@ -96,10 +96,11 @@
 
 (defn register!
   "Register and update auth state. Returns promise.
-   If registration returns {:pending true}, user needs admin approval."
-  [username password]
+   If registration returns {:pending true}, user needs admin approval.
+   Optional honeypot parameter for anti-spam (bots fill it, humans don't)."
+  [username password & [honeypot]]
   (swap! auth-state assoc :loading? true :error nil)
-  (-> (api/register! username password)
+  (-> (api/register! username password honeypot)
       (.then (fn [result]
                (cond
                  ;; Error during registration

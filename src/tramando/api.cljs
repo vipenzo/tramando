@@ -114,9 +114,11 @@
 ;; =============================================================================
 
 (defn register!
-  "Register a new user. Returns promise with {:ok true :data {:user :token}} or {:ok false :error}"
-  [username password]
-  (-> (api-post "/api/register" {:username username :password password})
+  "Register a new user. Returns promise with {:ok true :data {:user :token}} or {:ok false :error}.
+   The honeypot parameter is optional - if filled by a bot, server will fake success."
+  [username password & [honeypot]]
+  (-> (api-post "/api/register" (cond-> {:username username :password password}
+                                  honeypot (assoc :website honeypot)))
       (.then (fn [result]
                (when (:ok result)
                  (set-token! (get-in result [:data :token])))
@@ -215,9 +217,15 @@
 ;; =============================================================================
 
 (defn list-users
-  "List all users (super-admin only)"
+  "List all users (super-admin only).
+   Response includes {:users [...] :pending_count n}"
   []
   (api-get "/api/admin/users"))
+
+(defn get-pending-count
+  "Get count of pending users (super-admin only, lightweight for polling)"
+  []
+  (api-get "/api/admin/pending-count"))
 
 (defn create-user!
   "Create a new user (super-admin only)"

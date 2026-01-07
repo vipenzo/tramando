@@ -1498,65 +1498,123 @@
 ;; User Menu (header dropdown)
 ;; =============================================================================
 
+;; Global atom for pending users count (polled periodically for super-admins)
+(defonce pending-users-count (r/atom 0))
+(defonce pending-poll-interval (atom nil))
+
+(defn- start-pending-poll!
+  "Start polling for pending users count (super-admin only)"
+  []
+  (when (and (auth/super-admin?) (nil? @pending-poll-interval))
+    ;; Initial fetch
+    (-> (api/get-pending-count)
+        (.then (fn [result]
+                 (when (:ok result)
+                   (reset! pending-users-count (get-in result [:data :count] 0))))))
+    ;; Poll every 60 seconds
+    (reset! pending-poll-interval
+            (js/setInterval
+             (fn []
+               (when (auth/super-admin?)
+                 (-> (api/get-pending-count)
+                     (.then (fn [result]
+                              (when (:ok result)
+                                (reset! pending-users-count (get-in result [:data :count] 0))))))))
+             60000))))
+
+(defn- stop-pending-poll!
+  "Stop polling for pending users"
+  []
+  (when @pending-poll-interval
+    (js/clearInterval @pending-poll-interval)
+    (reset! pending-poll-interval nil)))
+
 (defn user-menu
   "Dropdown menu showing current user and logout option"
   [{:keys [on-logout on-admin-users]}]
   (let [open? (r/atom false)]
-    (fn [{:keys [on-logout on-admin-users]}]
-      (when (auth/logged-in?)
-        [:div {:style {:position "relative"}}
-         ;; Trigger
-         [:button {:on-click #(swap! open? not)
-                   :style {:background "transparent"
-                           :border "none"
-                           :color (settings/get-color :text)
-                           :cursor "pointer"
-                           :display "flex"
-                           :align-items "center"
-                           :gap "6px"
-                           :padding "6px 10px"
-                           :border-radius "4px"}
-                   :on-mouse-over #(set! (.. % -currentTarget -style -background) (settings/get-color :sidebar))
-                   :on-mouse-out #(set! (.. % -currentTarget -style -background) "transparent")}
-          [:span "👤"]
-          [:span (auth/get-display-name)]
-          [:span {:style {:font-size "0.7rem"}} (if @open? "▲" "▼")]]
+    (r/create-class
+     {:component-did-mount
+      (fn [_] (start-pending-poll!))
 
-         ;; Dropdown
-         (when @open?
-           [:div {:style {:position "absolute"
-                          :top "100%"
-                          :right 0
-                          :background (settings/get-color :sidebar)
-                          :border (str "1px solid " (settings/get-color :border))
-                          :border-radius "6px"
-                          :box-shadow "0 4px 12px rgba(0,0,0,0.3)"
-                          :min-width "180px"
-                          :z-index 1000}}
-            (when (auth/super-admin?)
-              [:<>
-               [:div {:style {:padding "10px 15px"
-                              :font-size "0.8rem"
-                              :color (settings/get-color :accent)
-                              :border-bottom (str "1px solid " (settings/get-color :border))}}
-                "⭐ Super Admin"]
-               [:div {:style {:padding "10px 15px"
-                              :cursor "pointer"
-                              :color (settings/get-color :text)}
-                      :on-mouse-over #(set! (.. % -currentTarget -style -background) (settings/get-color :editor-bg))
-                      :on-mouse-out #(set! (.. % -currentTarget -style -background) "transparent")
-                      :on-click (fn []
-                                  (reset! open? false)
-                                  (when on-admin-users (on-admin-users)))}
-                "Gestione Utenti"]])
-            [:div {:style {:padding "10px 15px"
-                           :cursor "pointer"
-                           :color (settings/get-color :text)
-                           :border-top (when (auth/super-admin?) (str "1px solid " (settings/get-color :border)))}
-                   :on-mouse-over #(set! (.. % -currentTarget -style -background) (settings/get-color :editor-bg))
-                   :on-mouse-out #(set! (.. % -currentTarget -style -background) "transparent")
-                   :on-click (fn []
-                               (reset! open? false)
-                               (auth/logout!)
-                               (when on-logout (on-logout)))}
-             "Esci"]])]))))
+      :component-will-unmount
+      (fn [_] (stop-pending-poll!))
+
+      :reagent-render
+      (fn [{:keys [on-logout on-admin-users]}]
+        (when (auth/logged-in?)
+          [:div {:style {:position "relative"}}
+           ;; Trigger
+           [:button {:on-click #(swap! open? not)
+                     :style {:background "transparent"
+                             :border "none"
+                             :color (settings/get-color :text)
+                             :cursor "pointer"
+                             :display "flex"
+                             :align-items "center"
+                             :gap "6px"
+                             :padding "6px 10px"
+                             :border-radius "4px"}
+                     :on-mouse-over #(set! (.. % -currentTarget -style -background) (settings/get-color :sidebar))
+                     :on-mouse-out #(set! (.. % -currentTarget -style -background) "transparent")}
+            [:span "👤"]
+            [:span (auth/get-display-name)]
+            ;; Badge for pending users (super-admin only)
+            (when (and (auth/super-admin?) (pos? @pending-users-count))
+              [:span {:style {:background (settings/get-color :danger)
+                              :color "white"
+                              :font-size "0.7rem"
+                              :padding "2px 6px"
+                              :border-radius "10px"
+                              :margin-left "4px"}}
+               @pending-users-count])
+            [:span {:style {:font-size "0.7rem"}} (if @open? "▲" "▼")]]
+
+           ;; Dropdown
+           (when @open?
+             [:div {:style {:position "absolute"
+                            :top "100%"
+                            :right 0
+                            :background (settings/get-color :sidebar)
+                            :border (str "1px solid " (settings/get-color :border))
+                            :border-radius "6px"
+                            :box-shadow "0 4px 12px rgba(0,0,0,0.3)"
+                            :min-width "180px"
+                            :z-index 1000}}
+              (when (auth/super-admin?)
+                [:<>
+                 [:div {:style {:padding "10px 15px"
+                                :font-size "0.8rem"
+                                :color (settings/get-color :accent)
+                                :border-bottom (str "1px solid " (settings/get-color :border))}}
+                  "⭐ Super Admin"]
+                 [:div {:style {:padding "10px 15px"
+                                :cursor "pointer"
+                                :color (settings/get-color :text)
+                                :display "flex"
+                                :align-items "center"
+                                :justify-content "space-between"}
+                        :on-mouse-over #(set! (.. % -currentTarget -style -background) (settings/get-color :editor-bg))
+                        :on-mouse-out #(set! (.. % -currentTarget -style -background) "transparent")
+                        :on-click (fn []
+                                    (reset! open? false)
+                                    (when on-admin-users (on-admin-users)))}
+                  [:span "Gestione Utenti"]
+                  (when (pos? @pending-users-count)
+                    [:span {:style {:background "#f59e0b"
+                                    :color "white"
+                                    :font-size "0.7rem"
+                                    :padding "2px 8px"
+                                    :border-radius "10px"}}
+                     (str @pending-users-count " in attesa")])]])
+              [:div {:style {:padding "10px 15px"
+                             :cursor "pointer"
+                             :color (settings/get-color :text)
+                             :border-top (when (auth/super-admin?) (str "1px solid " (settings/get-color :border)))}
+                     :on-mouse-over #(set! (.. % -currentTarget -style -background) (settings/get-color :editor-bg))
+                     :on-mouse-out #(set! (.. % -currentTarget -style -background) "transparent")
+                     :on-click (fn []
+                                 (reset! open? false)
+                                 (auth/logout!)
+                                 (when on-logout (on-logout)))}
+               "Esci"]])]))})))

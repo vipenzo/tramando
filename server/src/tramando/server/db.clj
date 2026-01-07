@@ -246,6 +246,11 @@
                   (SELECT COUNT(*) FROM projects WHERE owner_id = u.id) as projects_owned
            FROM users u ORDER BY u.id"]))
 
+(defn count-pending-users
+  "Count users with status 'pending' (for admin badge)"
+  []
+  (:count (query-one ["SELECT COUNT(*) as count FROM users WHERE status = 'pending'"])))
+
 (defn get-user-project-count
   "Count how many projects a user owns"
   [user-id]
@@ -379,3 +384,21 @@
   (let [ds (get-datasource)]
     (jdbc/execute! ds
       ["DELETE FROM chat_messages WHERE project_id = ?" project-id])))
+
+;; =============================================================================
+;; Cleanup Operations
+;; =============================================================================
+
+(defn cleanup-old-pending-users!
+  "Delete pending users that were created more than 7 days ago.
+   Returns the number of deleted users."
+  []
+  (let [;; SQLite datetime comparison: created_at < datetime('now', '-7 days')
+        old-pending (query ["SELECT id FROM users
+                             WHERE status = 'pending'
+                             AND created_at < datetime('now', '-7 days')"])
+        deleted-count (count old-pending)]
+    (doseq [user old-pending]
+      ;; Use existing delete-user! to properly clean up related data
+      (delete-user! (:id user)))
+    deleted-count))

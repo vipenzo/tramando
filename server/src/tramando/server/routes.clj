@@ -15,11 +15,23 @@
 ;; =============================================================================
 
 (defn register-handler [request]
-  (let [{:keys [username password]} (:body-params request)
-        result (auth/register! {:username username :password password})]
-    (if (:error result)
-      {:status 400 :body result}
-      {:status 201 :body result})))
+  (let [{:keys [username password website]} (:body-params request)]
+    ;; Honeypot check: if 'website' field is filled, it's a bot
+    ;; Respond with fake success to not alert the bot
+    (if (and website (seq website))
+      {:status 201 :body {:pending true
+                          :message "Registrazione completata. Attendi l'approvazione dell'amministratore."}}
+      ;; Rate limiting check
+      (let [rate-check (auth/check-rate-limit request)]
+        (if (:error rate-check)
+          {:status 429 :body rate-check}
+          ;; Record attempt and proceed with registration
+          (do
+            (auth/record-registration-attempt! request)
+            (let [result (auth/register! {:username username :password password})]
+              (if (:error result)
+                {:status 400 :body result}
+                {:status 201 :body result}))))))))
 
 (defn login-handler [request]
   (let [{:keys [username password]} (:body-params request)
@@ -246,9 +258,11 @@
 ;; =============================================================================
 
 (defn list-users-handler [_request]
-  (let [users (db/list-all-users)]
+  (let [users (db/list-all-users)
+        pending-count (db/count-pending-users)]
     {:status 200
-     :body {:users users}}))
+     :body {:users users
+            :pending_count pending-count}}))
 
 (defn create-user-handler [request]
   (let [{:keys [username password is-super-admin]} (:body-params request)]
@@ -388,7 +402,9 @@
     ["/admin/users/:id" {:delete {:handler delete-user-handler
                                   :middleware [auth/require-auth auth/require-super-admin]}
                          :put {:handler update-user-admin-handler
-                               :middleware [auth/require-auth auth/require-super-admin]}}]]])
+                               :middleware [auth/require-auth auth/require-super-admin]}}]
+    ["/admin/pending-count" {:get {:handler (fn [_] {:status 200 :body {:count (db/count-pending-users)}})
+                                   :middleware [auth/require-auth auth/require-super-admin]}}]]])
 
 (def router
   (ring/router
