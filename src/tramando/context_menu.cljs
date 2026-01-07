@@ -8,7 +8,8 @@
             [tramando.annotations :as annotations]
             [tramando.ai.templates :as templates]
             [tramando.ai.handlers :as ai-handlers]
-            [tramando.events :as events]))
+            [tramando.events :as events]
+            [tramando.auth :as auth]))
 
 ;; =============================================================================
 ;; Context Menu State
@@ -94,6 +95,16 @@
 ;; Annotation Edit Modal
 ;; =============================================================================
 
+(defn- annotation-type-color
+  "Get the color for an annotation type"
+  [ann-type colors]
+  (case ann-type
+    :TODO (:accent colors)
+    :NOTE (:luoghi colors)
+    :FIX (:danger colors)
+    :PROPOSAL (:accent colors)
+    (:accent colors)))
+
 (defn show-edit-modal!
   "Show the annotation edit modal"
   [annotation]
@@ -158,7 +169,11 @@
   "Modal for editing annotation priority and comment"
   []
   (let [{:keys [visible annotation priority comment]} @edit-modal-state
-        colors (:colors @settings/settings)]
+        colors (:colors @settings/settings)
+        ann-type (:type annotation)
+        author (:author annotation)
+        author-display (when author (auth/get-cached-display-name author))
+        type-color (annotation-type-color ann-type colors)]
     (when visible
       [:div {:style {:position "fixed"
                      :top 0 :left 0 :right 0 :bottom 0
@@ -168,7 +183,13 @@
                      :justify-content "center"
                      :z-index 10002}
              ;; Use mousedown to avoid closing when text selection drag ends outside
-             :on-mouse-down #(hide-edit-modal!)}
+             :on-mouse-down #(hide-edit-modal!)
+             :on-key-down (fn [e]
+                            (case (.-key e)
+                              "Escape" (hide-edit-modal!)
+                              "Enter" (when-not (= "TEXTAREA" (.-tagName (.-target e)))
+                                        (save-annotation-edit!))
+                              nil))}
        [:div {:style {:background (:sidebar colors)
                       :border-radius "8px"
                       :padding "20px"
@@ -176,11 +197,17 @@
                       :max-width "450px"
                       :box-shadow "0 4px 20px rgba(0,0,0,0.4)"}
               :on-mouse-down #(.stopPropagation %)}
-        ;; Title
+        ;; Title with type and author
         [:h3 {:style {:margin "0 0 16px 0"
-                      :color (:text colors)
-                      :font-size "1.1rem"}}
-         (t :annotation-edit-title)]
+                      :font-size "1.1rem"
+                      :display "flex"
+                      :align-items "center"
+                      :gap "8px"}}
+         [:span {:style {:color type-color :font-weight "600"}}
+          (when ann-type (name ann-type))]
+         (when author-display
+           [:span {:style {:color (:text-muted colors) :font-weight "normal"}}
+            (str "from " author-display)])]
 
         ;; Show selected text (read-only)
         [:div {:style {:margin-bottom "16px"}}
@@ -265,15 +292,6 @@
 ;; Annotation Create Modal (new workflow)
 ;; =============================================================================
 
-(defn- annotation-type-color
-  "Get the color for an annotation type"
-  [ann-type colors]
-  (case ann-type
-    :TODO (:accent colors)
-    :NOTE (:luoghi colors)
-    :FIX (:danger colors)
-    (:accent colors)))
-
 (defn show-create-modal!
   "Show the annotation create modal"
   [annotation-type chunk selected-text]
@@ -317,7 +335,13 @@
                      :align-items "center"
                      :justify-content "center"
                      :z-index 10002}
-             :on-mouse-down #(hide-create-modal!)}
+             :on-mouse-down #(hide-create-modal!)
+             :on-key-down (fn [e]
+                            (case (.-key e)
+                              "Escape" (hide-create-modal!)
+                              "Enter" (when-not (= "TEXTAREA" (.-tagName (.-target e)))
+                                        (confirm-create-annotation!))
+                              nil))}
        [:div {:style {:background (:sidebar colors)
                       :border-radius "8px"
                       :padding "20px"
@@ -742,10 +766,11 @@
 
 (defn- normal-annotation-menu
   "Context menu for normal annotations (TODO, NOTE, FIX)"
-  [{:keys [x y annotation chunk]}]
+  [{:keys [x y annotation]}]
   (let [menu-width 200
-        selected-text (:selected-text annotation)
-        chunk-id (:chunk-id annotation)]
+        ann-type (:type annotation)
+        colors (:colors @settings/settings)
+        type-color (annotation-type-color ann-type colors)]
     [:div {:style {:position "fixed"
                    :left (str x "px")
                    :top (str y "px")
@@ -757,6 +782,14 @@
                    :z-index 10001
                    :overflow "hidden"}
            :on-click #(.stopPropagation %)}
+     ;; Header with annotation type
+     [:div {:style {:padding "8px 12px"
+                    :font-weight "600"
+                    :font-size "0.85rem"
+                    :color type-color
+                    :border-bottom (str "1px solid " (settings/get-color :border))
+                    :background (settings/get-color :editor-bg)}}
+      (name ann-type)]
      [menu-item {:label (t :edit-annotation)
                  :on-click (fn []
                              (show-edit-modal! annotation)

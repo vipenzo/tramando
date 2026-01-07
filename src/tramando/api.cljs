@@ -232,9 +232,25 @@
   (api-delete (str "/api/admin/users/" user-id)))
 
 (defn update-user-admin!
-  "Update user's super-admin status (super-admin only)"
-  [user-id is-super-admin]
-  (api-put (str "/api/admin/users/" user-id) {:is-super-admin is-super-admin}))
+  "Update user fields (super-admin only).
+   Can include: is-super-admin, display_name, email, status,
+   max_projects, max_project_size_mb, max_collaborators, notes"
+  [user-id params]
+  (api-put (str "/api/admin/users/" user-id) params))
+
+;; =============================================================================
+;; Profile API
+;; =============================================================================
+
+(defn get-profile
+  "Get current user's profile and quotas"
+  []
+  (api-get "/api/profile"))
+
+(defn update-profile!
+  "Update current user's profile (display_name, email)"
+  [params]
+  (api-put "/api/profile" params))
 
 ;; =============================================================================
 ;; Chat API

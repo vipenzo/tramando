@@ -40,7 +40,8 @@
 ;; =============================================================================
 
 (defn register!
-  "Register a new user. First user becomes super-admin."
+  "Register a new user. First user becomes super-admin and active.
+   Other users are created with status 'pending' and need admin approval."
   [{:keys [username password]}]
   (cond
     (not (:allow-registration config))
@@ -57,17 +58,34 @@
           user (db/create-user! {:username username
                                  :password-hash (hash-password password)
                                  :is-super-admin is-first-user?})]
-      {:user (dissoc user :password_hash)
-       :token (generate-token user)})))
+      (if is-first-user?
+        ;; First user: login immediately
+        {:user (dissoc user :password_hash)
+         :token (generate-token user)}
+        ;; Other users: pending approval
+        {:pending true
+         :message "Registrazione completata. Attendi l'approvazione dell'amministratore."}))))
 
 (defn login!
-  "Authenticate user and return token"
+  "Authenticate user and return token. Check user status."
   [{:keys [username password]}]
   (if-let [user (db/find-user-by-username username)]
-    (if (check-password password (:password_hash user))
+    (cond
+      ;; Check password first
+      (not (check-password password (:password_hash user)))
+      {:error "Invalid password"}
+
+      ;; Check user status
+      (= "pending" (:status user))
+      {:error "Account in attesa di approvazione"}
+
+      (= "suspended" (:status user))
+      {:error "Account sospeso"}
+
+      ;; All good
+      :else
       {:user (dissoc user :password_hash)
-       :token (generate-token user)}
-      {:error "Invalid password"})
+       :token (generate-token user)})
     {:error "User not found"}))
 
 (defn get-current-user

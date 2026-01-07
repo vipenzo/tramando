@@ -9,7 +9,8 @@
             [tramando.editor :as editor]
             [tramando.context-menu :as context-menu]
             [tramando.events :as events]
-            [tramando.chat :as chat]))
+            [tramando.chat :as chat]
+            [tramando.auth :as auth]))
 
 ;; =============================================================================
 ;; Chunk Tree Item
@@ -48,6 +49,12 @@
 
 (defn- expanded? [id]
   (contains? @expanded-nodes id))
+
+(defn chunk-expanded?
+  "Public function to check if a chunk is expanded in the sidebar.
+   Used by radial map to filter visible chapters."
+  [chunk-id]
+  (contains? @expanded-nodes chunk-id))
 
 (defn- expand-node! [id]
   "Expand a node (add to expanded set)"
@@ -144,7 +151,7 @@
     :else :structure))
 
 (defn- get-chunk-path
-  "Get the path of parent chunks as a readable string"
+  "Get the path of parent chunks as a readable string (with macros expanded)"
   [chunk]
   (loop [current-id (:parent-id chunk)
          path []]
@@ -153,9 +160,11 @@
       (if (seq path)
         (str/join " > " (reverse path))
         nil)
-      (let [parent (first (filter #(= (:id %) current-id) (model/get-chunks)))]
+      (let [parent (first (filter #(= (:id %) current-id) (model/get-chunks)))
+            ;; Expand macros in parent summary
+            display-name (model/expand-summary-macros (or (:summary parent) "") parent)]
         (recur (:parent-id parent)
-               (conj path (or (:summary parent) (:id parent))))))))
+               (conj path (if (seq display-name) display-name (:id parent))))))))
 
 (defn- match-location
   "Determine where the match was found: :summary, :content, or :annotation"
@@ -538,7 +547,7 @@
     :PROPOSAL (:accent colors)
     (:accent colors)))
 
-(defn- annotation-item [{:keys [chunk-id selected-text comment type priority]}]
+(defn- annotation-item [{:keys [chunk-id selected-text comment type priority author]}]
   (let [colors (:colors @settings/settings)
         type-color (annotation-type-color type colors)
         path (annotations/get-chunk-path chunk-id)
@@ -553,19 +562,23 @@
         current-selection (or (:sel ai-data) 0)
         alternatives (or (:alts ai-data) [])
         selected-alt (when (and (pos? current-selection) (<= current-selection (count alternatives)))
-                       (nth alternatives (dec current-selection)))]
+                       (nth alternatives (dec current-selection)))
+        ;; Get display name for author
+        author-display (when author (auth/get-cached-display-name author))]
     [:div.annotation-item
      {:style {:border-left-color type-color}
       :on-click (fn []
                   (editor/set-tab! :edit)
                   (model/select-chunk! chunk-id)
                   (editor/navigate-to-annotation! selected-text))}
-     ;; Type label with optional AI badge
+     ;; Type label with optional AI badge and author
      [:div.annotation-type {:style {:color type-color}}
       (when is-ai?
         [:span {:class (str "ai-badge" (when is-ai-pending? " pending"))}
          (if is-ai-pending? "AI..." "AI")])
-      (name type)]
+      (name type)
+      (when author-display
+        [:span {:style {:font-weight "normal" :opacity "0.7"}} (str " @" author-display)])]
      ;; Annotation text
      [:div.annotation-text
       [:span {:style {:font-style "italic"}} (str "\"" display-text "\"")]

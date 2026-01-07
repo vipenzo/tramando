@@ -3,7 +3,8 @@
             [reagent.core :as r]
             [tramando.model :as model]
             [tramando.settings :as settings]
-            [tramando.help :as help]))
+            [tramando.help :as help]
+            [tramando.outline :as outline]))
 
 ;; =============================================================================
 ;; Constants and State
@@ -118,9 +119,15 @@
 ;; =============================================================================
 
 (defn- calculate-structure-layout
-  "Calculate layout for structural chunks (chapters and scenes)"
+  "Calculate layout for structural chunks (chapters and scenes).
+   Only shows chapters that are expanded in the sidebar AND have children."
   [cx cy r-inner r-outer]
-  (let [structural-tree (model/get-structural-tree)
+  (let [all-chapters (model/get-structural-tree)
+        ;; Filter: only chapters that are expanded AND have children (scenes)
+        structural-tree (filterv (fn [chapter]
+                                   (and (seq (:children chapter))
+                                        (outline/chunk-expanded? (:id chapter))))
+                                 all-chapters)
         total-chapters (count structural-tree)
         chapter-angle (if (pos? total-chapters)
                         (/ (* 2 js/Math.PI) total-chapters)

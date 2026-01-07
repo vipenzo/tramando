@@ -15,11 +15,12 @@
 ;; Annotation Parsing
 ;; =============================================================================
 
-;; Syntax: [!TYPE:selected text:priority:comment]
+;; Syntax: [!TYPE:selected text:priority:comment] or [!TYPE@author:selected text:priority:comment]
+;; - author: optional username (e.g., @mario)
 ;; - priority: integer or decimal, can be empty, or Puser for proposals
 ;; - comment: can be empty, or base64(proposed-text) for proposals
-;; Regex: \[!(TODO|NOTE|FIX|PROPOSAL):([^:]*):([^:]*):([^\]]*)\]
-(def annotation-pattern #"\[!(TODO|NOTE|FIX|PROPOSAL):([^:]*):([^:]*):([^\]]*)\]")
+;; Regex: \[!(TODO|NOTE|FIX|PROPOSAL)(?:@([^:]+))?:([^:]*):([^:]*):([^\]]*)\]
+(def annotation-pattern #"\[!(TODO|NOTE|FIX|PROPOSAL)(?:@([^:]+))?:([^:]*):([^:]*):([^\]]*)\]")
 
 (defn parse-priority
   "Parse priority string. Returns:
@@ -41,14 +42,14 @@
 
 (defn parse-annotations
   "Parse annotations from text content.
-   Returns a vector of {:type :TODO/:NOTE/:FIX, :selected-text string, :priority number/nil, :comment string, :start int, :end int}"
+   Returns a vector of {:type :TODO/:NOTE/:FIX, :selected-text string, :priority number/nil, :comment string, :author string/nil, :start int, :end int}"
   [content]
   (when content
     (loop [remaining content
            offset 0
            results []]
       (if-let [match (re-find annotation-pattern remaining)]
-        (let [[full-match type-str selected-text priority-str comment-text] match
+        (let [[full-match type-str author-str selected-text priority-str comment-text] match
               start (+ offset (str/index-of remaining full-match))
               end (+ start (count full-match))]
           (recur (subs remaining (- end offset))
@@ -57,6 +58,7 @@
                                 :selected-text (str/trim selected-text)
                                 :priority (parse-priority priority-str)
                                 :comment (str/trim (or comment-text ""))
+                                :author (when author-str (str/trim author-str))
                                 :start start
                                 :end end})))
         results))))
@@ -147,9 +149,13 @@
 
 (defn make-proposal-annotation
   "Create a proposal annotation string.
-   Format: [!PROPOSAL:original-text:Puser:base64({:text \"...\" :sel 0})]"
-  [original-text proposed-text user]
-  (str "[!PROPOSAL:" original-text ":P" user ":" (encode-proposal-data proposed-text 0) "]"))
+   Format: [!PROPOSAL@author:original-text:Puser:base64({:text \"...\" :sel 0})]
+   If author is nil or empty, the @author part is omitted."
+  [original-text proposed-text user & [author]]
+  (let [author-part (if (and author (seq author) (not= author "local"))
+                      (str "@" author)
+                      "")]
+    (str "[!PROPOSAL" author-part ":" original-text ":P" user ":" (encode-proposal-data proposed-text 0) "]")))
 
 (defn get-proposal-display-text
   "Get the text to display for a PROPOSAL annotation based on selection.
@@ -240,12 +246,13 @@
 
 (defn strip-annotations
   "Remove annotation markup, keeping only the selected text.
-   [!TODO:testo:1:commento] becomes just 'testo'
+   [!TODO:testo:1:commento] or [!TODO@user:testo:1:commento] becomes just 'testo'
    For AI-DONE annotations with selection, shows the selected alternative."
   [content]
   (if content
     ;; First pass: handle AI-DONE with selected alternative (Base64 encoded EDN)
-    (let [ai-done-pattern #"\[!NOTE:([^:]*):AI-DONE:([A-Za-z0-9+/=]+)\]"
+    ;; Supports optional @author: [!NOTE@user:text:AI-DONE:base64]
+    (let [ai-done-pattern #"\[!NOTE(?:@[^:]+)?:([^:]*):AI-DONE:([A-Za-z0-9+/=]+)\]"
           content-with-ai (str/replace content ai-done-pattern
                                        (fn [[_ selected-text b64-str]]
                                          (let [data (parse-ai-data b64-str)
@@ -255,5 +262,6 @@
                                              (nth alts (dec sel))
                                              selected-text))))]
       ;; Second pass: strip remaining annotations normally
-      (str/replace content-with-ai annotation-pattern "$2"))
+      ;; $3 is the selected-text (group 1=type, group 2=author, group 3=text)
+      (str/replace content-with-ai annotation-pattern "$3"))
     ""))

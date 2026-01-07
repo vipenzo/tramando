@@ -118,6 +118,7 @@
         password (r/atom "")
         password2 (r/atom "")
         error (r/atom nil)
+        pending-message (r/atom nil)  ;; Message shown when registration is pending
         loading? (r/atom false)]
     (fn [{:keys [on-success]}]
       [:div {:style {:max-width "360px"
@@ -136,8 +137,28 @@
            "Accedi al tuo account"
            "Crea un nuovo account")]]
 
+       ;; Pending registration message (success)
+       (when @pending-message
+         [:div {:style {:background (settings/get-color :success)
+                        :color "white"
+                        :padding "15px"
+                        :border-radius "4px"
+                        :margin-bottom "20px"
+                        :font-size "0.9rem"
+                        :text-align "center"}}
+          [:div {:style {:font-weight "500" :margin-bottom "5px"}} "Registrazione completata!"]
+          [:div @pending-message]
+          [:div {:style {:margin-top "10px"}}
+           [:a {:href "#"
+                :on-click (fn [e]
+                            (.preventDefault e)
+                            (reset! pending-message nil)
+                            (reset! mode :login))
+                :style {:color "white" :text-decoration "underline"}}
+            "Torna al login"]]])
+
        ;; Error message
-       (when @error
+       (when (and @error (not @pending-message))
          [:div {:style {:background (settings/get-color :danger)
                         :color "white"
                         :padding "10px 15px"
@@ -170,8 +191,15 @@
                                       (auth/register! @username @password))
                                     (.then (fn [result]
                                              (reset! loading? false)
-                                             (if (:ok result)
+                                             (cond
+                                               ;; Registration pending approval
+                                               (:pending result)
+                                               (reset! pending-message (:message result))
+                                               ;; Success (login or first user registration)
+                                               (:ok result)
                                                (when on-success (on-success))
+                                               ;; Error
+                                               :else
                                                (reset! error (:error result)))))))))}
         ;; Server URL
         [:div {:style {:margin-bottom "15px"}}
@@ -636,19 +664,28 @@
   "Panel to manage project collaborators"
   [{:keys [project-id]}]
   (let [data (r/atom nil)
+        all-users (r/atom nil)  ;; All users for selection
         loading? (r/atom true)
-        new-username (r/atom "")
-        new-role (r/atom "collaborator")
+        selected-user-id (r/atom "")  ;; Selected user ID from dropdown
         adding? (r/atom false)
         error (r/atom nil)
         load-data! (fn []
                      (reset! loading? true)
+                     ;; Load collaborators
                      (-> (api/list-collaborators project-id)
                          (.then (fn [result]
-                                  (reset! loading? false)
                                   (if (:ok result)
-                                    (reset! data (:data result))
-                                    (reset! error (:error result)))))))]
+                                    (let [collab-data (:data result)]
+                                      (reset! data collab-data)
+                                      ;; Cache display names globally
+                                      (auth/cache-users-from-collaborators! collab-data))
+                                    (reset! error (:error result))))))
+                     ;; Load all users for selection
+                     (-> (api/list-users)
+                         (.then (fn [result]
+                                  (reset! loading? false)
+                                  (when (:ok result)
+                                    (reset! all-users (get-in result [:data :users])))))))]
     (load-data!)
     (fn [{:keys [project-id]}]
       [:div {:style {:padding "15px"}}
@@ -675,7 +712,7 @@
                           :margin-bottom "5px"}}
             "Proprietario"]
            [:div {:style {:color (settings/get-color :text)}}
-            (:username (:owner @data))]]
+            (auth/get-display-name (:owner @data))]]
 
           ;; Collaborators list
           (when (seq (:collaborators @data))
@@ -693,7 +730,7 @@
                               :padding "8px 0"
                               :border-bottom (str "1px solid " (settings/get-color :border))}}
                 [:span {:style {:color (settings/get-color :text)}}
-                 (:username collab)
+                 (auth/get-display-name collab)
                  [:span {:style {:margin-left "8px"
                                  :font-size "0.8rem"
                                  :color (settings/get-color :text-muted)}}
@@ -718,37 +755,39 @@
                           :margin-bottom "8px"}}
             "Aggiungi collaboratore"]
            [:div {:style {:display "flex" :gap "8px" :flex-wrap "wrap"}}
-            [:input {:type "text"
-                     :placeholder "Username"
-                     :value @new-username
-                     :on-change #(reset! new-username (-> % .-target .-value))
-                     :style {:flex "1"
-                             :min-width "120px"
-                             :padding "6px 10px"
-                             :border (str "1px solid " (settings/get-color :border))
-                             :border-radius "4px"
-                             :background (settings/get-color :editor-bg)
-                             :color (settings/get-color :text)}}]
-            [:select {:value @new-role
-                      :on-change #(reset! new-role (-> % .-target .-value))
-                      :style {:padding "6px 10px"
+            [:select {:value @selected-user-id
+                      :on-change #(reset! selected-user-id (-> % .-target .-value))
+                      :style {:flex "1"
+                              :min-width "150px"
+                              :padding "6px 10px"
                               :border (str "1px solid " (settings/get-color :border))
                               :border-radius "4px"
                               :background (settings/get-color :editor-bg)
                               :color (settings/get-color :text)}}
-             [:option {:value "collaborator"} "Collaboratore"]
-             [:option {:value "admin"} "Admin"]]
+             [:option {:value ""} "-- Seleziona utente --"]
+             (let [owner-id (get-in @data [:owner :id])
+                   collab-ids (set (map :id (:collaborators @data)))
+                   current-user-id (:id (auth/get-user))
+                   available-users (->> @all-users
+                                        (filter #(and (not= (:id %) owner-id)
+                                                      (not (collab-ids (:id %)))
+                                                      (not= (:id %) current-user-id)
+                                                      (= "active" (or (:status %) "active")))))]
+               (for [user available-users]
+                 ^{:key (:id user)}
+                 [:option {:value (:username user)}
+                  (str (auth/get-display-name user) " (@" (:username user) ")")]))]
             [:button {:on-click (fn []
-                                  (when (seq @new-username)
+                                  (when (seq @selected-user-id)
                                     (reset! adding? true)
-                                    (-> (api/add-collaborator! project-id @new-username @new-role)
+                                    (-> (api/add-collaborator! project-id @selected-user-id "collaborator")
                                         (.then (fn [result]
                                                  (reset! adding? false)
                                                  (if (:ok result)
-                                                   (do (reset! new-username "")
+                                                   (do (reset! selected-user-id "")
                                                        (load-data!))
                                                    (reset! error (:error result))))))))
-                      :disabled (or @adding? (empty? @new-username))
+                      :disabled (or @adding? (empty? @selected-user-id))
                       :style {:padding "6px 12px"
                               :background (settings/get-color :accent)
                               :color "white"
@@ -839,9 +878,15 @@
                  :align-items "center"
                  :justify-content "center"
                  :z-index 2000}
+         :tab-index -1
+         :ref (fn [el] (when el (.focus el)))
          :on-click (fn [e]
                      (when (= (.-target e) (.-currentTarget e))
-                       (on-close)))}
+                       (on-close)))
+         :on-key-down (fn [e]
+                        (when (= "Escape" (.-key e))
+                          (.stopPropagation e)
+                          (on-close)))}
    [:div {:style {:background (settings/get-color :background)
                   :border-radius "8px"
                   :width "450px"
@@ -870,6 +915,272 @@
     [collaborators-panel {:project-id project-id}]]])
 
 ;; =============================================================================
+;; User Edit Modal (used by admin panel)
+;; =============================================================================
+
+(defn- user-edit-modal
+  "Modal for editing a user's details"
+  [{:keys [user on-close on-save]}]
+  (let [form-display-name (r/atom (or (:display_name user) ""))
+        form-email (r/atom (or (:email user) ""))
+        form-status (r/atom (or (:status user) "active"))
+        form-max-projects (r/atom (or (:max_projects user) 10))
+        form-max-project-size (r/atom (or (:max_project_size_mb user) 50))
+        form-max-collaborators (r/atom (or (:max_collaborators user) 10))
+        form-notes (r/atom (or (:notes user) ""))
+        form-is-admin? (r/atom (= 1 (:is_super_admin user)))
+        saving? (r/atom false)
+        form-error (r/atom nil)
+        do-save! (fn [user on-close on-save]
+                   (when-not @saving?
+                     (reset! saving? true)
+                     (reset! form-error nil)
+                     (-> (api/update-user-admin! (:id user)
+                           {:display_name @form-display-name
+                            :email @form-email
+                            :status @form-status
+                            :max_projects @form-max-projects
+                            :max_project_size_mb @form-max-project-size
+                            :max_collaborators @form-max-collaborators
+                            :notes @form-notes
+                            :is-super-admin (when (not= (:id user) (:id (auth/get-user)))
+                                              @form-is-admin?)})
+                         (.then (fn [result]
+                                  (reset! saving? false)
+                                  (if (:ok result)
+                                    (do
+                                      (on-close)
+                                      (on-save))
+                                    (reset! form-error (:error result))))))))]
+    (fn [{:keys [user on-close on-save]}]
+      [:div {:style {:position "fixed"
+                     :top 0 :left 0 :right 0 :bottom 0
+                     :background "rgba(0,0,0,0.6)"
+                     :display "flex"
+                     :align-items "center"
+                     :justify-content "center"
+                     :z-index 3000}
+             :tab-index -1  ;; Make focusable for keyboard events
+             :on-click (fn [e]
+                         (when (= (.-target e) (.-currentTarget e))
+                           (on-close)))
+             :on-key-down (fn [e]
+                            (let [tag-name (.-tagName (.-target e))]
+                              (case (.-key e)
+                                "Escape" (do (.stopPropagation e) (.preventDefault e) (on-close))
+                                ;; Trigger save on Enter except in textarea (multi-line) or select
+                                "Enter" (when-not (#{"TEXTAREA" "SELECT"} tag-name)
+                                          (.stopPropagation e)
+                                          (.preventDefault e)
+                                          (do-save! user on-close on-save))
+                                nil)))}
+       [:div {:style {:background (settings/get-color :background)
+                      :border-radius "8px"
+                      :width "500px"
+                      :max-height "85vh"
+                      :overflow "auto"
+                      :box-shadow "0 8px 32px rgba(0,0,0,0.4)"}}
+        ;; Header
+        [:div {:style {:display "flex"
+                       :justify-content "space-between"
+                       :align-items "center"
+                       :padding "20px"
+                       :border-bottom (str "1px solid " (settings/get-color :border))}}
+         [:h3 {:style {:margin 0
+                       :font-weight "400"
+                       :color (settings/get-color :text)}}
+          (str "Modifica: " (:username user))]
+         [:button {:on-click on-close
+                   :style {:background "transparent"
+                           :border "none"
+                           :font-size "1.5rem"
+                           :cursor "pointer"
+                           :color (settings/get-color :text-muted)}}
+          "×"]]
+
+        ;; Form
+        [:div {:style {:padding "20px"
+                       :display "flex"
+                       :flex-direction "column"
+                       :gap "15px"}}
+         ;; Error
+         (when @form-error
+           [:div {:style {:background (settings/get-color :danger)
+                          :color "white"
+                          :padding "10px"
+                          :border-radius "4px"}}
+            @form-error])
+
+         ;; Display name
+         [:div
+          [:label {:style {:display "block"
+                           :margin-bottom "5px"
+                           :font-size "0.85rem"
+                           :color (settings/get-color :text-muted)}}
+           "Nome visualizzato"]
+          [:input {:type "text"
+                   :value @form-display-name
+                   :on-change #(reset! form-display-name (-> % .-target .-value))
+                   :placeholder (:username user)
+                   :style {:width "100%"
+                           :padding "8px 12px"
+                           :border (str "1px solid " (settings/get-color :border))
+                           :border-radius "4px"
+                           :background (settings/get-color :editor-bg)
+                           :color (settings/get-color :text)
+                           :box-sizing "border-box"}}]]
+
+         ;; Email
+         [:div
+          [:label {:style {:display "block"
+                           :margin-bottom "5px"
+                           :font-size "0.85rem"
+                           :color (settings/get-color :text-muted)}}
+           "Email"]
+          [:input {:type "email"
+                   :value @form-email
+                   :on-change #(reset! form-email (-> % .-target .-value))
+                   :placeholder "email@esempio.it"
+                   :style {:width "100%"
+                           :padding "8px 12px"
+                           :border (str "1px solid " (settings/get-color :border))
+                           :border-radius "4px"
+                           :background (settings/get-color :editor-bg)
+                           :color (settings/get-color :text)
+                           :box-sizing "border-box"}}]]
+
+         ;; Status
+         [:div
+          [:label {:style {:display "block"
+                           :margin-bottom "5px"
+                           :font-size "0.85rem"
+                           :color (settings/get-color :text-muted)}}
+           "Stato"]
+          [:select {:value @form-status
+                    :on-change #(reset! form-status (-> % .-target .-value))
+                    :style {:width "100%"
+                            :padding "8px 12px"
+                            :border (str "1px solid " (settings/get-color :border))
+                            :border-radius "4px"
+                            :background (settings/get-color :editor-bg)
+                            :color (settings/get-color :text)
+                            :box-sizing "border-box"}}
+           [:option {:value "active"} "Attivo"]
+           [:option {:value "pending"} "In attesa"]
+           [:option {:value "suspended"} "Sospeso"]]]
+
+         ;; Quotas row
+         [:div {:style {:display "grid"
+                        :grid-template-columns "1fr 1fr 1fr"
+                        :gap "10px"}}
+          [:div
+           [:label {:style {:display "block"
+                            :margin-bottom "5px"
+                            :font-size "0.85rem"
+                            :color (settings/get-color :text-muted)}}
+            "Max progetti"]
+           [:input {:type "number"
+                    :min 1
+                    :value @form-max-projects
+                    :on-change #(reset! form-max-projects (js/parseInt (-> % .-target .-value)))
+                    :style {:width "100%"
+                            :padding "8px 12px"
+                            :border (str "1px solid " (settings/get-color :border))
+                            :border-radius "4px"
+                            :background (settings/get-color :editor-bg)
+                            :color (settings/get-color :text)
+                            :box-sizing "border-box"}}]]
+          [:div
+           [:label {:style {:display "block"
+                            :margin-bottom "5px"
+                            :font-size "0.85rem"
+                            :color (settings/get-color :text-muted)}}
+            "Max dim. (MB)"]
+           [:input {:type "number"
+                    :min 1
+                    :value @form-max-project-size
+                    :on-change #(reset! form-max-project-size (js/parseInt (-> % .-target .-value)))
+                    :style {:width "100%"
+                            :padding "8px 12px"
+                            :border (str "1px solid " (settings/get-color :border))
+                            :border-radius "4px"
+                            :background (settings/get-color :editor-bg)
+                            :color (settings/get-color :text)
+                            :box-sizing "border-box"}}]]
+          [:div
+           [:label {:style {:display "block"
+                            :margin-bottom "5px"
+                            :font-size "0.85rem"
+                            :color (settings/get-color :text-muted)}}
+            "Max collab."]
+           [:input {:type "number"
+                    :min 0
+                    :value @form-max-collaborators
+                    :on-change #(reset! form-max-collaborators (js/parseInt (-> % .-target .-value)))
+                    :style {:width "100%"
+                            :padding "8px 12px"
+                            :border (str "1px solid " (settings/get-color :border))
+                            :border-radius "4px"
+                            :background (settings/get-color :editor-bg)
+                            :color (settings/get-color :text)
+                            :box-sizing "border-box"}}]]]
+
+         ;; Notes
+         [:div
+          [:label {:style {:display "block"
+                           :margin-bottom "5px"
+                           :font-size "0.85rem"
+                           :color (settings/get-color :text-muted)}}
+           "Note"]
+          [:textarea {:value @form-notes
+                      :on-change #(reset! form-notes (-> % .-target .-value))
+                      :placeholder "Note interne sull'utente..."
+                      :rows 2
+                      :style {:width "100%"
+                              :padding "8px 12px"
+                              :border (str "1px solid " (settings/get-color :border))
+                              :border-radius "4px"
+                              :background (settings/get-color :editor-bg)
+                              :color (settings/get-color :text)
+                              :box-sizing "border-box"
+                              :resize "vertical"}}]]
+
+         ;; Admin checkbox (only if not self)
+         (when (not= (:id user) (:id (auth/get-user)))
+           [:label {:style {:display "flex"
+                            :align-items "center"
+                            :gap "8px"
+                            :color (settings/get-color :text)}}
+            [:input {:type "checkbox"
+                     :checked @form-is-admin?
+                     :on-change #(reset! form-is-admin? (-> % .-target .-checked))}]
+            "Super Admin"])
+
+         ;; Buttons
+         [:div {:style {:display "flex"
+                        :gap "10px"
+                        :margin-top "10px"}}
+          [:button {:on-click #(do-save! user on-close on-save)
+                    :disabled @saving?
+                    :style {:flex 1
+                            :padding "10px 20px"
+                            :background (settings/get-color :accent)
+                            :color "white"
+                            :border "none"
+                            :border-radius "4px"
+                            :cursor "pointer"
+                            :opacity (if @saving? 0.5 1)}}
+           (if @saving? "..." "Salva")]
+          [:button {:on-click on-close
+                    :style {:padding "10px 20px"
+                            :background "transparent"
+                            :color (settings/get-color :text-muted)
+                            :border (str "1px solid " (settings/get-color :border))
+                            :border-radius "4px"
+                            :cursor "pointer"}}
+           "Annulla"]]]]])))
+
+;; =============================================================================
 ;; Admin Users Panel (Super Admin only)
 ;; =============================================================================
 
@@ -887,6 +1198,8 @@
         creating? (r/atom false)
         ;; Delete confirmation
         confirm-delete-id (r/atom nil)
+        ;; Edit user modal
+        editing-user (r/atom nil)
         load-users! (fn []
                       (reset! loading? true)
                       (-> (api/list-users)
@@ -904,9 +1217,15 @@
                      :align-items "center"
                      :justify-content "center"
                      :z-index 2000}
+             :tab-index -1
+             :ref (fn [el] (when el (.focus el)))
              :on-click (fn [e]
                          (when (= (.-target e) (.-currentTarget e))
-                           (on-close)))}
+                           (on-close)))
+             :on-key-down (fn [e]
+                            (when (= "Escape" (.-key e))
+                              (.stopPropagation e)
+                              (on-close)))}
        [:div {:style {:background (settings/get-color :background)
                       :border-radius "8px"
                       :width "600px"
@@ -1036,38 +1355,81 @@
 
          ;; Users list
          (when (and (not @loading?) @users)
-           [:div
-            (for [user @users]
-              ^{:key (:id user)}
-              [:div {:style {:display "flex"
+           ;; Deref confirm-delete-id OUTSIDE the for loop to ensure reactivity
+           (let [current-confirm-delete @confirm-delete-id]
+             [:div
+              (for [user @users]
+                ^{:key (:id user)}
+                [:div {:style {:display "flex"
                              :justify-content "space-between"
                              :align-items "center"
                              :padding "12px 15px"
                              :background (settings/get-color :sidebar)
                              :border-radius "6px"
-                             :margin-bottom "8px"}}
+                             :margin-bottom "8px"
+                             :cursor "pointer"
+                             :transition "background 0.15s"}
+                     :on-mouse-over #(set! (.. % -currentTarget -style -background) (settings/get-color :editor-bg))
+                     :on-mouse-out #(set! (.. % -currentTarget -style -background) (settings/get-color :sidebar))
+                     :on-click (fn [e]
+                                 ;; Only open edit if not clicking on a button
+                                 (when-not (= "BUTTON" (.-tagName (.-target e)))
+                                   (reset! editing-user user)))}
                [:div
-                [:span {:style {:color (settings/get-color :text)
-                                :font-weight "500"}}
-                 (:username user)]
-                (when (= 1 (:is_super_admin user))
-                  [:span {:style {:margin-left "10px"
-                                  :padding "2px 8px"
-                                  :background (settings/get-color :accent)
-                                  :color "white"
-                                  :border-radius "10px"
-                                  :font-size "0.75rem"}}
-                   "Super Admin"])
+                [:div {:style {:display "flex" :align-items "center" :gap "6px" :flex-wrap "wrap"}}
+                 [:span {:style {:color (settings/get-color :text)
+                                 :font-weight "500"}}
+                  (auth/get-display-name user)]
+                 ;; Status badge (nil treated as "active" for pre-migration users)
+                 (let [status (or (:status user) "active")
+                       [bg-color status-text] (case status
+                                                "active" [(settings/get-color :success) "Attivo"]
+                                                "pending" ["#f59e0b" "In attesa"]
+                                                "suspended" [(settings/get-color :danger) "Sospeso"]
+                                                [(settings/get-color :text-muted) status])]
+                   [:span {:style {:padding "2px 8px"
+                                   :background bg-color
+                                   :color "white"
+                                   :border-radius "10px"
+                                   :font-size "0.7rem"}}
+                    status-text])
+                 (when (= 1 (:is_super_admin user))
+                   [:span {:style {:padding "2px 8px"
+                                   :background (settings/get-color :accent)
+                                   :color "white"
+                                   :border-radius "10px"
+                                   :font-size "0.7rem"}}
+                    "Admin"])]
                 [:div {:style {:font-size "0.8rem"
                                :color (settings/get-color :text-muted)
                                :margin-top "2px"}}
-                 (str "Creato: " (when-let [d (:created_at user)] (subs d 0 10)))]]
+                 (str "@" (:username user)
+                      " • Progetti: " (or (:projects_owned user) 0)
+                      " • Creato: " (when-let [d (:created_at user)] (subs d 0 10)))]]
                ;; Actions (only for non-self users)
                (when (not= (:id user) (:id (auth/get-user)))
-                 [:div {:style {:display "flex" :gap "8px"}}
+                 [:div {:style {:display "flex" :gap "8px"}
+                        :on-click #(.stopPropagation %)}  ;; Prevent row click
+                  ;; Quick approve for pending users
+                  (when (= "pending" (:status user))
+                    [:button {:on-click (fn [e]
+                                          (.stopPropagation e)
+                                          (-> (api/update-user-admin! (:id user) {:status "active"})
+                                              (.then (fn [result]
+                                                       (when (:ok result)
+                                                         (load-users!))))))
+                              :style {:padding "4px 10px"
+                                      :background (settings/get-color :success)
+                                      :color "white"
+                                      :border "none"
+                                      :border-radius "4px"
+                                      :cursor "pointer"
+                                      :font-size "0.8rem"}}
+                     "Approva"])
                   ;; Toggle admin
-                  [:button {:on-click (fn []
-                                        (-> (api/update-user-admin! (:id user) (zero? (:is_super_admin user)))
+                  [:button {:on-click (fn [e]
+                                        (.stopPropagation e)
+                                        (-> (api/update-user-admin! (:id user) {:is-super-admin (zero? (:is_super_admin user))})
                                             (.then (fn [result]
                                                      (when (:ok result)
                                                        (load-users!))))))
@@ -1080,9 +1442,15 @@
                                     :font-size "0.8rem"}}
                    (if (= 1 (:is_super_admin user)) "Rimuovi Admin" "Rendi Admin")]
                   ;; Delete
-                  (if (= @confirm-delete-id (:id user))
+                  (if (= current-confirm-delete (:id user))
                     [:<>
-                     [:button {:on-click (fn []
+                     (when (pos? (or (:projects_owned user) 0))
+                       [:span {:style {:font-size "0.75rem"
+                                       :color (settings/get-color :danger)
+                                       :margin-right "5px"}}
+                        (str (:projects_owned user) " prog!")])
+                     [:button {:on-click (fn [e]
+                                           (.stopPropagation e)
                                            (-> (api/delete-user! (:id user))
                                                (.then (fn [result]
                                                         (reset! confirm-delete-id nil)
@@ -1096,7 +1464,9 @@
                                        :cursor "pointer"
                                        :font-size "0.8rem"}}
                       "Conferma"]
-                     [:button {:on-click #(reset! confirm-delete-id nil)
+                     [:button {:on-click (fn [e]
+                                           (.stopPropagation e)
+                                           (reset! confirm-delete-id nil))
                                :style {:padding "4px 10px"
                                        :background "transparent"
                                        :color (settings/get-color :text-muted)
@@ -1105,7 +1475,9 @@
                                        :cursor "pointer"
                                        :font-size "0.8rem"}}
                       "No"]]
-                    [:button {:on-click #(reset! confirm-delete-id (:id user))
+                    [:button {:on-click (fn [e]
+                                          (.stopPropagation e)
+                                          (reset! confirm-delete-id (:id user)))
                               :style {:padding "4px 10px"
                                       :background "transparent"
                                       :color (settings/get-color :danger)
@@ -1113,7 +1485,14 @@
                                       :border-radius "4px"
                                       :cursor "pointer"
                                       :font-size "0.8rem"}}
-                     "Elimina"])])])])]]])))
+                     "Elimina"])])])]))
+
+         ;; Edit user modal
+         (when-let [u @editing-user]
+           ^{:key (:id u)}
+           [user-edit-modal {:user u
+                             :on-close #(reset! editing-user nil)
+                             :on-save load-users!}])]]])))
 
 ;; =============================================================================
 ;; User Menu (header dropdown)
@@ -1140,7 +1519,7 @@
                    :on-mouse-over #(set! (.. % -currentTarget -style -background) (settings/get-color :sidebar))
                    :on-mouse-out #(set! (.. % -currentTarget -style -background) "transparent")}
           [:span "👤"]
-          [:span (auth/get-username)]
+          [:span (auth/get-display-name)]
           [:span {:style {:font-size "0.7rem"}} (if @open? "▲" "▼")]]
 
          ;; Dropdown

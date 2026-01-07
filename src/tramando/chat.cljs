@@ -241,9 +241,8 @@
       [:span {:style {:font-size "12px"
                       :color (settings/get-color :text)
                       :display "flex"
-                      :align-items "center"
-                      :gap "6px"}}
-       "💬"
+                      :align-items "center"}}
+       [:span {:style {:margin-right "8px"}} "💬"]
        (t :project-chat)]
       (when (pos? unread)
         [:span {:style {:background (settings/get-color :accent)
@@ -272,9 +271,8 @@
                     :font-weight "bold"
                     :color (settings/get-color :text)
                     :display "flex"
-                    :align-items "center"
-                    :gap "6px"}}
-     "💬"
+                    :align-items "center"}}
+     [:span {:style {:margin-right "8px"}} "💬"]
      (t :project-chat)]
     [:div {:style {:display "flex"
                    :gap "4px"}}
@@ -337,9 +335,8 @@
                        :font-weight "bold"
                        :color (settings/get-color :text)
                        :display "flex"
-                       :align-items "center"
-                       :gap "8px"}}
-        "💬"
+                       :align-items "center"}}
+        [:span {:style {:margin-right "8px"}} "💬"]
         (t :project-chat)]
        [:button {:style {:background "transparent"
                          :border "none"

@@ -106,7 +106,9 @@
                    :z-index 1000}
            ;; Use mousedown to avoid closing when text selection drag ends outside
            :on-mouse-down #(when (= (.-target %) (.-currentTarget %))
-                             (reset! settings/settings-open? false))}
+                             (reset! settings/settings-open? false))
+           :on-key-down #(when (= "Escape" (.-key %))
+                           (reset! settings/settings-open? false))}
      [:div {:style {:background (settings/get-color :sidebar)
                     :border-radius "8px"
                     :padding "24px"
@@ -699,7 +701,9 @@
                    :z-index 1000}
            ;; Use mousedown to avoid closing when text selection drag ends outside
            :on-mouse-down #(when (= (.-target %) (.-currentTarget %))
-                             (reset! metadata-open? false))}
+                             (reset! metadata-open? false))
+           :on-key-down #(when (= "Escape" (.-key %))
+                           (reset! metadata-open? false))}
      [:div {:style {:background (settings/get-color :sidebar)
                     :border-radius "8px"
                     :padding "24px"
@@ -1015,7 +1019,16 @@
                    :display "flex"
                    :align-items "center"
                    :justify-content "center"
-                   :z-index 2000}}
+                   :z-index 2000}
+           :on-key-down (fn [e]
+                          (case (.-key e)
+                            "Escape" (reset! tutorial-open? false)
+                            "ArrowRight" (when-not last-step? (swap! tutorial-step inc))
+                            "ArrowLeft" (when-not first-step? (swap! tutorial-step dec))
+                            "Enter" (if last-step?
+                                      (reset! tutorial-open? false)
+                                      (swap! tutorial-step inc))
+                            nil))}
      [:div {:style {:background (:sidebar colors)
                     :border-radius "12px"
                     :padding "32px"
@@ -1762,6 +1775,7 @@
 (defonce splash-login-loading? (r/atom false))
 (defonce splash-register-mode? (r/atom false))
 ;; Auto-detect server URL from current page location (use same origin + path for subpath deployments)
+;; In dev mode (port 8080), use port 3000 for the backend server
 (defonce splash-server-url (r/atom (let [loc js/window.location
                                           protocol (.-protocol loc)
                                           hostname (.-hostname loc)
@@ -1771,10 +1785,12 @@
                                           base-path (-> pathname
                                                         (str/replace #"/index\.html$" "")
                                                         (str/replace #"/$" ""))
-                                          base-path (if (= base-path "/") "" base-path)]
+                                          base-path (if (= base-path "/") "" base-path)
+                                          ;; In dev mode (shadow-cljs on 8080), use port 3000 for backend
+                                          effective-port (if (= port "8080") "3000" port)]
                                       (str protocol "//" hostname
-                                           (when (and port (not= port ""))
-                                             (str ":" port))
+                                           (when (and effective-port (not= effective-port ""))
+                                             (str ":" effective-port))
                                            base-path))))
 
 (defn- splash-local-panel

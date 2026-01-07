@@ -30,11 +30,28 @@
     ;; Create tables
     (create-tables!)))
 
+(defn- migrate-users-table!
+  "Add new columns to users table if they don't exist"
+  []
+  (let [ds (get-datasource)]
+    ;; Check if display_name column exists by trying to select it
+    (try
+      (jdbc/execute! ds ["SELECT display_name FROM users LIMIT 1"])
+      (catch Exception _
+        ;; Column doesn't exist, add new columns
+        (jdbc/execute! ds ["ALTER TABLE users ADD COLUMN display_name TEXT"])
+        (jdbc/execute! ds ["ALTER TABLE users ADD COLUMN email TEXT"])
+        (jdbc/execute! ds ["ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'active'"])
+        (jdbc/execute! ds ["ALTER TABLE users ADD COLUMN max_projects INTEGER DEFAULT 10"])
+        (jdbc/execute! ds ["ALTER TABLE users ADD COLUMN max_project_size_mb INTEGER DEFAULT 50"])
+        (jdbc/execute! ds ["ALTER TABLE users ADD COLUMN max_collaborators INTEGER DEFAULT 10"])
+        (jdbc/execute! ds ["ALTER TABLE users ADD COLUMN notes TEXT"])))))
+
 (defn create-tables!
   "Create database tables if they don't exist"
   []
   (let [ds (get-datasource)]
-    ;; Users table
+    ;; Users table (base schema)
     (jdbc/execute! ds
       ["CREATE TABLE IF NOT EXISTS users (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,6 +60,8 @@
           is_super_admin INTEGER DEFAULT 0,
           created_at TEXT DEFAULT (datetime('now'))
         )"])
+    ;; Run migration to add new columns
+    (migrate-users-table!)
     ;; Projects table
     (jdbc/execute! ds
       ["CREATE TABLE IF NOT EXISTS projects (
@@ -105,11 +124,13 @@
 (defn find-user-by-id [id]
   (query-one ["SELECT * FROM users WHERE id = ?" id]))
 
-(defn create-user! [{:keys [username password-hash is-super-admin]}]
-  (let [ds (get-datasource)]
+(defn create-user! [{:keys [username password-hash is-super-admin status]}]
+  (let [ds (get-datasource)
+        ;; First user is always active, others depend on status param (default 'pending')
+        effective-status (if is-super-admin "active" (or status "pending"))]
     (jdbc/execute-one! ds
-      ["INSERT INTO users (username, password_hash, is_super_admin) VALUES (?, ?, ?)"
-       username password-hash (if is-super-admin 1 0)]
+      ["INSERT INTO users (username, password_hash, is_super_admin, status) VALUES (?, ?, ?, ?)"
+       username password-hash (if is-super-admin 1 0) effective-status]
       {:return-keys true})
     (find-user-by-username username)))
 
@@ -208,7 +229,7 @@
       ["DELETE FROM permissions WHERE user_id = ? AND project_id = ?" user-id project-id])))
 
 (defn get-project-collaborators [project-id]
-  (query ["SELECT u.id, u.username, pm.role
+  (query ["SELECT u.id, u.username, u.display_name, pm.role
            FROM users u
            JOIN permissions pm ON pm.user_id = u.id
            WHERE pm.project_id = ?" project-id]))
@@ -218,9 +239,17 @@
 ;; =============================================================================
 
 (defn list-all-users
-  "List all users with basic info (for super admin)"
+  "List all users with full info (for super admin), including project count"
   []
-  (query ["SELECT id, username, is_super_admin, created_at FROM users ORDER BY id"]))
+  (query ["SELECT u.id, u.username, u.display_name, u.email, u.is_super_admin, u.status,
+                  u.max_projects, u.max_project_size_mb, u.max_collaborators, u.notes, u.created_at,
+                  (SELECT COUNT(*) FROM projects WHERE owner_id = u.id) as projects_owned
+           FROM users u ORDER BY u.id"]))
+
+(defn get-user-project-count
+  "Count how many projects a user owns"
+  [user-id]
+  (:count (query-one ["SELECT COUNT(*) as count FROM projects WHERE owner_id = ?" user-id])))
 
 (defn delete-user!
   "Delete a user and all their related data"
@@ -228,9 +257,12 @@
   (let [ds (get-datasource)]
     ;; Remove from all permissions
     (jdbc/execute! ds ["DELETE FROM permissions WHERE user_id = ?" user-id])
+    ;; Delete chat messages by this user
+    (jdbc/execute! ds ["DELETE FROM chat_messages WHERE user_id = ?" user-id])
     ;; Delete projects owned by this user
     (let [owned-projects (query ["SELECT id FROM projects WHERE owner_id = ?" user-id])]
       (doseq [p owned-projects]
+        (jdbc/execute! ds ["DELETE FROM chat_messages WHERE project_id = ?" (:id p)])
         (jdbc/execute! ds ["DELETE FROM permissions WHERE project_id = ?" (:id p)])
         (jdbc/execute! ds ["DELETE FROM projects WHERE id = ?" (:id p)])))
     ;; Delete the user
@@ -243,6 +275,47 @@
     (jdbc/execute! ds
       ["UPDATE users SET is_super_admin = ? WHERE id = ?"
        (if is-super-admin? 1 0) user-id])))
+
+(defn update-user!
+  "Update user fields (admin operation).
+   Empty strings are converted to nil for optional fields like display_name, email, notes."
+  [user-id {:keys [display_name email status max_projects max_project_size_mb max_collaborators notes]}]
+  (let [ds (get-datasource)
+        ;; Convert empty strings to nil for optional text fields
+        display_name (when (seq display_name) display_name)
+        email (when (seq email) email)
+        notes (when (seq notes) notes)]
+    (jdbc/execute! ds
+      ["UPDATE users SET
+          display_name = ?,
+          email = ?,
+          status = COALESCE(?, status),
+          max_projects = COALESCE(?, max_projects),
+          max_project_size_mb = COALESCE(?, max_project_size_mb),
+          max_collaborators = COALESCE(?, max_collaborators),
+          notes = ?
+        WHERE id = ?"
+       display_name email status max_projects max_project_size_mb max_collaborators notes user-id])
+    (find-user-by-id user-id)))
+
+(defn update-own-profile!
+  "Update user's own profile (display_name, email)"
+  [user-id {:keys [display_name email]}]
+  (let [ds (get-datasource)]
+    (jdbc/execute! ds
+      ["UPDATE users SET display_name = ?, email = ? WHERE id = ?"
+       display_name email user-id])
+    (find-user-by-id user-id)))
+
+(defn get-user-quotas
+  "Get user's quota limits and current usage"
+  [user-id]
+  (let [user (find-user-by-id user-id)
+        project-count (get-user-project-count user-id)]
+    {:max_projects (or (:max_projects user) 10)
+     :max_project_size_mb (or (:max_project_size_mb user) 50)
+     :max_collaborators (or (:max_collaborators user) 10)
+     :projects_used project-count}))
 
 ;; =============================================================================
 ;; Chat Operations

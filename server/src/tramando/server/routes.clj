@@ -45,12 +45,17 @@
 (defn create-project-handler [request]
   (let [user-id (get-in request [:user :id])
         {:keys [name content]} (:body-params request)
-        project (db/create-project! {:name name :owner-id user-id})]
-    ;; Save initial content if provided
-    (when content
-      (storage/save-project-content! (:id project) content))
-    {:status 201
-     :body {:project project}}))
+        quotas (db/get-user-quotas user-id)]
+    ;; Check project quota
+    (if (>= (:projects_used quotas) (:max_projects quotas))
+      {:status 403
+       :body {:error (str "Hai raggiunto il limite massimo di progetti (" (:max_projects quotas) ")")}}
+      (let [project (db/create-project! {:name name :owner-id user-id})]
+        ;; Save initial content if provided
+        (when content
+          (storage/save-project-content! (:id project) content))
+        {:status 201
+         :body {:project project}}))))
 
 (defn get-project-handler [request]
   (let [user-id (get-in request [:user :id])
@@ -146,19 +151,29 @@
             project (db/find-project-by-id project-id)
             owner (db/find-user-by-id (:owner_id project))]
         {:status 200
-         :body {:owner {:id (:id owner) :username (:username owner)}
+         :body {:owner {:id (:id owner)
+                        :username (:username owner)
+                        :display_name (:display_name owner)}
                 :collaborators collaborators}}))))
 
 (defn add-collaborator-handler [request]
   (let [user-id (get-in request [:user :id])
         project-id (-> request :path-params :id Integer/parseInt)
-        {:keys [username role]} (:body-params request)]
+        {:keys [username role]} (:body-params request)
+        project (db/find-project-by-id project-id)
+        owner-quotas (db/get-user-quotas (:owner_id project))
+        current-collaborators (db/get-project-collaborators project-id)]
     (cond
       (not (db/user-is-project-admin? user-id project-id))
       {:status 403 :body {:error "Admin access required"}}
 
       (not (#{"admin" "collaborator"} role))
       {:status 400 :body {:error "Invalid role"}}
+
+      ;; Check collaborators quota (only for new collaborators)
+      (and (not (some #(= username (:username %)) current-collaborators))
+           (>= (count current-collaborators) (:max_collaborators owner-quotas)))
+      {:status 403 :body {:error (str "Limite collaboratori raggiunto (" (:max_collaborators owner-quotas) ")")}}
 
       :else
       (if-let [target-user (db/find-user-by-username username)]
@@ -275,20 +290,52 @@
 (defn update-user-admin-handler [request]
   (let [current-user-id (get-in request [:user :id])
         target-user-id (-> request :path-params :id Integer/parseInt)
-        {:keys [is-super-admin]} (:body-params request)]
+        params (:body-params request)
+        {:keys [is-super-admin display_name email status max_projects
+                max_project_size_mb max_collaborators notes]} params]
     (cond
-      ;; Cannot change your own admin status
-      (= current-user-id target-user-id)
-      {:status 400 :body {:error "Cannot change your own admin status"}}
-
       ;; User doesn't exist
       (nil? (db/find-user-by-id target-user-id))
       {:status 404 :body {:error "User not found"}}
 
+      ;; Cannot change your own admin status
+      (and (some? is-super-admin) (= current-user-id target-user-id))
+      {:status 400 :body {:error "Cannot change your own admin status"}}
+
       :else
       (do
-        (db/update-user-super-admin! target-user-id is-super-admin)
-        {:status 200 :body {:success true}}))))
+        ;; Update admin status if provided
+        (when (some? is-super-admin)
+          (db/update-user-super-admin! target-user-id is-super-admin))
+        ;; Update other fields
+        (db/update-user! target-user-id
+          {:display_name display_name
+           :email email
+           :status status
+           :max_projects max_projects
+           :max_project_size_mb max_project_size_mb
+           :max_collaborators max_collaborators
+           :notes notes})
+        {:status 200 :body {:success true :user (db/find-user-by-id target-user-id)}}))))
+
+;; =============================================================================
+;; Profile Handlers
+;; =============================================================================
+
+(defn get-profile-handler [request]
+  (let [user-id (get-in request [:user :id])
+        user (db/find-user-by-id user-id)
+        quotas (db/get-user-quotas user-id)]
+    {:status 200
+     :body {:user (dissoc user :password_hash)
+            :quotas quotas}}))
+
+(defn update-profile-handler [request]
+  (let [user-id (get-in request [:user :id])
+        {:keys [display_name email]} (:body-params request)
+        updated-user (db/update-own-profile! user-id {:display_name display_name :email email})]
+    {:status 200
+     :body {:user (dissoc updated-user :password_hash)}}))
 
 ;; =============================================================================
 ;; Router
@@ -328,6 +375,11 @@
                       :middleware [auth/require-auth]}
                 :post {:handler post-chat-handler
                        :middleware [auth/require-auth]}}]]]
+
+    ["/profile" {:get {:handler get-profile-handler
+                       :middleware [auth/require-auth]}
+                  :put {:handler update-profile-handler
+                        :middleware [auth/require-auth]}}]
 
     ["/admin/users" {:get {:handler list-users-handler
                            :middleware [auth/require-auth auth/require-super-admin]}

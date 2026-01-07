@@ -199,12 +199,12 @@
         nil))))
 
 (def ^:private annotation-regex-for-ranges
-  "Regex to find annotations and their parts: [!TYPE:text:priority:comment]"
-  (js/RegExp. "\\[!(TODO|NOTE|FIX|PROPOSAL):([^:]*):([^:]*):([^\\]]*)\\]" "g"))
+  "Regex to find annotations and their parts: [!TYPE@author:text:priority:comment]"
+  (js/RegExp. "\\[!(TODO|NOTE|FIX|PROPOSAL)(?:@([^:]+))?:([^:]*):([^:]*):([^\\]]*)\\]" "g"))
 
 (defn- get-hidden-ranges
   "Returns vector of {:from :to} for hidden parts of annotations.
-   When show-markup is false, the prefix [!TYPE: and suffix :priority:comment] are hidden."
+   When show-markup is false, the prefix [!TYPE@author: and suffix :priority:comment] are hidden."
   [text]
   (let [ranges (atom [])]
     (set! (.-lastIndex annotation-regex-for-ranges) 0)
@@ -212,11 +212,14 @@
       (when-let [match (.exec annotation-regex-for-ranges text)]
         (let [full-match (aget match 0)
               type-str (aget match 1)
-              selected-text (aget match 2)
+              author-str (aget match 2)  ;; may be nil/undefined
+              selected-text (aget match 3)
               start (.-index match)
               end (+ start (count full-match))
-              ;; Hidden prefix: [!TYPE: (from start to after first colon)
-              prefix-end (+ start 2 (count type-str) 1)
+              ;; Hidden prefix: [!TYPE@author: (from start to after first colon)
+              ;; Length: 2 ([!) + type + @author if present + 1 (:)
+              author-len (if author-str (+ 1 (count author-str)) 0)  ;; +1 for @
+              prefix-end (+ start 2 (count type-str) author-len 1)
               ;; Hidden suffix: :priority:comment] (from after selected text to end)
               text-end (+ prefix-end (count selected-text))]
           ;; Add hidden prefix range
@@ -423,7 +426,7 @@
        (let [doc-text (.. view -state -doc (toString))
              ;; Find the annotation pattern containing this selected-text using JS regex for position
              escaped-text (str/replace selected-text #"[.*+?^${}()|\\[\\]\\\\]" "\\\\$&")
-             js-pattern (js/RegExp. (str "\\[!(TODO|NOTE|FIX|PROPOSAL):" escaped-text ":[^\\]]*\\]") "g")
+             js-pattern (js/RegExp. (str "\\[!(TODO|NOTE|FIX|PROPOSAL)(?:@[^:]+)?:" escaped-text ":[^\\]]*\\]") "g")
              match (.exec js-pattern doc-text)]
          (when match
            (let [idx (.-index match)
@@ -578,8 +581,8 @@
 ;; Annotation Highlighting Extension
 ;; =============================================================================
 
-;; Syntax: [!TYPE:selected text:priority:comment]
-(def ^:private annotation-regex (js/RegExp. "\\[!(TODO|NOTE|FIX|PROPOSAL):([^:]*):([^:]*):([^\\]]*)\\]" "g"))
+;; Syntax: [!TYPE@author:selected text:priority:comment]
+(def ^:private annotation-regex (js/RegExp. "\\[!(TODO|NOTE|FIX|PROPOSAL)(?:@([^:]+))?:([^:]*):([^:]*):([^\\]]*)\\]" "g"))
 
 ;; Syntax: [@aspect-id] - links to aspects
 (def ^:private aspect-link-regex (js/RegExp. "\\[@([^\\]]+)\\]" "g"))
@@ -690,9 +693,10 @@
       (when-let [match (.exec annotation-regex text)]
         (let [full-match (aget match 0)
               type-str (aget match 1)
-              selected-text (aget match 2)
-              priority-str (aget match 3)
-              comment-text (aget match 4)
+              author-str (aget match 2)  ;; may be nil/undefined
+              selected-text (aget match 3)
+              priority-str (aget match 4)
+              comment-text (aget match 5)
               start (.-index match)
               end (+ start (count full-match))
               ;; Check if this is an AI-DONE annotation with a selection
@@ -713,26 +717,34 @@
               has-proposal-selection? (and is-proposal? (pos? proposal-sel))
               proposal-text (when has-proposal-selection?
                               (:text proposal-data))
-              ;; Calculate positions of parts: [!TYPE:text:priority:comment]
-              prefix-end (+ start 2 (count type-str) 1) ; after [!TYPE:
+              ;; Calculate positions of parts: [!TYPE@author:text:priority:comment]
+              ;; author-str may be undefined from JS regex, so check with some?
+              author-len (if (some? author-str) (+ 1 (count author-str)) 0) ; +1 for @
+              prefix-end (+ start 2 (count type-str) author-len 1) ; after [!TYPE@author:
               text-start prefix-end
               text-end (+ text-start (count selected-text))
               suffix-start text-end ; from :priority:comment] to end
               type-lower (str/lower-case type-str)
-              ;; Build tooltip
-              tooltip (cond
-                        has-ai-selection?
-                        (str "AI alternative #" ai-sel " selected")
-                        ;; For PROPOSAL: show the proposed text, not the base64
-                        is-proposal?
-                        (if-let [proposed (:text proposal-data)]
-                          (str (t :proposal) ": " proposed)
-                          (t :proposal))
-                        (and (seq priority-str) (seq comment-text))
-                        (str "[" priority-str "] " comment-text)
-                        (seq comment-text) comment-text
-                        (seq priority-str) (str "[" priority-str "]")
-                        :else (str type-str " annotation"))]
+              ;; Get author display name
+              author-display (when (some? author-str)
+                               (auth/get-cached-display-name author-str))
+              ;; Build tooltip with author prefix if present
+              base-tooltip (cond
+                             has-ai-selection?
+                             (str "AI alternative #" ai-sel " selected")
+                             ;; For PROPOSAL: show the proposed text, not the base64
+                             is-proposal?
+                             (if-let [proposed (:text proposal-data)]
+                               (str (t :proposal) ": " proposed)
+                               (t :proposal))
+                             (and (seq priority-str) (seq comment-text))
+                             (str "[" priority-str "] " comment-text)
+                             (seq comment-text) comment-text
+                             (seq priority-str) (str "[" priority-str "]")
+                             :else (str type-str " annotation"))
+              tooltip (if author-display
+                        (str author-display ": " base-tooltip)
+                        base-tooltip)]
           (if show-markup?
             ;; Markup mode: highlight entire annotation
             (let [css-class (cond
@@ -1201,10 +1213,11 @@
 (defn- contains-annotation?
   "Check if text contains any annotation markers"
   [text]
-  (boolean (re-find #"\[!(TODO|NOTE|FIX|PROPOSAL):" text)))
+  (boolean (re-find #"\[!(TODO|NOTE|FIX|PROPOSAL)(?:@[^:]+)?:" text)))
 
 (defn- wrap-selection-with-annotation!
-  "Wrap selected text with annotation syntax [!TYPE:text:priority:comment]"
+  "Wrap selected text with annotation syntax [!TYPE@user:text:priority:comment]
+   In server mode, adds current username. In Tauri/local mode, no @user is added."
   [annotation-type chunk selected-text & [priority comment]]
   ;; Prevent nested annotations
   (if (contains-annotation? selected-text)
@@ -1219,7 +1232,12 @@
                 ;; Build annotation with provided priority and comment
                 priority-str (or priority "")
                 comment-str (or comment "")
-                wrapped-text (str "[!" annotation-type ":" selected-text ":" priority-str ":" comment-str "]")
+                ;; Add @username if logged in (server mode)
+                username (auth/get-username)
+                author-part (if (and username (not= username "local"))
+                              (str "@" username)
+                              "")
+                wrapped-text (str "[!" annotation-type author-part ":" selected-text ":" priority-str ":" comment-str "]")
                 ;; Position cursor at end of annotation
                 cursor-pos (+ from (count wrapped-text))]
             (.dispatch view #js {:changes #js {:from from :to to :insert wrapped-text}
@@ -1235,8 +1253,8 @@
   (let [{:keys [type selected-text chunk-id]} annotation]
     (when-let [chunk (model/get-chunk chunk-id)]
       (let [content (:content chunk)
-            ;; Pattern to match this annotation
-            pattern (re-pattern (str "\\[!" (name type) ":"
+            ;; Pattern to match this annotation (with optional @author)
+            pattern (re-pattern (str "\\[!" (name type) "(?:@[^:]+)?:"
                                      (str/replace selected-text #"[.*+?^${}()|\\[\\]\\\\]" "\\\\$&")
                                      ":[^:]*:[^\\]]*\\]"))
             new-content (str/replace content pattern selected-text)]
@@ -1252,12 +1270,13 @@
    Returns annotation map or nil."
   [text chunk-id]
   (when (and text (str/starts-with? text "[!"))
-    (let [pattern (js/RegExp. "^\\[!(TODO|NOTE|FIX|PROPOSAL):([^:]*):([^:]*):([^\\]]*)\\]$")]
+    (let [pattern (js/RegExp. "^\\[!(TODO|NOTE|FIX|PROPOSAL)(?:@([^:]+))?:([^:]*):([^:]*):([^\\]]*)\\]$")]
       (when-let [match (.exec pattern text)]
         {:type (keyword (aget match 1))
-         :selected-text (str/trim (aget match 2))
-         :priority (annotations/parse-priority (aget match 3))
-         :comment (str/trim (or (aget match 4) ""))
+         :author (when-let [a (aget match 2)] (str/trim a))
+         :selected-text (str/trim (aget match 3))
+         :priority (annotations/parse-priority (aget match 4))
+         :comment (str/trim (or (aget match 5) ""))
          :chunk-id chunk-id}))))
 
 (defn- find-annotation-at-position
@@ -1265,20 +1284,22 @@
    Uses JavaScript RegExp with lastIndex to accurately find match positions."
   [text pos chunk-id]
   ;; Use JavaScript RegExp with global flag to get match positions
-  (let [pattern (js/RegExp. "\\[!(TODO|NOTE|FIX|PROPOSAL):([^:]*):([^:]*):([^\\]]*)\\]" "g")]
+  (let [pattern (js/RegExp. "\\[!(TODO|NOTE|FIX|PROPOSAL)(?:@([^:]+))?:([^:]*):([^:]*):([^\\]]*)\\]" "g")]
     (loop []
       (let [match (.exec pattern text)]
         (when match
           (let [full-match (aget match 0)
                 type-str (aget match 1)
-                selected-text (aget match 2)
-                priority-str (aget match 3)
-                comment-text (aget match 4)
+                author-str (aget match 2)
+                selected-text (aget match 3)
+                priority-str (aget match 4)
+                comment-text (aget match 5)
                 start (.-index match)
                 end (+ start (count full-match))]
             (if (and (>= pos start) (< pos end))
               ;; Found annotation at position
               {:type (keyword type-str)
+               :author (when author-str (str/trim author-str))
                :selected-text (str/trim selected-text)
                :priority (annotations/parse-priority priority-str)
                :comment (str/trim (or comment-text ""))
@@ -2482,7 +2503,20 @@
                                 (-> (api/list-collaborators project-id)
                                     (.then (fn [result]
                                              (when (:ok result)
-                                               (reset! collaborators (:data result))))))))]
+                                               (let [data (:data result)]
+                                                 (reset! collaborators data)
+                                                 ;; Cache display names globally
+                                                 (auth/cache-users-from-collaborators! data))))))))
+        ;; Helper to find display name from username
+        find-display-name (fn [username collabs-data]
+                            (when (and username (not= username "local"))
+                              (let [owner (:owner collabs-data)
+                                    collabs (:collaborators collabs-data)
+                                    all-users (cons owner collabs)
+                                    user (first (filter #(= (:username %) username) all-users))]
+                                (or (not-empty (:display_name user)) username))))]
+    ;; Load collaborators on mount (for display names)
+    (load-collaborators! (remote-store/get-project-id))
     (fn []
       (let [chunk (model/get-selected-chunk)
             discussion (or (:discussion chunk) [])
@@ -2500,7 +2534,10 @@
             can-return? (and is-chunk-owner?
                              previous-owner
                              (not= previous-owner "local")
-                             (not= previous-owner current-owner))]
+                             (not= previous-owner current-owner))
+            ;; Get display names for owner info
+            owner-display (or (find-display-name current-owner @collaborators) current-owner)
+            prev-owner-display (find-display-name previous-owner @collaborators)]
         [:div {:style {:display "flex"
                        :flex-direction "column"
                        :height "100%"
@@ -2516,10 +2553,10 @@
           [:div {:style {:font-size "0.85rem" :color (:text-muted colors)}}
            (str (t :discussion-owner) ": ")
            [:span {:style {:color (:text colors) :font-weight "500"}}
-            current-owner]
+            owner-display]
            (when previous-owner
              [:span {:style {:margin-left "8px" :font-size "0.8rem"}}
-              (str "(da " previous-owner ")")])]
+              (str "(da " (or prev-owner-display previous-owner) ")")])]
           [:div {:style {:display "flex" :gap "8px" :align-items "center"}}
            ;; Return ownership button (when there's a previous owner)
            (when can-return?
@@ -2533,7 +2570,7 @@
                        :on-click #(do
                                     (model/update-chunk! chunk-id {:owner previous-owner
                                                                    :previous-owner current-owner})
-                                    (events/show-toast! (str "Ownership restituita a " previous-owner)))}
+                                    (events/show-toast! (str "Ownership restituita a " (or prev-owner-display previous-owner))))}
               "Restituisci"])
            ;; Claim ownership button (only for project owner when not already owner)
            (when (and is-project-owner? (not is-chunk-owner?))
@@ -2576,66 +2613,59 @@
 
          ;; Transfer ownership form
          (when @show-transfer?
-           [:div {:style {:padding "12px 16px"
-                          :background (:sidebar colors)
-                          :border-bottom (str "1px solid " (:border colors))}}
-            [:div {:style {:font-size "0.85rem"
-                           :color (:text colors)
-                           :margin-bottom "8px"}}
-             "Trasferisci ownership a:"]
-            [:div {:style {:display "flex" :gap "8px" :flex-wrap "wrap"}}
-             [:input {:type "text"
-                      :placeholder "Username collaboratore"
-                      :value @transfer-to
-                      :on-change #(reset! transfer-to (-> % .-target .-value))
-                      :style {:flex "1"
-                              :min-width "150px"
-                              :padding "6px 10px"
-                              :border (str "1px solid " (:border colors))
-                              :border-radius "4px"
-                              :background (:editor-bg colors)
-                              :color (:text colors)
-                              :font-size "0.85rem"}}]
-             [:button {:on-click (fn []
-                                   (when (seq @transfer-to)
-                                     (model/update-chunk! chunk-id {:owner @transfer-to
-                                                                    :previous-owner current-owner})
-                                     (events/show-toast! (str "Ownership trasferita a " @transfer-to))
-                                     (reset! transfer-to "")
-                                     (reset! show-transfer? false)))
-                       :disabled (empty? @transfer-to)
-                       :style {:padding "6px 12px"
-                               :background (:accent colors)
-                               :color "white"
-                               :border "none"
-                               :border-radius "4px"
-                               :cursor "pointer"
-                               :font-size "0.85rem"
-                               :opacity (if (empty? @transfer-to) 0.5 1)}}
-              "Trasferisci"]
-             [:button {:on-click #(do (reset! show-transfer? false)
-                                      (reset! transfer-to ""))
-                       :style {:padding "6px 12px"
-                               :background "transparent"
-                               :color (:text-muted colors)
-                               :border (str "1px solid " (:border colors))
-                               :border-radius "4px"
-                               :cursor "pointer"
-                               :font-size "0.85rem"}}
-              "Annulla"]]
-            ;; Show collaborators if loaded
-            (when (and @collaborators (seq (:collaborators @collaborators)))
-              [:div {:style {:margin-top "8px"
-                             :font-size "0.8rem"
-                             :color (:text-muted colors)}}
-               "Collaboratori: "
-               (for [collab (:collaborators @collaborators)]
-                 ^{:key (:id collab)}
-                 [:span {:style {:margin-right "8px"
+           (let [collabs (get @collaborators :collaborators [])]
+             [:div {:style {:padding "12px 16px"
+                            :background (:sidebar colors)
+                            :border-bottom (str "1px solid " (:border colors))}}
+              [:div {:style {:font-size "0.85rem"
+                             :color (:text colors)
+                             :margin-bottom "8px"}}
+               "Trasferisci ownership a:"]
+              [:div {:style {:display "flex" :gap "8px" :align-items "center"}}
+               [:select {:value @transfer-to
+                         :on-change #(reset! transfer-to (-> % .-target .-value))
+                         :style {:flex "1"
+                                 :min-width "150px"
+                                 :padding "6px 10px"
+                                 :border (str "1px solid " (:border colors))
+                                 :border-radius "4px"
+                                 :background (:editor-bg colors)
+                                 :color (:text colors)
+                                 :font-size "0.85rem"}}
+                [:option {:value ""} "-- Seleziona collaboratore --"]
+                (for [collab collabs]
+                  ^{:key (:id collab)}
+                  [:option {:value (:username collab)}
+                   (or (not-empty (:display_name collab)) (:username collab))])]
+               [:button {:on-click (fn []
+                                     (when (seq @transfer-to)
+                                       (let [collab (first (filter #(= (:username %) @transfer-to) collabs))
+                                             display (or (not-empty (:display_name collab)) @transfer-to)]
+                                         (model/update-chunk! chunk-id {:owner @transfer-to
+                                                                        :previous-owner current-owner})
+                                         (events/show-toast! (str "Ownership trasferita a " display))
+                                         (reset! transfer-to "")
+                                         (reset! show-transfer? false))))
+                         :disabled (empty? @transfer-to)
+                         :style {:padding "6px 12px"
+                                 :background (:accent colors)
+                                 :color "white"
+                                 :border "none"
+                                 :border-radius "4px"
                                  :cursor "pointer"
-                                 :color (:accent colors)}
-                         :on-click #(reset! transfer-to (:username collab))}
-                  (:username collab)])])])
+                                 :font-size "0.85rem"
+                                 :opacity (if (empty? @transfer-to) 0.5 1)}}
+                "Trasferisci"]
+               [:button {:on-click #(do (reset! show-transfer? false)
+                                        (reset! transfer-to ""))
+                         :style {:padding "6px 12px"
+                                 :background "transparent"
+                                 :color (:text-muted colors)
+                                 :border (str "1px solid " (:border colors))
+                                 :border-radius "4px"
+                                 :cursor "pointer"
+                                 :font-size "0.85rem"}}
+                "Annulla"]]]))
          ;; Scrollable content (discussion entries)
          [:div {:style {:flex 1
                         :overflow-y "auto"

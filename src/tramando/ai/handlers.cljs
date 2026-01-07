@@ -12,6 +12,7 @@
             [tramando.i18n :refer [t]]
             [tramando.ai.templates :as templates]
             [tramando.events :as events]
+            [tramando.auth :as auth]
             [clojure.string :as str]))
 
 ;; =============================================================================
@@ -93,13 +94,14 @@
 (defn- contains-annotation?
   "Check if text contains any annotation markers"
   [text]
-  (boolean (re-find #"\[!(TODO|NOTE|FIX|PROPOSAL):" text)))
+  (boolean (re-find #"\[!(TODO|NOTE|FIX|PROPOSAL)(?:@[^:]+)?:" text)))
 
 (defn insert-ai-annotation!
-  "Insert [!NOTE:text:AI:] annotation in chunk content.
+  "Insert [!NOTE@user:text:AI:] annotation in chunk content.
    Called when user selects text and chooses an annotation template.
    Returns the pending key for tracking, or nil if text contains nested annotations.
-   Uses editor dispatch for proper content sync and undo support."
+   Uses editor dispatch for proper content sync and undo support.
+   In server mode, adds @username. In Tauri/local mode, no @user is added."
   [chunk-id selected-text]
   (cond
     ;; Prevent nested annotations
@@ -110,8 +112,13 @@
 
     ;; Normal case
     (and chunk-id (not (str/blank? selected-text)))
-    (let [;; Create the annotation markup: [!NOTE:text:AI:]
-          annotation-markup (str "[!NOTE:" selected-text ":AI:]")
+    (let [;; Add @username if logged in (server mode)
+          username (auth/get-username)
+          author-part (if (and username (not= username "local"))
+                        (str "@" username)
+                        "")
+          ;; Create the annotation markup: [!NOTE@user:text:AI:]
+          annotation-markup (str "[!NOTE" author-part ":" selected-text ":AI:]")
           pending-key (make-pending-key chunk-id selected-text)]
       ;; Try editor dispatch first (handles content sync and undo)
       (if (events/replace-text-in-editor! selected-text annotation-markup)
@@ -142,7 +149,8 @@
   "Complete an AI annotation by storing alternatives in EDN format.
    Called when AI response arrives for an :annotation template.
 
-   Updates the annotation to [!NOTE:text:AI-DONE:{:alts [...] :sel 0}]"
+   Updates the annotation to [!NOTE@user:text:AI-DONE:{:alts [...] :sel 0}]
+   Preserves the @author part if present."
   [pending-key alternatives]
   (when-let [pending (get @pending-annotations pending-key)]
     (let [{:keys [chunk-id original-text]} pending]
@@ -150,26 +158,30 @@
         (when-let [chunk (model/get-chunk chunk-id)]
           (let [current-content (:content chunk)
                 ;; Find the pending annotation and update it
-                ;; Allow optional whitespace after [!NOTE: since text might have leading space
+                ;; Allow optional @author and whitespace after [!NOTE(@user)?:
                 pending-pattern (re-pattern
-                                  (str "\\[!NOTE:\\s*"
+                                  (str "\\[!NOTE(@[^:]+)?:\\s*"
                                        (escape-regex original-text)
                                        "\\s*:AI:[^\\]]*\\]"))
-                ;; New annotation with AI-DONE and EDN data
-                edn-data (serialize-ai-data alternatives 0)
-                done-annotation (str "[!NOTE:" original-text ":AI-DONE:" edn-data "]")
-                ;; Replace annotation in content
-                new-content (str/replace current-content
-                                         pending-pattern
-                                         done-annotation)]
-            ;; Update chunk content with AI-DONE annotation
-            (model/update-chunk! chunk-id {:content new-content})
-            ;; Remove from pending
-            (swap! pending-annotations dissoc pending-key)
-            ;; Refresh editor to show changes
-            (events/refresh-editor!)
-            ;; Show toast
-            (events/show-toast! (str (t :ai-alternatives-received) " (" (count alternatives) ")"))))))))
+                match (re-find pending-pattern current-content)]
+            (when match
+              (let [;; Capture the @author part if present
+                    author-part (or (second match) "")
+                    ;; New annotation with AI-DONE and EDN data (preserving @author)
+                    edn-data (serialize-ai-data alternatives 0)
+                    done-annotation (str "[!NOTE" author-part ":" original-text ":AI-DONE:" edn-data "]")
+                    ;; Replace annotation in content
+                    new-content (str/replace current-content
+                                             pending-pattern
+                                             done-annotation)]
+                ;; Update chunk content with AI-DONE annotation
+                (model/update-chunk! chunk-id {:content new-content})
+                ;; Remove from pending
+                (swap! pending-annotations dissoc pending-key)
+                ;; Refresh editor to show changes
+                (events/refresh-editor!)
+                ;; Show toast
+                (events/show-toast! (str (t :ai-alternatives-received) " (" (count alternatives) ")"))))))))))
 
 ;; =============================================================================
 ;; Update Selection in Annotation
@@ -180,25 +192,27 @@
    chunk-id: the chunk containing the annotation
    original-text: the selected text in the annotation
    new-sel: the new selection index (0 = none, 1/2/3 = alternative)
-   Uses editor dispatch for undo support."
+   Uses editor dispatch for undo support.
+   Preserves the @author part if present."
   [chunk-id original-text new-sel]
   (when-let [chunk (model/get-chunk chunk-id)]
     (let [current-content (:content chunk)
           ;; Pattern to find the AI-DONE annotation with this text (Base64 encoded data)
-          ;; Allow optional whitespace after [!NOTE: since text might have leading space
+          ;; Allow optional @author and whitespace after [!NOTE(@user)?:
           pattern (re-pattern
-                    (str "\\[!NOTE:\\s*"
+                    (str "\\[!NOTE(@[^:]+)?:\\s*"
                          (escape-regex original-text)
                          "\\s*:AI-DONE:([A-Za-z0-9+/=]+)\\]"))
           match (re-find pattern current-content)]
       (when match
         (let [old-annotation (first match)
-              old-b64 (second match)
+              author-part (or (second match) "")
+              old-b64 (nth match 2)
               old-data (parse-ai-data old-b64)]
           (when old-data
             (let [new-data (assoc old-data :sel new-sel)
                   new-b64 (serialize-ai-data (:alts new-data) (:sel new-data))
-                  new-annotation (str "[!NOTE:" original-text ":AI-DONE:" new-b64 "]")]
+                  new-annotation (str "[!NOTE" author-part ":" original-text ":AI-DONE:" new-b64 "]")]
               ;; Use editor replace for proper undo support
               (if (events/replace-text-in-editor! old-annotation new-annotation)
                 ;; Editor transaction succeeded - force decoration refresh after short delay
@@ -219,9 +233,9 @@
   (when-let [chunk (model/get-chunk chunk-id)]
     (let [current-content (:content chunk)
           ;; Pattern to find the AI-DONE annotation (Base64 encoded data)
-          ;; Allow optional whitespace after [!NOTE: since text might have leading space
+          ;; Allow optional @author and whitespace after [!NOTE(@user)?:
           pattern (re-pattern
-                    (str "\\[!NOTE:\\s*"
+                    (str "\\[!NOTE(?:@[^:]+)?:\\s*"
                          (escape-regex original-text)
                          "\\s*:AI-DONE:([A-Za-z0-9+/=]+)\\]"))
           match (re-find pattern current-content)]
@@ -257,13 +271,13 @@
   (when-let [chunk (model/get-chunk chunk-id)]
     (let [current-content (:content chunk)
           ;; Pattern to find any AI annotation (pending or done)
-          ;; Allow optional whitespace after [!NOTE: since text might have leading space
+          ;; Allow optional @author and whitespace after [!NOTE(@user)?:
           pattern-done (re-pattern
-                         (str "\\[!NOTE:\\s*"
+                         (str "\\[!NOTE(?:@[^:]+)?:\\s*"
                               (escape-regex original-text)
                               "\\s*:AI-DONE:[^\\]]*\\]"))
           pattern-pending (re-pattern
-                            (str "\\[!NOTE:\\s*"
+                            (str "\\[!NOTE(?:@[^:]+)?:\\s*"
                                  (escape-regex original-text)
                                  "\\s*:AI:[^\\]]*\\]"))
           ;; Find the actual annotation text
