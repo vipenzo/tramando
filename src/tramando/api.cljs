@@ -6,15 +6,41 @@
 ;; Configuration
 ;; =============================================================================
 
+(defn- detect-base-path
+  "Rileva il BASE_PATH dal pathname corrente.
+   Es: se pathname è /tramando/ o /tramando/index.html, ritorna /tramando
+   Se pathname è / o /index.html, ritorna stringa vuota."
+  []
+  (let [pathname (.-pathname js/location)
+        ;; Rimuovi /index.html se presente
+        path (str/replace pathname #"/index\.html$" "")
+        ;; Rimuovi trailing slash
+        path (str/replace path #"/$" "")]
+    ;; Se il path è vuoto o solo /, non c'è base path
+    (if (or (empty? path) (= path "/"))
+      ""
+      path)))
+
 (defn- detect-server-url
   "Rileva automaticamente l'URL del server.
    - In Tauri: restituisce nil (non usato)
    - Se il frontend è servito da localhost:8080 (dev) usa localhost:3000.
-   - Altrimenti usa l'origine corrente (produzione Docker)."
+   - Altrimenti usa l'origine corrente + base path (produzione Docker)."
   []
   (let [protocol (.-protocol js/location)
-        origin (.-origin js/location)
-        port (.-port js/location)]
+        hostname (.-hostname js/location)
+        port (.-port js/location)
+        base-path (detect-base-path)
+        ;; Costruisci origin manualmente per maggiore affidabilità
+        origin (str protocol "//" hostname (when (and port (not= port ""))
+                                             (str ":" port)))
+        server-url (str origin base-path)]
+    (js/console.log "detect-server-url:"
+                    "protocol=" protocol
+                    "hostname=" hostname
+                    "port=" port
+                    "base-path=" base-path
+                    "server-url=" server-url)
     (cond
       ;; Tauri mode - API not used, return nil
       (or (= protocol "tauri:")
@@ -22,8 +48,8 @@
       nil
       ;; Development mode (shadow-cljs dev server)
       (= port "8080") "http://localhost:3000"
-      ;; Production: same origin
-      :else origin)))
+      ;; Production: origin + base path
+      :else server-url)))
 
 (def ^:private default-server-url (detect-server-url))
 
