@@ -1363,40 +1363,67 @@
           (when (or (and chunk (not= (:id chunk) @last-chunk-id))
                     (not= show-markup? @last-show-markup)
                     (not= refresh-counter @last-refresh-counter))
-            ;; Save cursor position of old chunk before destroying
-            (when (and @editor-view @last-chunk-id (not= (:id chunk) @last-chunk-id))
-              (let [pos (.. @editor-view -state -selection -main -head)]
-                (model/set-cursor-pos! @last-chunk-id pos)))
-            (when @editor-view
-              (.destroy @editor-view))
-            ;; Re-run search on new content
-            (when (and chunk (not= (:id chunk) @last-chunk-id))
-              (update-search!))
-            (when chunk
-              (let [read-only? (not (can-edit-chunk? (:id chunk)))
-                    state (create-editor-state (:content chunk) (:id chunk) read-only?)
-                    view (create-editor-view @editor-ref state)
-                    chunk-changed? (not= (:id chunk) @last-chunk-id)
-                    has-pending-scroll? (some? @pending-scroll-pattern)
-                    saved-pos (when chunk-changed? (model/get-cursor-pos (:id chunk)))]
-                (reset! editor-view view)
-                (reset! editor-view-ref view) ;; Update global ref
-                (reset! last-chunk-id (:id chunk))
-                (reset! last-show-markup show-markup?)
-                (reset! last-refresh-counter refresh-counter)
-                ;; Store view in local-editor-view for annotation handler
-                (reset! local-editor-view view)
-                ;; When chunk changed: prefer pending scroll, fallback to saved position
-                (when chunk-changed?
-                  (if has-pending-scroll?
+            ;; Save cursor position AND scroll position BEFORE destroying
+            (let [current-pos (when @editor-view
+                                (.. @editor-view -state -selection -main -head))
+                  current-scroll-top (when @editor-view
+                                       (.. @editor-view -scrollDOM -scrollTop))]
+              ;; Save to model if chunk changed
+              (when (and @editor-view @last-chunk-id (not= (:id chunk) @last-chunk-id))
+                (model/set-cursor-pos! @last-chunk-id current-pos))
+              (when @editor-view
+                (.destroy @editor-view))
+              ;; Re-run search on new content
+              (when (and chunk (not= (:id chunk) @last-chunk-id))
+                (update-search!))
+              (when chunk
+                (let [read-only? (not (can-edit-chunk? (:id chunk)))
+                      state (create-editor-state (:content chunk) (:id chunk) read-only?)
+                      view (create-editor-view @editor-ref state)
+                      chunk-changed? (not= (:id chunk) @last-chunk-id)
+                      has-pending-scroll? (some? @pending-scroll-pattern)
+                      ;; For refresh on same chunk, use current-pos; for chunk change, use saved pos
+                      saved-pos (if chunk-changed?
+                                  (model/get-cursor-pos (:id chunk))
+                                  current-pos)]
+                  (reset! editor-view view)
+                  (reset! editor-view-ref view) ;; Update global ref
+                  (reset! last-chunk-id (:id chunk))
+                  (reset! last-show-markup show-markup?)
+                  (reset! last-refresh-counter refresh-counter)
+                  ;; Store view in local-editor-view for annotation handler
+                  (reset! local-editor-view view)
+                  ;; Restore cursor and scroll position
+                  (cond
+                    ;; Pending scroll from navigation takes priority
+                    has-pending-scroll?
                     (execute-pending-scroll!)
-                    ;; No pending scroll - restore saved cursor position
-                    (when saved-pos
+
+                    ;; Same chunk refresh: restore exact scroll position (no scrollIntoView)
+                    (and (not chunk-changed?) saved-pos)
+                    (do
                       (let [doc-length (.. view -state -doc -length)
                             safe-pos (min saved-pos doc-length)]
-                        (.dispatch view #js {:selection #js {:anchor safe-pos}
-                                             :scrollIntoView true})
-                        (js/setTimeout #(.focus view) 10))))))))))
+                        (.dispatch view #js {:selection #js {:anchor safe-pos}}))
+                      ;; Restore scroll position after rendering is complete
+                      ;; Use requestAnimationFrame for better timing with layout
+                      (when current-scroll-top
+                        (js/requestAnimationFrame
+                         (fn []
+                           (set! (.. view -scrollDOM -scrollTop) current-scroll-top)
+                           ;; Apply again after another frame to handle any layout shifts
+                           (js/requestAnimationFrame
+                            (fn []
+                              (set! (.. view -scrollDOM -scrollTop) current-scroll-top))))))
+                      (js/setTimeout #(.focus view) 20))
+
+                    ;; Chunk changed: restore saved position with scrollIntoView
+                    saved-pos
+                    (let [doc-length (.. view -state -doc -length)
+                          safe-pos (min saved-pos doc-length)]
+                      (.dispatch view #js {:selection #js {:anchor safe-pos}
+                                           :scrollIntoView true})
+                      (js/setTimeout #(.focus view) 10)))))))))
 
       :component-will-unmount
       (fn [this]
