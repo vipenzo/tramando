@@ -1596,7 +1596,9 @@
         colors (:colors @settings/settings)
         ;; Autosave status: pending while modifying, done after backup
         backup-pending? (or (= save-status :modified) (> autosave-progress 0))
-        backup-saving? (= save-status :saving)]
+        backup-saving? (= save-status :saving)
+        ;; Remote mode: user-role is set (not nil) when using RemoteStore
+        remote-mode? (some? (model/get-user-role))]
     [:div.status-bar
      ;; Left side: breadcrumb and word count
      [:div.status-item
@@ -1627,16 +1629,18 @@
           backup-saving? (t :saving)
           backup-pending? (t :backup-pending)
           :else (t :backup-done))]]
-      [:span.status-separator "•"]
-      ;; File status (disk)
-      [:div {:style {:display "flex" :align-items "center" :gap "4px"}}
-       [:span {:style {:color (if file-dirty? (:danger colors) (:accent colors))
-                       :font-size "inherit"}}
-        (if file-dirty?
-          (t :file-dirty)
-          (t :file-clean))]
-       (when-not file-dirty?
-         [:span {:style {:color (:accent colors)}} "✓"])]]]))
+      ;; File status (disk) - only show in local mode
+      (when-not remote-mode?
+        [:<>
+         [:span.status-separator "•"]
+         [:div {:style {:display "flex" :align-items "center" :gap "4px"}}
+          [:span {:style {:color (if file-dirty? (:danger colors) (:accent colors))
+                          :font-size "inherit"}}
+           (if file-dirty?
+             (t :file-dirty)
+             (t :file-clean))]
+          (when-not file-dirty?
+            [:span {:style {:color (:accent colors)}} "✓"])]])]]))
 
 ;; =============================================================================
 ;; Editor Panel
