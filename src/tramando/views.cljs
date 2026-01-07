@@ -1757,9 +1757,21 @@
 (defonce splash-login-error (r/atom nil))
 (defonce splash-login-loading? (r/atom false))
 (defonce splash-register-mode? (r/atom false))
-;; Auto-detect server URL from current page location
-(defonce splash-server-url (r/atom (let [loc js/window.location]
-                                     (str (.-protocol loc) "//" (.-hostname loc) ":3000"))))
+;; Auto-detect server URL from current page location (use same origin + path for subpath deployments)
+(defonce splash-server-url (r/atom (let [loc js/window.location
+                                          protocol (.-protocol loc)
+                                          hostname (.-hostname loc)
+                                          port (.-port loc)
+                                          pathname (.-pathname loc)
+                                          ;; Extract base path from pathname (e.g., /tramando from /tramando/)
+                                          base-path (-> pathname
+                                                        (str/replace #"/index\.html$" "")
+                                                        (str/replace #"/$" ""))
+                                          base-path (if (= base-path "/") "" base-path)]
+                                      (str protocol "//" hostname
+                                           (when (and port (not= port ""))
+                                             (str ":" port))
+                                           base-path))))
 
 (defn- splash-local-panel
   "Left panel: local mode options"
