@@ -352,15 +352,18 @@
       (= user owner)))
 
   (can-edit? [_this chunk-id]
-    ;; Strict ownership: only chunk owner can edit
+    ;; Project owner can edit ALL chunks (handles imported files)
     ;; Chunks with nil or "local" owner can be edited by project owner
+    ;; Owned chunks can be edited by chunk owner OR project owner
     (let [chunk (model/get-chunk chunk-id)
           owner (:owner chunk)]
-      (if (or (nil? owner) (= "local" owner))
-        ;; Unowned chunks: only project owner can edit
-        (model/is-project-owner?)
+      (cond
+        ;; Project owner can edit everything
+        (model/is-project-owner?) true
+        ;; Unowned chunks: only project owner can edit (already handled above)
+        (or (nil? owner) (= "local" owner)) false
         ;; Owned chunks: only the chunk owner can edit
-        (protocol/is-owner? _this chunk-id)))))
+        :else (protocol/is-owner? _this chunk-id)))))
 
 ;; =============================================================================
 ;; Store Constructor and Management
