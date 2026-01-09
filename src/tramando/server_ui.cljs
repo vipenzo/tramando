@@ -6,7 +6,8 @@
             [tramando.api :as api]
             [tramando.settings :as settings]
             [tramando.i18n :refer [t]]
-            [tramando.events :as events]))
+            [tramando.events :as events]
+            [tramando.model :as model]))
 
 ;; =============================================================================
 ;; Markdown to TRMD Conversion
@@ -567,41 +568,76 @@
                              :border-radius "4px"
                              :cursor "pointer"
                              :font-size "0.85rem"}}
-            ".md"]]
+            ".md"]
+           [:button {:on-click #(reset! import-type :docx)
+                     :style {:padding "6px 12px"
+                             :background (if (= @import-type :docx)
+                                           (settings/get-color :accent)
+                                           "transparent")
+                             :color (if (= @import-type :docx)
+                                      "white"
+                                      (settings/get-color :text-muted))
+                             :border (str "1px solid " (if (= @import-type :docx)
+                                                         (settings/get-color :accent)
+                                                         (settings/get-color :border)))
+                             :border-radius "4px"
+                             :cursor "pointer"
+                             :font-size "0.85rem"}}
+            ".docx"]]
           ;; Hidden file input
           [:input {:type "file"
-                   :accept (if (= @import-type :trmd) ".trmd" ".md,.txt")
+                   :accept (case @import-type
+                             :trmd ".trmd"
+                             :md ".md,.txt"
+                             :docx ".docx")
                    :style {:display "none"}
                    :ref #(reset! import-file-input %)
                    :on-change (fn [e]
                                 (when-let [file (-> e .-target .-files (aget 0))]
                                   (reset! importing? true)
-                                  (let [reader (js/FileReader.)]
-                                    (set! (.-onload reader)
-                                          (fn [evt]
-                                            (let [raw-content (-> evt .-target .-result)
-                                                  filename (.-name file)
-                                                  ;; Extract project name from filename
-                                                  project-name (-> filename
-                                                                   (str/replace #"\.(trmd|md|txt)$" ""))
-                                                  ;; Convert MD to TRMD if needed
-                                                  content (if (or (str/ends-with? filename ".md")
-                                                                  (str/ends-with? filename ".txt"))
-                                                            (md-to-trmd raw-content)
-                                                            raw-content)]
-                                              ;; Log content length for debugging
-                                              (js/console.log "Import: creating project with content length =" (count content))
-                                              ;; Create project with imported content
-                                              (-> (api/create-project! project-name content)
-                                                  (.then (fn [result]
-                                                           (js/console.log "Import: create-project result =" (pr-str result))
-                                                           (reset! importing? false)
-                                                           (when (:ok result)
-                                                             (reset! show-import-form? false)
-                                                             (load-projects!)
-                                                             (when on-create
-                                                               (on-create (get-in result [:data :project]))))))))))
-                                    (.readAsText reader file)))
+                                  (let [filename (.-name file)
+                                        ;; Extract project name from filename
+                                        project-name (-> filename
+                                                         (str/replace #"\.(trmd|md|txt|docx)$" ""))
+                                        reader (js/FileReader.)
+                                        create-project-with-content!
+                                        (fn [content]
+                                          (js/console.log "Import: creating project with content length =" (count content))
+                                          (-> (api/create-project! project-name content)
+                                              (.then (fn [result]
+                                                       (js/console.log "Import: create-project result =" (pr-str result))
+                                                       (reset! importing? false)
+                                                       (when (:ok result)
+                                                         (reset! show-import-form? false)
+                                                         (load-projects!)
+                                                         (when on-create
+                                                           (on-create (get-in result [:data :project]))))))))]
+                                    (if (str/ends-with? filename ".docx")
+                                      ;; DOCX: read as ArrayBuffer and convert with mammoth
+                                      (do
+                                        (set! (.-onload reader)
+                                              (fn [evt]
+                                                (let [array-buffer (-> evt .-target .-result)]
+                                                  (-> (model/docx-to-markdown array-buffer)
+                                                      (.then (fn [md-content]
+                                                               ;; Convert markdown to TRMD
+                                                               (create-project-with-content! (md-to-trmd md-content))))
+                                                      (.catch (fn [err]
+                                                                (reset! importing? false)
+                                                                (js/alert (str "Errore importazione DOCX: " err))))))))
+                                        (.readAsArrayBuffer reader file))
+                                      ;; TRMD/MD/TXT: read as text
+                                      (do
+                                        (set! (.-onload reader)
+                                              (fn [evt]
+                                                (let [raw-content (-> evt .-target .-result)
+                                                      ;; Convert MD to TRMD if needed
+                                                      content (if (or (str/ends-with? filename ".md")
+                                                                      (str/ends-with? filename ".txt"))
+                                                                (md-to-trmd raw-content)
+                                                                raw-content)]
+                                                  (create-project-with-content! content))))
+                                        (.readAsText reader file)))))
                                 ;; Reset input
                                 (set! (-> e .-target .-value) ""))}]
           ;; Buttons

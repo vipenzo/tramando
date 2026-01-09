@@ -6,7 +6,8 @@
             [tramando.versioning :as versioning]
             [tramando.platform :as platform]
             [tramando.events :as events]
-            ["js-yaml" :as yaml]))
+            ["js-yaml" :as yaml]
+            ["mammoth" :as mammoth]))
 
 ;; =============================================================================
 ;; Chunk Model
@@ -1516,6 +1517,51 @@
     ;; Select first imported chunk if any
     (when (seq final-chunks)
       (select-chunk! (str "imp-" (inc max-num))))))
+
+(defn import-docx!
+  "Import a DOCX file. Takes an ArrayBuffer and converts it to markdown,
+   then imports using import-md-content!.
+   Returns a Promise that resolves when import is complete."
+  [array-buffer]
+  (-> (.convertToMarkdown mammoth (clj->js {:arrayBuffer array-buffer}))
+      (.then (fn [result]
+               (let [md-content (.-value result)
+                     messages (.-messages result)]
+                 ;; Log any warnings
+                 (when (seq messages)
+                   (js/console.warn "DOCX import warnings:" messages))
+                 ;; Import the markdown content
+                 (import-md-content! md-content))))
+      (.catch (fn [err]
+                (js/console.error "DOCX import error:" err)
+                (throw err)))))
+
+(defn- clean-mammoth-markdown
+  "Clean up mammoth's markdown output.
+   Mammoth escapes some characters that don't need escaping in normal markdown."
+  [md-content]
+  (-> md-content
+      ;; Remove unnecessary escapes: \. \! \? etc.
+      (str/replace #"\\([.!?',;:\-])" "$1")
+      ;; Remove escaped parentheses
+      (str/replace #"\\([()])" "$1")))
+
+(defn docx-to-markdown
+  "Convert a DOCX file (ArrayBuffer) to markdown.
+   Returns a Promise that resolves with the markdown string."
+  [array-buffer]
+  (-> (.convertToMarkdown mammoth (clj->js {:arrayBuffer array-buffer}))
+      (.then (fn [result]
+               (let [md-content (.-value result)
+                     messages (.-messages result)]
+                 ;; Log any warnings
+                 (when (seq messages)
+                   (js/console.warn "DOCX conversion warnings:" messages))
+                 ;; Clean up escaped characters
+                 (clean-mammoth-markdown md-content))))
+      (.catch (fn [err]
+                (js/console.error "DOCX conversion error:" err)
+                (throw err)))))
 
 (defn load-file-content!
   "Load content from a string (called after file is read).

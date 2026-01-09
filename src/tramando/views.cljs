@@ -46,6 +46,7 @@
 (defonce export-dropdown-open? (r/atom false))
 (defonce import-dropdown-open? (r/atom false))
 (defonce import-file-input-ref (r/atom nil))
+(defonce import-docx-input-ref (r/atom nil))
 
 ;; =============================================================================
 ;; Splash Screen State
@@ -1175,7 +1176,7 @@
 ;; =============================================================================
 
 (defn import-dropdown
-  "Import dropdown for webapp/Tauri - imports .md files into current project"
+  "Import dropdown for webapp/Tauri - imports .md and .docx files into current project"
   []
   (let [colors (:colors @settings/settings)
         _ @i18n/current-lang] ; subscribe to language changes
@@ -1188,7 +1189,7 @@
               :on-click #(reset! import-dropdown-open? false)}])
 
      [:div {:style {:position "relative" :z-index 150}}
-      ;; Hidden file input
+      ;; Hidden file input for MD/TXT
       [:input {:type "file"
                :accept ".md,.txt"
                :style {:display "none"}
@@ -1202,6 +1203,26 @@
                                           ;; Import as new chunks appended to current project
                                           (model/import-md-content! content))))
                                 (.readAsText reader file)))
+                            ;; Reset input
+                            (set! (-> e .-target .-value) "")
+                            (reset! import-dropdown-open? false))}]
+
+      ;; Hidden file input for DOCX
+      [:input {:type "file"
+               :accept ".docx"
+               :style {:display "none"}
+               :ref #(reset! import-docx-input-ref %)
+               :on-change (fn [e]
+                            (when-let [file (-> e .-target .-files (aget 0))]
+                              (let [reader (js/FileReader.)]
+                                (set! (.-onload reader)
+                                      (fn [evt]
+                                        (let [array-buffer (-> evt .-target .-result)]
+                                          ;; Import DOCX
+                                          (-> (model/import-docx! array-buffer)
+                                              (.catch (fn [err]
+                                                        (js/alert (str "Errore importazione DOCX: " err))))))))
+                                (.readAsArrayBuffer reader file)))
                             ;; Reset input
                             (set! (-> e .-target .-value) "")
                             (reset! import-dropdown-open? false))}]
@@ -1237,7 +1258,7 @@
                        :border (str "1px solid " (:border colors))
                        :border-radius "4px"
                        :box-shadow "0 4px 12px rgba(0,0,0,0.3)"
-                       :min-width "140px"
+                       :min-width "160px"
                        :z-index 200}}
          ;; Import .md
          [:button {:style {:display "block"
@@ -1252,7 +1273,24 @@
                    :on-click (fn []
                                (when @import-file-input-ref
                                  (.click @import-file-input-ref)))}
-          (t :import-md)]])]]))
+          (t :import-md)]
+         ;; Divider
+         [:div {:style {:height "1px"
+                        :background (:border colors)}}]
+         ;; Import .docx
+         [:button {:style {:display "block"
+                           :width "100%"
+                           :text-align "left"
+                           :background "transparent"
+                           :border "none"
+                           :color (:text colors)
+                           :padding "10px 14px"
+                           :cursor "pointer"
+                           :font-size "0.85rem"}
+                   :on-click (fn []
+                               (when @import-docx-input-ref
+                                 (.click @import-docx-input-ref)))}
+          (t :import-docx)]])]]))
 
 (defn export-dropdown []
   (let [colors (:colors @settings/settings)

@@ -120,13 +120,18 @@
 
 (defn- calculate-structure-layout
   "Calculate layout for structural chunks (chapters and scenes).
-   Only shows chapters that are expanded in the sidebar AND have children."
+   Shows chapters that:
+   - Have children AND are expanded in the sidebar, OR
+   - Have no children BUT have content (non-empty text)"
   [cx cy r-inner r-outer]
   (let [all-chapters (model/get-structural-tree)
-        ;; Filter: only chapters that are expanded AND have children (scenes)
+        ;; Filter: chapters with expanded children, or childless chapters with content
         structural-tree (filterv (fn [chapter]
-                                   (and (seq (:children chapter))
-                                        (outline/chunk-expanded? (:id chapter))))
+                                   (if (seq (:children chapter))
+                                     ;; Has children: must be expanded
+                                     (outline/chunk-expanded? (:id chapter))
+                                     ;; No children: must have content
+                                     (seq (:content chapter))))
                                  all-chapters)
         total-chapters (count structural-tree)
         chapter-angle (if (pos? total-chapters)
