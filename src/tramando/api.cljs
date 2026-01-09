@@ -246,6 +246,11 @@
   [user-id params]
   (api-put (str "/api/admin/users/" user-id) params))
 
+(defn reset-user-password!
+  "Reset a user's password (super-admin only)"
+  [user-id new-password]
+  (api-put (str "/api/admin/users/" user-id "/password") {:new_password new-password}))
+
 ;; =============================================================================
 ;; Profile API
 ;; =============================================================================
@@ -259,6 +264,12 @@
   "Update current user's profile (display_name, email)"
   [params]
   (api-put "/api/profile" params))
+
+(defn change-password!
+  "Change current user's password"
+  [old-password new-password]
+  (api-put "/api/profile/password" {:old_password old-password
+                                     :new_password new-password}))
 
 ;; =============================================================================
 ;; Chat API

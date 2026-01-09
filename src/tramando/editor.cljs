@@ -1638,7 +1638,8 @@
         error-msg (r/atom nil)]
     (fn []
       (let [chunk (model/get-selected-chunk)
-            colors (:colors @settings/settings)]
+            colors (:colors @settings/settings)
+            has-children? (model/has-children? (:id chunk))]
         (when (and chunk (not (model/is-aspect-container? (:id chunk))))
           [:div {:style {:margin-top "12px" :padding-top "12px" :border-top (str "1px solid " (:border colors))}}
            (if @confirming-delete?
@@ -1683,13 +1684,21 @@
                            :on-click #(model/add-chunk! :parent-id (:id chunk))}
                   (t :create-child)])
                [:button {:style {:background "transparent"
-                                 :color (settings/get-color :danger)
-                                 :border (str "1px solid " (settings/get-color :danger))
+                                 :color (if has-children?
+                                          (:text-muted colors)
+                                          (settings/get-color :danger))
+                                 :border (str "1px solid " (if has-children?
+                                                             (:text-muted colors)
+                                                             (settings/get-color :danger)))
                                  :padding "6px 12px"
                                  :border-radius "4px"
-                                 :cursor "pointer"
+                                 :cursor (if has-children? "not-allowed" "pointer")
+                                 :opacity (if has-children? 0.5 1)
                                  :font-size "0.85rem"}
-                         :on-click #(reset! confirming-delete? true)}
+                         :disabled has-children?
+                         :title (when has-children? (t :cannot-delete-has-children))
+                         :on-click #(when-not has-children?
+                                      (reset! confirming-delete? true))}
                 (t :delete-chunk)]]
               (when @error-msg
                 [:span {:style {:color (settings/get-color :danger) :font-size "0.75rem" :margin-top "4px" :display "block"}}
@@ -1713,7 +1722,8 @@
       (let [chunk (model/get-selected-chunk)
             colors (:colors @settings/settings)
             is-aspect? (model/is-aspect-chunk? chunk)
-            is-container? (model/is-aspect-container? (:id chunk))]
+            is-container? (model/is-aspect-container? (:id chunk))
+            has-children? (model/has-children? (:id chunk))]
 
         ;; Reset state when chunk changes
         (when (and chunk (not= (:id chunk) @last-chunk-id))
@@ -1885,7 +1895,13 @@
                                 :on-click #(reset! confirming-delete? false)}
                        (t :cancel)]]]
                     [:button.dropdown-item.danger
-                     {:on-click #(reset! confirming-delete? true)}
+                     {:on-click #(when-not has-children?
+                                   (reset! confirming-delete? true))
+                      :disabled has-children?
+                      :title (when has-children? (t :cannot-delete-has-children))
+                      :style (when has-children?
+                               {:opacity 0.5
+                                :cursor "not-allowed"})}
                      (t :delete-chunk)])])])]
 
            ;; Row 2: Meta info (tags/aspects) - with reduced opacity

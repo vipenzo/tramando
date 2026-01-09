@@ -104,11 +104,16 @@
                    :align-items "center"
                    :justify-content "center"
                    :z-index 1000}
+           :tab-index -1
+           :ref (fn [el] (when el (.focus el)))
            ;; Use mousedown to avoid closing when text selection drag ends outside
            :on-mouse-down #(when (= (.-target %) (.-currentTarget %))
                              (reset! settings/settings-open? false))
-           :on-key-down #(when (= "Escape" (.-key %))
-                           (reset! settings/settings-open? false))}
+           :on-key-down (fn [e]
+                          (.stopPropagation e)
+                          (when (= "Escape" (.-key e))
+                            (.preventDefault e)
+                            (reset! settings/settings-open? false)))}
      [:div {:style {:background (settings/get-color :sidebar)
                     :border-radius "8px"
                     :padding "24px"
@@ -689,21 +694,32 @@
 ;; =============================================================================
 
 (defn metadata-modal []
-  (let [metadata (model/get-metadata)
-        colors (:colors @settings/settings)
-        _ @i18n/current-lang] ; subscribe to language changes
-    [:div {:style {:position "fixed"
-                   :top 0 :left 0 :right 0 :bottom 0
-                   :background "rgba(0,0,0,0.7)"
-                   :display "flex"
-                   :align-items "center"
-                   :justify-content "center"
-                   :z-index 1000}
-           ;; Use mousedown to avoid closing when text selection drag ends outside
-           :on-mouse-down #(when (= (.-target %) (.-currentTarget %))
-                             (reset! metadata-open? false))
-           :on-key-down #(when (= "Escape" (.-key %))
-                           (reset! metadata-open? false))}
+  (let [el-ref (atom nil)]
+    (r/create-class
+     {:component-did-mount
+      (fn [_] (when @el-ref (.focus @el-ref)))
+
+      :reagent-render
+      (fn []
+        (let [metadata (model/get-metadata)
+              _ @i18n/current-lang]  ; subscribe to language changes
+          [:div {:style {:position "fixed"
+                         :top 0 :left 0 :right 0 :bottom 0
+                         :background "rgba(0,0,0,0.7)"
+                         :display "flex"
+                         :align-items "center"
+                         :justify-content "center"
+                         :z-index 1000}
+                 :tab-index -1
+                 :ref #(reset! el-ref %)
+                 ;; Use mousedown to avoid closing when text selection drag ends outside
+                 :on-mouse-down #(when (= (.-target %) (.-currentTarget %))
+                                   (reset! metadata-open? false))
+                 :on-key-down (fn [e]
+                                (.stopPropagation e)
+                                (when (= "Escape" (.-key e))
+                                  (.preventDefault e)
+                                  (reset! metadata-open? false)))}
      [:div {:style {:background (settings/get-color :sidebar)
                     :border-radius "8px"
                     :padding "24px"
@@ -947,7 +963,7 @@
                          :cursor "pointer"
                          :font-size "0.9rem"}
                  :on-click #(reset! metadata-open? false)}
-        (t :close)]]]]))
+        (t :close)]]]]))})))
 
 ;; =============================================================================
 ;; Tutorial Modal
@@ -1020,9 +1036,12 @@
                    :align-items "center"
                    :justify-content "center"
                    :z-index 2000}
+           :tab-index -1
+           :ref (fn [el] (when el (.focus el)))
            :on-key-down (fn [e]
+                          (.stopPropagation e)
                           (case (.-key e)
-                            "Escape" (reset! tutorial-open? false)
+                            "Escape" (do (.preventDefault e) (reset! tutorial-open? false))
                             "ArrowRight" (when-not last-step? (swap! tutorial-step inc))
                             "ArrowLeft" (when-not first-step? (swap! tutorial-step dec))
                             "Enter" (if last-step?

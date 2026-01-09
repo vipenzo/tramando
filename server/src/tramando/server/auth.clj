@@ -93,28 +93,34 @@
   "Register a new user. First user becomes super-admin and active.
    Other users are created with status 'pending' and need admin approval."
   [{:keys [username password]}]
-  (cond
-    (not (:allow-registration config))
-    {:error "Registration is disabled"}
+  (let [current-users (db/count-users)
+        max-users (:max-users config)]
+    (cond
+      (not (:allow-registration config))
+      {:error "Registration is disabled"}
 
-    (< (count password) 6)
-    {:error "Password must be at least 6 characters"}
+      ;; Check max users limit (if configured)
+      (and max-users (>= current-users max-users))
+      {:error "Registrazioni chiuse: numero massimo di utenti raggiunto."}
 
-    (db/find-user-by-username username)
-    {:error "Username already taken"}
+      (< (count password) 6)
+      {:error "Password must be at least 6 characters"}
 
-    :else
-    (let [is-first-user? (zero? (db/count-users))
-          user (db/create-user! {:username username
-                                 :password-hash (hash-password password)
-                                 :is-super-admin is-first-user?})]
-      (if is-first-user?
-        ;; First user: login immediately
-        {:user (dissoc user :password_hash)
-         :token (generate-token user)}
-        ;; Other users: pending approval
-        {:pending true
-         :message "Registrazione completata. Attendi l'approvazione dell'amministratore."}))))
+      (db/find-user-by-username username)
+      {:error "Username already taken"}
+
+      :else
+      (let [is-first-user? (zero? current-users)
+            user (db/create-user! {:username username
+                                   :password-hash (hash-password password)
+                                   :is-super-admin is-first-user?})]
+        (if is-first-user?
+          ;; First user: login immediately
+          {:user (dissoc user :password_hash)
+           :token (generate-token user)}
+          ;; Other users: pending approval
+          {:pending true
+           :message "Registrazione completata. Attendi l'approvazione dell'amministratore."})))))
 
 (defn login!
   "Authenticate user and return token. Check user status."

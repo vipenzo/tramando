@@ -657,6 +657,114 @@
 
 
 ;; =============================================================================
+;; Modal Wrapper (reusable component for all modals)
+;; =============================================================================
+
+(defn modal-wrapper
+  "Reusable modal wrapper that handles:
+   - Overlay with click-outside to close
+   - ESC key to close
+   - Focus management (focus once on mount)
+   - Stop propagation of keyboard events
+   - Consistent styling
+
+   Props:
+   - on-close: function to call when closing
+   - on-enter: optional function to call on Enter key (if not in input/textarea/select)
+   - disable-esc?: optional atom or function that returns true to disable ESC handling
+   - z-index: z-index for the modal (default 2000)
+   - width: width of the modal content (default \"450px\")
+   - max-height: max height (default \"80vh\")
+   - title: optional title for the header
+   - show-close-button?: whether to show the X button (default true)
+   - children: the modal content"
+  [{:keys [_on-close _on-enter _disable-esc? _z-index _width _max-height _title _show-close-button?]}]
+  (let [el-ref (atom nil)
+        mounted? (atom false)
+        was-blocked? (atom false)]
+    (fn [{:keys [on-close on-enter disable-esc? z-index width max-height title show-close-button?]
+          :or {z-index 2000 width "450px" max-height "80vh" show-close-button? true}}
+         & children]
+      ;; Re-focus only when child modal closes (disable-esc? transitions from true to false)
+      (let [child-blocking? (cond
+                              (nil? disable-esc?) false
+                              (fn? disable-esc?) (disable-esc?)
+                              (satisfies? IDeref disable-esc?) @disable-esc?
+                              :else disable-esc?)]
+        ;; Only re-focus when transitioning from blocked to unblocked
+        (when (and @mounted? @el-ref @was-blocked? (not child-blocking?))
+          ;; Schedule focus for next tick to let child modal fully unmount
+          (js/setTimeout #(when @el-ref (.focus @el-ref)) 10))
+        (reset! was-blocked? child-blocking?))
+      [:div {:style {:position "fixed"
+                     :top 0 :left 0 :right 0 :bottom 0
+                     :background "rgba(0,0,0,0.5)"
+                     :display "flex"
+                     :align-items "center"
+                     :justify-content "center"
+                     :z-index z-index}
+             :tab-index -1
+             :ref (fn [el] (when el
+                             (reset! el-ref el)
+                             ;; Only focus on initial mount, not on every render
+                             (when-not @mounted?
+                               (reset! mounted? true)
+                               (.focus el))))
+             ;; Use mousedown to avoid closing when text selection drag ends outside
+             :on-mouse-down (fn [e]
+                              (when (= (.-target e) (.-currentTarget e))
+                                (on-close)))
+             :on-key-down (fn [e]
+                            ;; Always stop propagation
+                            (.stopPropagation e)
+                            (let [tag-name (.-tagName (.-target e))
+                                  ;; Evaluate disable-esc? at event time, not render time
+                                  esc-disabled? (cond
+                                                  (nil? disable-esc?) false
+                                                  (fn? disable-esc?) (disable-esc?)
+                                                  (satisfies? IDeref disable-esc?) @disable-esc?
+                                                  :else disable-esc?)]
+                              (case (.-key e)
+                                "Escape" (when-not esc-disabled?
+                                           (.preventDefault e)
+                                           (on-close))
+                                "Enter" (when (and on-enter
+                                                   (not (#{"TEXTAREA" "SELECT" "INPUT"} tag-name)))
+                                          (.preventDefault e)
+                                          (on-enter))
+                                nil)))}
+         [:div {:style {:background (settings/get-color :background)
+                        :border-radius "8px"
+                        :width width
+                        :max-height max-height
+                        :overflow "auto"
+                        :box-shadow "0 8px 32px rgba(0,0,0,0.3)"}}
+          ;; Optional header with title
+          (when (or title show-close-button?)
+            [:div {:style {:display "flex"
+                           :justify-content "space-between"
+                           :align-items "center"
+                           :padding "15px 20px"
+                           :border-bottom (str "1px solid " (settings/get-color :border))}}
+             (when title
+               [:h2 {:style {:margin 0
+                             :font-weight "400"
+                             :font-size "1.2rem"
+                             :color (settings/get-color :text)}}
+                title])
+             (when show-close-button?
+               [:button {:on-click on-close
+                         :style {:background "transparent"
+                                 :border "none"
+                                 :font-size "1.5rem"
+                                 :cursor "pointer"
+                                 :color (settings/get-color :text-muted)
+                                 :margin-left "auto"}}
+                "×"])])
+          ;; Content
+          (into [:<>] children)]])))
+
+;; =============================================================================
 ;; Collaborators Panel
 ;; =============================================================================
 
@@ -871,48 +979,8 @@
 (defn collaborators-modal
   "Modal wrapper for collaborators panel"
   [{:keys [project-id on-close]}]
-  [:div {:style {:position "fixed"
-                 :top 0 :left 0 :right 0 :bottom 0
-                 :background "rgba(0,0,0,0.5)"
-                 :display "flex"
-                 :align-items "center"
-                 :justify-content "center"
-                 :z-index 2000}
-         :tab-index -1
-         :ref (fn [el] (when el (.focus el)))
-         :on-click (fn [e]
-                     (when (= (.-target e) (.-currentTarget e))
-                       (on-close)))
-         :on-key-down (fn [e]
-                        (when (= "Escape" (.-key e))
-                          (.stopPropagation e)
-                          (on-close)))}
-   [:div {:style {:background (settings/get-color :background)
-                  :border-radius "8px"
-                  :width "450px"
-                  :max-height "80vh"
-                  :overflow "auto"
-                  :box-shadow "0 8px 32px rgba(0,0,0,0.3)"}}
-    ;; Header
-    [:div {:style {:display "flex"
-                   :justify-content "space-between"
-                   :align-items "center"
-                   :padding "15px 20px"
-                   :border-bottom (str "1px solid " (settings/get-color :border))}}
-     [:h2 {:style {:margin 0
-                   :font-weight "400"
-                   :font-size "1.2rem"
-                   :color (settings/get-color :text)}}
-      "Collaboratori"]
-     [:button {:on-click on-close
-               :style {:background "transparent"
-                       :border "none"
-                       :font-size "1.5rem"
-                       :cursor "pointer"
-                       :color (settings/get-color :text-muted)}}
-      "×"]]
-    ;; Content
-    [collaborators-panel {:project-id project-id}]]])
+  [modal-wrapper {:on-close on-close :title "Collaboratori"}
+   [collaborators-panel {:project-id project-id}]])
 
 ;; =============================================================================
 ;; User Edit Modal (used by admin panel)
@@ -929,6 +997,12 @@
         form-max-collaborators (r/atom (or (:max_collaborators user) 10))
         form-notes (r/atom (or (:notes user) ""))
         form-is-admin? (r/atom (= 1 (:is_super_admin user)))
+        ;; Password reset
+        new-password (r/atom "")
+        confirm-password (r/atom "")
+        resetting-password? (r/atom false)
+        password-success (r/atom false)
+        password-error (r/atom nil)
         saving? (r/atom false)
         form-error (r/atom nil)
         do-save! (fn [user on-close on-save]
@@ -953,51 +1027,12 @@
                                       (on-save))
                                     (reset! form-error (:error result))))))))]
     (fn [{:keys [user on-close on-save]}]
-      [:div {:style {:position "fixed"
-                     :top 0 :left 0 :right 0 :bottom 0
-                     :background "rgba(0,0,0,0.6)"
-                     :display "flex"
-                     :align-items "center"
-                     :justify-content "center"
-                     :z-index 3000}
-             :tab-index -1  ;; Make focusable for keyboard events
-             :on-click (fn [e]
-                         (when (= (.-target e) (.-currentTarget e))
-                           (on-close)))
-             :on-key-down (fn [e]
-                            (let [tag-name (.-tagName (.-target e))]
-                              (case (.-key e)
-                                "Escape" (do (.stopPropagation e) (.preventDefault e) (on-close))
-                                ;; Trigger save on Enter except in textarea (multi-line) or select
-                                "Enter" (when-not (#{"TEXTAREA" "SELECT"} tag-name)
-                                          (.stopPropagation e)
-                                          (.preventDefault e)
-                                          (do-save! user on-close on-save))
-                                nil)))}
-       [:div {:style {:background (settings/get-color :background)
-                      :border-radius "8px"
+      [modal-wrapper {:on-close on-close
+                      :on-enter #(do-save! user on-close on-save)
+                      :z-index 3000
                       :width "500px"
                       :max-height "85vh"
-                      :overflow "auto"
-                      :box-shadow "0 8px 32px rgba(0,0,0,0.4)"}}
-        ;; Header
-        [:div {:style {:display "flex"
-                       :justify-content "space-between"
-                       :align-items "center"
-                       :padding "20px"
-                       :border-bottom (str "1px solid " (settings/get-color :border))}}
-         [:h3 {:style {:margin 0
-                       :font-weight "400"
-                       :color (settings/get-color :text)}}
-          (str "Modifica: " (:username user))]
-         [:button {:on-click on-close
-                   :style {:background "transparent"
-                           :border "none"
-                           :font-size "1.5rem"
-                           :cursor "pointer"
-                           :color (settings/get-color :text-muted)}}
-          "×"]]
-
+                      :title (str "Modifica: " (:username user))}
         ;; Form
         [:div {:style {:padding "20px"
                        :display "flex"
@@ -1156,6 +1191,92 @@
                      :on-change #(reset! form-is-admin? (-> % .-target .-checked))}]
             "Super Admin"])
 
+         ;; Password reset section (only if not self)
+         (when (not= (:id user) (:id (auth/get-user)))
+           [:div {:style {:margin-top "15px"
+                          :padding-top "15px"
+                          :border-top (str "1px solid " (settings/get-color :border))}}
+            [:div {:style {:font-size "0.85rem"
+                           :font-weight "500"
+                           :color (settings/get-color :text)
+                           :margin-bottom "10px"}}
+             "Imposta nuova password"]
+
+            ;; Success message
+            (when @password-success
+              [:div {:style {:background (settings/get-color :success)
+                             :color "white"
+                             :padding "8px 12px"
+                             :border-radius "4px"
+                             :margin-bottom "10px"
+                             :font-size "0.85rem"}}
+               "Password impostata con successo!"])
+
+            ;; Error message
+            (when @password-error
+              [:div {:style {:background (settings/get-color :danger)
+                             :color "white"
+                             :padding "8px 12px"
+                             :border-radius "4px"
+                             :margin-bottom "10px"
+                             :font-size "0.85rem"}}
+               @password-error])
+
+            [:div {:style {:display "flex" :gap "10px" :flex-wrap "wrap"}}
+             [:input {:type "password"
+                      :placeholder "Nuova password"
+                      :value @new-password
+                      :on-change #(reset! new-password (-> % .-target .-value))
+                      :style {:flex "1"
+                              :min-width "120px"
+                              :padding "8px 12px"
+                              :border (str "1px solid " (settings/get-color :border))
+                              :border-radius "4px"
+                              :background (settings/get-color :editor-bg)
+                              :color (settings/get-color :text)}}]
+             [:input {:type "password"
+                      :placeholder "Conferma"
+                      :value @confirm-password
+                      :on-change #(reset! confirm-password (-> % .-target .-value))
+                      :style {:flex "1"
+                              :min-width "120px"
+                              :padding "8px 12px"
+                              :border (str "1px solid " (settings/get-color :border))
+                              :border-radius "4px"
+                              :background (settings/get-color :editor-bg)
+                              :color (settings/get-color :text)}}]
+             [:button {:on-click (fn []
+                                   (reset! password-error nil)
+                                   (reset! password-success false)
+                                   (cond
+                                     (< (count @new-password) 6)
+                                     (reset! password-error "Minimo 6 caratteri")
+
+                                     (not= @new-password @confirm-password)
+                                     (reset! password-error "Le password non corrispondono")
+
+                                     :else
+                                     (do
+                                       (reset! resetting-password? true)
+                                       (-> (api/reset-user-password! (:id user) @new-password)
+                                           (.then (fn [result]
+                                                    (reset! resetting-password? false)
+                                                    (if (:ok result)
+                                                      (do
+                                                        (reset! password-success true)
+                                                        (reset! new-password "")
+                                                        (reset! confirm-password ""))
+                                                      (reset! password-error (:error result)))))))))
+                       :disabled (or @resetting-password? (empty? @new-password))
+                       :style {:padding "8px 16px"
+                               :background (settings/get-color :accent)
+                               :color "white"
+                               :border "none"
+                               :border-radius "4px"
+                               :cursor "pointer"
+                               :opacity (if (or @resetting-password? (empty? @new-password)) 0.5 1)}}
+              (if @resetting-password? "..." "Imposta")]]])
+
          ;; Buttons
          [:div {:style {:display "flex"
                         :gap "10px"
@@ -1178,7 +1299,7 @@
                             :border (str "1px solid " (settings/get-color :border))
                             :border-radius "4px"
                             :cursor "pointer"}}
-           "Annulla"]]]]])))
+           "Annulla"]]]])))
 
 ;; =============================================================================
 ;; Admin Users Panel (Super Admin only)
@@ -1210,46 +1331,10 @@
                                      (reset! error (:error result)))))))]
     (load-users!)
     (fn [{:keys [on-close]}]
-      [:div {:style {:position "fixed"
-                     :top 0 :left 0 :right 0 :bottom 0
-                     :background "rgba(0,0,0,0.5)"
-                     :display "flex"
-                     :align-items "center"
-                     :justify-content "center"
-                     :z-index 2000}
-             :tab-index -1
-             :ref (fn [el] (when el (.focus el)))
-             :on-click (fn [e]
-                         (when (= (.-target e) (.-currentTarget e))
-                           (on-close)))
-             :on-key-down (fn [e]
-                            (when (= "Escape" (.-key e))
-                              (.stopPropagation e)
-                              (on-close)))}
-       [:div {:style {:background (settings/get-color :background)
-                      :border-radius "8px"
+      [modal-wrapper {:on-close on-close
+                      :disable-esc? #(some? @editing-user)
                       :width "600px"
-                      :max-height "80vh"
-                      :overflow "auto"
-                      :box-shadow "0 8px 32px rgba(0,0,0,0.3)"}}
-        ;; Header
-        [:div {:style {:display "flex"
-                       :justify-content "space-between"
-                       :align-items "center"
-                       :padding "20px"
-                       :border-bottom (str "1px solid " (settings/get-color :border))}}
-         [:h2 {:style {:margin 0
-                       :font-weight "400"
-                       :color (settings/get-color :text)}}
-          "Gestione Utenti"]
-         [:button {:on-click on-close
-                   :style {:background "transparent"
-                           :border "none"
-                           :font-size "1.5rem"
-                           :cursor "pointer"
-                           :color (settings/get-color :text-muted)}}
-          "×"]]
-
+                      :title "Gestione Utenti"}
         [:div {:style {:padding "20px"}}
          ;; Error
          (when @error
@@ -1492,7 +1577,7 @@
            ^{:key (:id u)}
            [user-edit-modal {:user u
                              :on-close #(reset! editing-user nil)
-                             :on-save load-users!}])]]])))
+                             :on-save load-users!}])]])))
 
 ;; =============================================================================
 ;; User Menu (header dropdown)
@@ -1529,10 +1614,159 @@
     (js/clearInterval @pending-poll-interval)
     (reset! pending-poll-interval nil)))
 
+;; =============================================================================
+;; Change Password Modal
+;; =============================================================================
+
+(defn- change-password-modal
+  "Modal for user to change their own password"
+  [{:keys [on-close]}]
+  (let [old-password (r/atom "")
+        new-password (r/atom "")
+        confirm-password (r/atom "")
+        error (r/atom nil)
+        success (r/atom false)
+        saving? (r/atom false)]
+    (fn [{:keys [on-close]}]
+      [modal-wrapper {:on-close on-close
+                      :z-index 3000
+                      :width "400px"
+                      :title "Cambia Password"}
+        ;; Form
+        [:div {:style {:padding "20px"
+                       :display "flex"
+                       :flex-direction "column"
+                       :gap "15px"}}
+         ;; Success message
+         (when @success
+           [:div {:style {:background (settings/get-color :success)
+                          :color "white"
+                          :padding "10px 15px"
+                          :border-radius "4px"}}
+            "Password cambiata con successo!"])
+
+         ;; Error message
+         (when @error
+           [:div {:style {:background (settings/get-color :danger)
+                          :color "white"
+                          :padding "10px 15px"
+                          :border-radius "4px"}}
+            @error])
+
+         (when-not @success
+           [:<>
+            ;; Old password
+            [:div
+             [:label {:style {:display "block"
+                              :margin-bottom "5px"
+                              :font-size "0.85rem"
+                              :color (settings/get-color :text-muted)}}
+              "Password attuale"]
+             [:input {:type "password"
+                      :value @old-password
+                      :on-change #(reset! old-password (-> % .-target .-value))
+                      :style {:width "100%"
+                              :padding "10px 12px"
+                              :border (str "1px solid " (settings/get-color :border))
+                              :border-radius "4px"
+                              :background (settings/get-color :editor-bg)
+                              :color (settings/get-color :text)
+                              :box-sizing "border-box"}}]]
+
+            ;; New password
+            [:div
+             [:label {:style {:display "block"
+                              :margin-bottom "5px"
+                              :font-size "0.85rem"
+                              :color (settings/get-color :text-muted)}}
+              "Nuova password"]
+             [:input {:type "password"
+                      :value @new-password
+                      :on-change #(reset! new-password (-> % .-target .-value))
+                      :placeholder "Minimo 6 caratteri"
+                      :style {:width "100%"
+                              :padding "10px 12px"
+                              :border (str "1px solid " (settings/get-color :border))
+                              :border-radius "4px"
+                              :background (settings/get-color :editor-bg)
+                              :color (settings/get-color :text)
+                              :box-sizing "border-box"}}]]
+
+            ;; Confirm password
+            [:div
+             [:label {:style {:display "block"
+                              :margin-bottom "5px"
+                              :font-size "0.85rem"
+                              :color (settings/get-color :text-muted)}}
+              "Conferma nuova password"]
+             [:input {:type "password"
+                      :value @confirm-password
+                      :on-change #(reset! confirm-password (-> % .-target .-value))
+                      :style {:width "100%"
+                              :padding "10px 12px"
+                              :border (str "1px solid " (settings/get-color :border))
+                              :border-radius "4px"
+                              :background (settings/get-color :editor-bg)
+                              :color (settings/get-color :text)
+                              :box-sizing "border-box"}}]]
+
+            ;; Buttons
+            [:div {:style {:display "flex"
+                           :gap "10px"
+                           :margin-top "10px"}}
+             [:button {:on-click (fn []
+                                   (reset! error nil)
+                                   (cond
+                                     (< (count @new-password) 6)
+                                     (reset! error "La nuova password deve avere almeno 6 caratteri")
+
+                                     (not= @new-password @confirm-password)
+                                     (reset! error "Le password non corrispondono")
+
+                                     :else
+                                     (do
+                                       (reset! saving? true)
+                                       (-> (api/change-password! @old-password @new-password)
+                                           (.then (fn [result]
+                                                    (reset! saving? false)
+                                                    (if (:ok result)
+                                                      (reset! success true)
+                                                      (reset! error (:error result)))))))))
+                       :disabled @saving?
+                       :style {:flex 1
+                               :padding "10px 20px"
+                               :background (settings/get-color :accent)
+                               :color "white"
+                               :border "none"
+                               :border-radius "4px"
+                               :cursor "pointer"
+                               :opacity (if @saving? 0.5 1)}}
+              (if @saving? "..." "Cambia Password")]
+             [:button {:on-click on-close
+                       :style {:padding "10px 20px"
+                               :background "transparent"
+                               :color (settings/get-color :text-muted)
+                               :border (str "1px solid " (settings/get-color :border))
+                               :border-radius "4px"
+                               :cursor "pointer"}}
+              "Annulla"]]])
+
+         ;; Close button after success
+         (when @success
+           [:button {:on-click on-close
+                     :style {:padding "10px 20px"
+                             :background (settings/get-color :accent)
+                             :color "white"
+                             :border "none"
+                             :border-radius "4px"
+                             :cursor "pointer"}}
+            "Chiudi"])]])))
+
 (defn user-menu
   "Dropdown menu showing current user and logout option"
   [{:keys [on-logout on-admin-users]}]
-  (let [open? (r/atom false)]
+  (let [open? (r/atom false)
+        show-password-modal? (r/atom false)]
     (r/create-class
      {:component-did-mount
       (fn [_] (start-pending-poll!))
@@ -1607,6 +1841,7 @@
                                     :padding "2px 8px"
                                     :border-radius "10px"}}
                      (str @pending-users-count " in attesa")])]])
+              ;; Change password option
               [:div {:style {:padding "10px 15px"
                              :cursor "pointer"
                              :color (settings/get-color :text)
@@ -1615,6 +1850,21 @@
                      :on-mouse-out #(set! (.. % -currentTarget -style -background) "transparent")
                      :on-click (fn []
                                  (reset! open? false)
+                                 (reset! show-password-modal? true))}
+               "Cambia password"]
+              ;; Logout
+              [:div {:style {:padding "10px 15px"
+                             :cursor "pointer"
+                             :color (settings/get-color :text)
+                             :border-top (str "1px solid " (settings/get-color :border))}
+                     :on-mouse-over #(set! (.. % -currentTarget -style -background) (settings/get-color :editor-bg))
+                     :on-mouse-out #(set! (.. % -currentTarget -style -background) "transparent")
+                     :on-click (fn []
+                                 (reset! open? false)
                                  (auth/logout!)
                                  (when on-logout (on-logout)))}
-               "Esci"]])]))})))
+               "Esci"]])
+
+           ;; Change password modal
+           (when @show-password-modal?
+             [change-password-modal {:on-close #(reset! show-password-modal? false)}])]))})))

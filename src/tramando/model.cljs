@@ -1654,6 +1654,11 @@
   [parent-id]
   (filter #(= (:parent-id %) parent-id) (get-chunks)))
 
+(defn has-children?
+  "Check if a chunk has any children"
+  [chunk-id]
+  (some #(= (:parent-id %) chunk-id) (get-chunks)))
+
 (defn build-tree
   "Build a tree structure from flat chunks"
   []
@@ -1837,12 +1842,17 @@
 (defn try-delete-chunk!
   "Try to delete a chunk. Returns {:ok true} or {:error \"message\"}"
   [id]
-  (let [usage (aspect-usage-count id)]
-    (if (pos? usage)
-      {:error (str "Impossibile cancellare: usato in " usage " chunk")}
-      (do
-        (delete-chunk! id)
-        {:ok true}))))
+  (cond
+    (has-children? id)
+    {:error :has-children}
+
+    (pos? (aspect-usage-count id))
+    {:error (str "Impossibile cancellare: usato in " (aspect-usage-count id) " chunk")}
+
+    :else
+    (do
+      (delete-chunk! id)
+      {:ok true})))
 
 ;; =============================================================================
 ;; Initialization

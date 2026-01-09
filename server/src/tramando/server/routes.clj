@@ -278,9 +278,11 @@
 
       :else
       (let [password-hash (auth/hash-password password)
+            ;; Users created by admin are active by default
             user (db/create-user! {:username username
                                    :password-hash password-hash
-                                   :is-super-admin is-super-admin})]
+                                   :is-super-admin is-super-admin
+                                   :status "active"})]
         {:status 201
          :body {:user (dissoc user :password_hash)}}))))
 
@@ -351,6 +353,41 @@
     {:status 200
      :body {:user (dissoc updated-user :password_hash)}}))
 
+(defn change-password-handler
+  "Handler for user to change their own password"
+  [request]
+  (let [user-id (get-in request [:user :id])
+        {:keys [old_password new_password]} (:body-params request)
+        user (db/find-user-by-id user-id)]
+    (cond
+      (< (count new_password) 6)
+      {:status 400 :body {:error "La nuova password deve avere almeno 6 caratteri"}}
+
+      (not (auth/check-password old_password (:password_hash user)))
+      {:status 400 :body {:error "Password attuale non corretta"}}
+
+      :else
+      (do
+        (db/update-user-password! user-id (auth/hash-password new_password))
+        {:status 200 :body {:success true}}))))
+
+(defn admin-reset-password-handler
+  "Handler for admin to reset a user's password"
+  [request]
+  (let [target-user-id (-> request :path-params :id Integer/parseInt)
+        {:keys [new_password]} (:body-params request)]
+    (cond
+      (nil? (db/find-user-by-id target-user-id))
+      {:status 404 :body {:error "User not found"}}
+
+      (< (count new_password) 6)
+      {:status 400 :body {:error "La password deve avere almeno 6 caratteri"}}
+
+      :else
+      (do
+        (db/update-user-password! target-user-id (auth/hash-password new_password))
+        {:status 200 :body {:success true}}))))
+
 ;; =============================================================================
 ;; Router
 ;; =============================================================================
@@ -394,15 +431,20 @@
                        :middleware [auth/require-auth]}
                   :put {:handler update-profile-handler
                         :middleware [auth/require-auth]}}]
+    ["/profile/password" {:put {:handler change-password-handler
+                                :middleware [auth/require-auth]}}]
 
-    ["/admin/users" {:get {:handler list-users-handler
-                           :middleware [auth/require-auth auth/require-super-admin]}
-                     :post {:handler create-user-handler
-                            :middleware [auth/require-auth auth/require-super-admin]}}]
-    ["/admin/users/:id" {:delete {:handler delete-user-handler
-                                  :middleware [auth/require-auth auth/require-super-admin]}
-                         :put {:handler update-user-admin-handler
-                               :middleware [auth/require-auth auth/require-super-admin]}}]
+    ["/admin/users"
+     ["" {:get {:handler list-users-handler
+                :middleware [auth/require-auth auth/require-super-admin]}
+          :post {:handler create-user-handler
+                 :middleware [auth/require-auth auth/require-super-admin]}}]
+     ["/:id" {:delete {:handler delete-user-handler
+                       :middleware [auth/require-auth auth/require-super-admin]}
+              :put {:handler update-user-admin-handler
+                    :middleware [auth/require-auth auth/require-super-admin]}}]
+     ["/:id/password" {:put {:handler admin-reset-password-handler
+                             :middleware [auth/require-auth auth/require-super-admin]}}]]
     ["/admin/pending-count" {:get {:handler (fn [_] {:status 200 :body {:count (db/count-pending-users)}})
                                    :middleware [auth/require-auth auth/require-super-admin]}}]]])
 

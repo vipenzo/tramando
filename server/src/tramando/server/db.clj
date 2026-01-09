@@ -312,6 +312,14 @@
        display_name email user-id])
     (find-user-by-id user-id)))
 
+(defn update-user-password!
+  "Update user's password hash"
+  [user-id password-hash]
+  (let [ds (get-datasource)]
+    (jdbc/execute! ds
+      ["UPDATE users SET password_hash = ? WHERE id = ?"
+       password-hash user-id])))
+
 (defn get-user-quotas
   "Get user's quota limits and current usage"
   [user-id]
