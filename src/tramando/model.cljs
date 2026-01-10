@@ -1314,14 +1314,6 @@
     ;; Return all chunks except descendants
     (remove #(contains? descendants (:id %)) chunks)))
 
-(defn load-content!
-  "Load content from parsed text"
-  [text]
-  (let [chunks (parse-file text)]
-    (swap! app-state assoc :chunks chunks)
-    (when (seq chunks)
-      (select-chunk! (:id (first chunks))))))
-
 (defn get-file-content
   "Get serialized content for saving"
   []
