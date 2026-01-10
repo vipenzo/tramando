@@ -198,6 +198,21 @@ Test."
           reparsed (model/parse-file serialized)]
       (is (= "filippo" (:owner (first (:chunks reparsed))))))))
 
+(deftest roundtrip-discussion-special-chars-test
+  (testing "roundtrip preserves discussion with special characters (emoji, accents)"
+    (let [special-text "Perché? 😅 àèìòù"
+          chunks [{:id "cap1" :summary "Test" :content "Contenuto."
+                   :parent-id nil :aspects #{} :owner "local"
+                   :discussion [{:type "comment"
+                                 :text special-text
+                                 :author "mario"
+                                 :timestamp 1700000000}]}]
+          serialized (model/serialize-file chunks {})
+          reparsed (model/parse-file serialized)
+          reparsed-discussion (:discussion (first (:chunks reparsed)))]
+      (is (= 1 (count reparsed-discussion)))
+      (is (= special-text (:text (first reparsed-discussion)))))))
+
 ;; =============================================================================
 ;; Merge Tests
 ;; =============================================================================
