@@ -685,23 +685,24 @@
                             :border-radius "10px"
                             :font-size "0.75rem"}}
              @trash-count])]]
-        ;; Filter input
-        [:div {:style {:flex 1
-                       :max-width "300px"}}
-         [:input {:type "text"
-                  :placeholder "Cerca nei metadati..."
-                  :value @filter-text
-                  :on-change #(reset! filter-text (-> % .-target .-value))
-                  :on-key-down (fn [e]
-                                 (when (= (.-key e) "Escape")
-                                   (reset! filter-text "")))
-                  :style {:width "100%"
-                          :padding "8px 12px"
-                          :border (str "1px solid " (settings/get-color :border))
-                          :border-radius "4px"
-                          :background (settings/get-color :editor-bg)
-                          :color (settings/get-color :text)
-                          :font-size "0.9rem"}}]]
+        ;; Filter input (hidden in trash view)
+        (when-not @show-trash?
+          [:div {:style {:flex 1
+                         :max-width "300px"}}
+           [:input {:type "text"
+                    :placeholder "Cerca nei metadati..."
+                    :value @filter-text
+                    :on-change #(reset! filter-text (-> % .-target .-value))
+                    :on-key-down (fn [e]
+                                   (when (= (.-key e) "Escape")
+                                     (reset! filter-text "")))
+                    :style {:width "100%"
+                            :padding "8px 12px"
+                            :border (str "1px solid " (settings/get-color :border))
+                            :border-radius "4px"
+                            :background (settings/get-color :editor-bg)
+                            :color (settings/get-color :text)
+                            :font-size "0.9rem"}}]])
         [:div {:style {:display "flex" :gap "10px"}}
          [:button {:on-click #(reset! show-import-form? true)
                    :style {:padding "8px 16px"
