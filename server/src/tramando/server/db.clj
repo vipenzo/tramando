@@ -48,15 +48,21 @@
         (jdbc/execute! ds ["ALTER TABLE users ADD COLUMN notes TEXT"])))))
 
 (defn- migrate-projects-table!
-  "Add metadata_cache column to projects table if it doesn't exist.
-   metadata_cache stores JSON with: title, author, year, custom fields, word_count, char_count"
+  "Add metadata_cache and disabled columns to projects table if they don't exist.
+   metadata_cache stores JSON with: title, author, year, custom fields, word_count, char_count
+   disabled is used for soft delete (0 = active, 1 = in trash)"
   []
   (let [ds (get-datasource)]
+    ;; Add metadata_cache column
     (try
       (jdbc/execute! ds ["SELECT metadata_cache FROM projects LIMIT 1"])
       (catch Exception _
-        ;; Column doesn't exist, add it
-        (jdbc/execute! ds ["ALTER TABLE projects ADD COLUMN metadata_cache TEXT"])))))
+        (jdbc/execute! ds ["ALTER TABLE projects ADD COLUMN metadata_cache TEXT"])))
+    ;; Add disabled column for soft delete
+    (try
+      (jdbc/execute! ds ["SELECT disabled FROM projects LIMIT 1"])
+      (catch Exception _
+        (jdbc/execute! ds ["ALTER TABLE projects ADD COLUMN disabled INTEGER DEFAULT 0"])))))
 
 (defn create-tables!
   "Create database tables if they don't exist"
@@ -157,14 +163,26 @@
 (defn find-project-by-id [id]
   (query-one ["SELECT * FROM projects WHERE id = ?" id]))
 
-(defn find-projects-for-user [user-id]
+(defn find-projects-for-user
+  "Find active (non-disabled) projects for a user"
+  [user-id]
   (query ["SELECT p.*,
              CASE WHEN p.owner_id = ? THEN 'owner'
                   ELSE pm.role END as user_role
            FROM projects p
            LEFT JOIN permissions pm ON pm.project_id = p.id AND pm.user_id = ?
-           WHERE p.owner_id = ? OR pm.user_id = ?"
+           WHERE (p.owner_id = ? OR pm.user_id = ?)
+             AND (p.disabled = 0 OR p.disabled IS NULL)"
           user-id user-id user-id user-id]))
+
+(defn find-disabled-projects-for-user
+  "Find disabled (trashed) projects owned by a user.
+   Only owners can see their trashed projects."
+  [user-id]
+  (query ["SELECT p.*, 'owner' as user_role
+           FROM projects p
+           WHERE p.owner_id = ? AND p.disabled = 1"
+          user-id]))
 
 (defn create-project! [{:keys [name owner-id]}]
   (let [ds (get-datasource)]
@@ -189,6 +207,20 @@
     (jdbc/execute! ds
       ["UPDATE projects SET metadata_cache = ?, updated_at = datetime('now') WHERE id = ?"
        metadata-json project-id])))
+
+(defn disable-project!
+  "Soft delete a project by setting disabled = 1"
+  [id]
+  (let [ds (get-datasource)]
+    (jdbc/execute! ds
+      ["UPDATE projects SET disabled = 1, updated_at = datetime('now') WHERE id = ?" id])))
+
+(defn restore-project!
+  "Restore a disabled project by setting disabled = 0"
+  [id]
+  (let [ds (get-datasource)]
+    (jdbc/execute! ds
+      ["UPDATE projects SET disabled = 0, updated_at = datetime('now') WHERE id = ?" id])))
 
 (defn delete-project! [id]
   (let [ds (get-datasource)]

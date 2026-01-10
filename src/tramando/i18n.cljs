@@ -529,7 +529,15 @@
     :unsaved-changes "Modifiche non salvate"
     :overwrite-description "le modifiche fatte altrove andranno perse"
     :save-as-description "salva con nuovo nome, mantieni entrambi"
-    :reload-description "perdi le modifiche locali, carica da disco"}
+    :reload-description "perdi le modifiche locali, carica da disco"
+
+    ;; Trash / Soft Delete
+    :trash "Cestino"
+    :your-projects "I tuoi progetti"
+    :permanent-delete "Elimina definitivamente"
+    :project-restored "Progetto ripristinato"
+    :project-permanently-deleted "Progetto eliminato definitivamente"
+    :empty-trash "Il cestino è vuoto"}
 
    :en
    {;; General
@@ -1046,7 +1054,15 @@
     :unsaved-changes "Unsaved changes"
     :overwrite-description "changes made elsewhere will be lost"
     :save-as-description "save with a new name, keep both"
-    :reload-description "lose local changes, load from disk"}})
+    :reload-description "lose local changes, load from disk"
+
+    ;; Trash / Soft Delete
+    :trash "Trash"
+    :your-projects "Your projects"
+    :permanent-delete "Delete permanently"
+    :project-restored "Project restored"
+    :project-permanently-deleted "Project permanently deleted"
+    :empty-trash "Trash is empty"}})
 
 ;; =============================================================================
 ;; Translation Functions

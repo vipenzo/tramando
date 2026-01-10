@@ -385,6 +385,102 @@
     (< n 1000000) (str (quot n 1000) "k")
     :else (str (quot n 1000000) "M")))
 
+(defn- project-card-trash
+  "Project card for trashed projects with restore/permanent-delete actions"
+  [{:keys [project confirm-permanent-delete-id load-trash! load-projects!]}]
+  (let [metadata (parse-metadata-cache project)
+        word-count (:word_count metadata)]
+    [:div {:style {:background (settings/get-color :background)
+                   :border (str "1px dashed " (settings/get-color :border))
+                   :border-radius "6px"
+                   :padding "15px"
+                   :opacity 0.8}}
+     ;; Project name
+     [:div {:style {:font-weight "500"
+                    :color (settings/get-color :text-muted)
+                    :margin-bottom "8px"}}
+      (:name project)]
+     ;; Word count and date
+     [:div {:style {:display "flex"
+                    :justify-content "space-between"
+                    :font-size "0.8rem"
+                    :color (settings/get-color :text-muted)}}
+      [:span (t :trash)]
+      [:span {:style {:display "flex" :gap "10px"}}
+       (when (and word-count (pos? word-count))
+         [:span {:title (str word-count " parole")}
+          (str (format-word-count word-count) " parole")])
+       [:span (when-let [date (:updated_at project)]
+                (subs date 0 10))]]]
+     ;; Action buttons
+     [:div {:style {:display "flex"
+                    :gap "8px"
+                    :margin-top "12px"
+                    :padding-top "12px"
+                    :border-top (str "1px solid " (settings/get-color :border))}}
+      ;; Restore button
+      [:button {:on-click (fn [e]
+                            (.stopPropagation e)
+                            (-> (api/restore-project! (:id project))
+                                (.then (fn [result]
+                                         (when (:ok result)
+                                           (events/show-toast! (t :project-restored))
+                                           (load-trash!)
+                                           (load-projects!))))))
+                :style {:flex 1
+                        :padding "6px 10px"
+                        :background "transparent"
+                        :color (settings/get-color :success)
+                        :border (str "1px solid " (settings/get-color :success))
+                        :border-radius "4px"
+                        :cursor "pointer"
+                        :font-size "0.8rem"}}
+       (t :restore)]
+      ;; Permanent delete button with confirmation
+      (if (= @confirm-permanent-delete-id (:id project))
+        [:<>
+         [:button {:on-click (fn [e]
+                               (.stopPropagation e)
+                               (-> (api/permanent-delete-project! (:id project))
+                                   (.then (fn [result]
+                                            (reset! confirm-permanent-delete-id nil)
+                                            (when (:ok result)
+                                              (events/show-toast! (t :project-permanently-deleted))
+                                              (load-trash!))))))
+                   :style {:flex 1
+                           :padding "6px 10px"
+                           :background (settings/get-color :danger)
+                           :color "white"
+                           :border "none"
+                           :border-radius "4px"
+                           :cursor "pointer"
+                           :font-size "0.8rem"}}
+          (t :confirm)]
+         [:button {:on-click (fn [e]
+                               (.stopPropagation e)
+                               (reset! confirm-permanent-delete-id nil))
+                   :style {:flex 1
+                           :padding "6px 10px"
+                           :background "transparent"
+                           :color (settings/get-color :text-muted)
+                           :border (str "1px solid " (settings/get-color :border))
+                           :border-radius "4px"
+                           :cursor "pointer"
+                           :font-size "0.8rem"}}
+          (t :cancel)]]
+        [:button {:on-click (fn [e]
+                              (.stopPropagation e)
+                              (reset! confirm-permanent-delete-id (:id project)))
+                  :style {:flex 1
+                          :padding "6px 10px"
+                          :background "transparent"
+                          :color (settings/get-color :danger)
+                          :border (str "1px solid " (settings/get-color :danger))
+                          :border-radius "4px"
+                          :cursor "pointer"
+                          :font-size "0.8rem"}}
+         (t :permanent-delete)])]]))
+
 (defn- project-card
   "Single project card with duplicate/delete actions"
   [{:keys [project on-open duplicating-id confirm-delete-id load-projects!]}]
@@ -513,7 +609,19 @@
         import-file-input (r/atom nil)
         duplicating-id (r/atom nil)
         confirm-delete-id (r/atom nil)
+        confirm-permanent-delete-id (r/atom nil)
         filter-text (r/atom "")
+        ;; Trash state
+        show-trash? (r/atom false)
+        trash-projects (r/atom nil)
+        trash-count (r/atom 0)
+        load-trash! (fn []
+                      (-> (api/list-trash)
+                          (.then (fn [result]
+                                   (when (:ok result)
+                                     (let [trash (get-in result [:data :projects])]
+                                       (reset! trash-projects trash)
+                                       (reset! trash-count (count trash))))))))
         load-projects! (fn []
                          (reset! loading? true)
                          (-> (api/list-projects)
@@ -521,7 +629,9 @@
                                       (reset! loading? false)
                                       (if (:ok result)
                                         (reset! projects (get-in result [:data :projects]))
-                                        (reset! error (:error result)))))))
+                                        (reset! error (:error result))))))
+                         ;; Also load trash count
+                         (load-trash!))
         generate-project-name (fn []
                                 ;; Generate "Nuovo progetto" or "Nuovo progetto 2", etc.
                                 (let [existing-names (set (map :name @projects))
@@ -543,11 +653,38 @@
                       :align-items "center"
                       :margin-bottom "20px"
                       :gap "15px"}}
-        [:h2 {:style {:margin 0
-                      :font-weight "400"
-                      :color (settings/get-color :text)
-                      :white-space "nowrap"}}
-         "I tuoi progetti"]
+        [:div {:style {:display "flex" :align-items "center" :gap "15px"}}
+         [:h2 {:style {:margin 0
+                       :font-weight "400"
+                       :color (settings/get-color :text)
+                       :white-space "nowrap"}}
+          (if @show-trash? (t :trash) (t :your-projects))]
+         ;; Trash toggle button
+         [:button {:on-click #(swap! show-trash? not)
+                   :style {:padding "6px 12px"
+                           :background (if @show-trash?
+                                         (settings/get-color :danger)
+                                         "transparent")
+                           :color (if @show-trash?
+                                    "white"
+                                    (settings/get-color :text-muted))
+                           :border (str "1px solid " (if @show-trash?
+                                                       (settings/get-color :danger)
+                                                       (settings/get-color :border)))
+                           :border-radius "4px"
+                           :cursor "pointer"
+                           :font-size "0.85rem"
+                           :display "flex"
+                           :align-items "center"
+                           :gap "6px"}}
+          "🗑"
+          (when (and (not @show-trash?) (pos? @trash-count))
+            [:span {:style {:background (settings/get-color :danger)
+                            :color "white"
+                            :padding "2px 6px"
+                            :border-radius "10px"
+                            :font-size "0.75rem"}}
+             @trash-count])]]
         ;; Filter input
         [:div {:style {:flex 1
                        :max-width "300px"}}
@@ -742,9 +879,26 @@
                         :color (settings/get-color :text-muted)}}
           "Caricamento..."])
 
-       ;; Projects grid
-       (when (and (not @loading?) @projects)
-         (let [query (str/trim @filter-text)
+       ;; Projects grid (normal or trash)
+       (if @show-trash?
+         ;; Trash view
+         (if (empty? @trash-projects)
+           [:div {:style {:text-align "center"
+                          :padding "40px"
+                          :color (settings/get-color :text-muted)}}
+            (t :empty-trash)]
+           [:div {:style {:display "grid"
+                          :grid-template-columns "repeat(auto-fill, minmax(280px, 1fr))"
+                          :gap "15px"}}
+            (for [project @trash-projects]
+              ^{:key (:id project)}
+              [project-card-trash {:project project
+                                   :confirm-permanent-delete-id confirm-permanent-delete-id
+                                   :load-trash! load-trash!
+                                   :load-projects! load-projects!}])])
+         ;; Normal view
+         (when (and (not @loading?) @projects)
+           (let [query (str/trim @filter-text)
                filtered-projects (if (empty? query)
                                    @projects
                                    (filter (fn [p]
@@ -772,7 +926,7 @@
                                  :on-open on-open
                                  :duplicating-id duplicating-id
                                  :confirm-delete-id confirm-delete-id
-                                 :load-projects! load-projects!}])]))))])))
+                                 :load-projects! load-projects!}])])))))])))
 
 
 ;; =============================================================================

@@ -220,7 +220,9 @@
             {:status 200
              :body {:project project}}))))))
 
-(defn delete-project-handler [request]
+(defn delete-project-handler
+  "Soft delete: moves project to trash by setting disabled=1"
+  [request]
   (let [user-id (get-in request [:user :id])
         project-id (-> request :path-params :id Integer/parseInt)
         project (db/find-project-by-id project-id)]
@@ -233,6 +235,58 @@
 
       :else
       (do
+        ;; Soft delete - just disable, don't delete file
+        (db/disable-project! project-id)
+        {:status 200 :body {:success true}}))))
+
+(defn list-trash-handler
+  "List disabled (trashed) projects for the current user"
+  [request]
+  (let [user-id (get-in request [:user :id])
+        projects (db/find-disabled-projects-for-user user-id)]
+    {:status 200
+     :body {:projects projects}}))
+
+(defn restore-project-handler
+  "Restore a project from trash"
+  [request]
+  (let [user-id (get-in request [:user :id])
+        project-id (-> request :path-params :id Integer/parseInt)
+        project (db/find-project-by-id project-id)]
+    (cond
+      (nil? project)
+      {:status 404 :body {:error "Project not found"}}
+
+      (not= (:owner_id project) user-id)
+      {:status 403 :body {:error "Only owner can restore project"}}
+
+      (not= 1 (:disabled project))
+      {:status 400 :body {:error "Project is not in trash"}}
+
+      :else
+      (do
+        (db/restore-project! project-id)
+        {:status 200 :body {:success true}}))))
+
+(defn permanent-delete-handler
+  "Permanently delete a project (only from trash)"
+  [request]
+  (let [user-id (get-in request [:user :id])
+        project-id (-> request :path-params :id Integer/parseInt)
+        project (db/find-project-by-id project-id)]
+    (cond
+      (nil? project)
+      {:status 404 :body {:error "Project not found"}}
+
+      (not= (:owner_id project) user-id)
+      {:status 403 :body {:error "Only owner can permanently delete project"}}
+
+      (not= 1 (:disabled project))
+      {:status 400 :body {:error "Project must be in trash before permanent deletion"}}
+
+      :else
+      (do
+        ;; Permanent delete - remove file and database record
         (storage/delete-project-file! project-id)
         (db/delete-project! project-id)
         {:status 200 :body {:success true}}))))
@@ -512,6 +566,10 @@
                  :middleware [auth/require-auth]}
            :delete {:handler delete-project-handler
                     :middleware [auth/require-auth]}}]
+      ["/restore" {:post {:handler restore-project-handler
+                          :middleware [auth/require-auth]}}]
+      ["/permanent" {:delete {:handler permanent-delete-handler
+                              :middleware [auth/require-auth]}}]
       ["/hash" {:get {:handler get-project-hash-handler
                       :middleware [auth/require-auth]}}]
       ["/collaborators"
@@ -527,6 +585,10 @@
                       :middleware [auth/require-auth]}
                 :post {:handler post-chat-handler
                        :middleware [auth/require-auth]}}]]]
+
+    ;; Trash endpoint (separate to avoid conflict with /:id)
+    ["/projects-trash" {:get {:handler list-trash-handler
+                              :middleware [auth/require-auth]}}]
 
     ["/profile" {:get {:handler get-profile-handler
                        :middleware [auth/require-auth]}

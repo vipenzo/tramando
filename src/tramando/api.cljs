@@ -183,9 +183,24 @@
              base-hash (assoc :base-hash base-hash))))
 
 (defn delete-project!
-  "Delete a project"
+  "Delete a project (soft delete - moves to trash)"
   [project-id]
   (api-delete (str "/api/projects/" project-id)))
+
+(defn list-trash
+  "List projects in trash (soft deleted)"
+  []
+  (api-get "/api/projects-trash"))
+
+(defn restore-project!
+  "Restore a project from trash"
+  [project-id]
+  (api-post (str "/api/projects/" project-id "/restore") {}))
+
+(defn permanent-delete-project!
+  "Permanently delete a project from trash (cannot be undone)"
+  [project-id]
+  (api-delete (str "/api/projects/" project-id "/permanent")))
 
 (defn get-project-hash
   "Get only the content-hash of a project (for polling)"
