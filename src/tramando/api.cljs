@@ -213,6 +213,16 @@
   (api-delete (str "/api/projects/" project-id "/collaborators/" user-id)))
 
 ;; =============================================================================
+;; Users API (for all authenticated users)
+;; =============================================================================
+
+(defn list-users-basic
+  "List all active users with basic info (id, username, display_name).
+   Available to all authenticated users for adding collaborators."
+  []
+  (api-get "/api/users"))
+
+;; =============================================================================
 ;; Admin API
 ;; =============================================================================
 

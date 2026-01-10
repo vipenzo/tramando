@@ -47,6 +47,17 @@
         (jdbc/execute! ds ["ALTER TABLE users ADD COLUMN max_collaborators INTEGER DEFAULT 10"])
         (jdbc/execute! ds ["ALTER TABLE users ADD COLUMN notes TEXT"])))))
 
+(defn- migrate-projects-table!
+  "Add metadata_cache column to projects table if it doesn't exist.
+   metadata_cache stores JSON with: title, author, year, custom fields, word_count, char_count"
+  []
+  (let [ds (get-datasource)]
+    (try
+      (jdbc/execute! ds ["SELECT metadata_cache FROM projects LIMIT 1"])
+      (catch Exception _
+        ;; Column doesn't exist, add it
+        (jdbc/execute! ds ["ALTER TABLE projects ADD COLUMN metadata_cache TEXT"])))))
+
 (defn create-tables!
   "Create database tables if they don't exist"
   []
@@ -62,6 +73,8 @@
         )"])
     ;; Run migration to add new columns
     (migrate-users-table!)
+    ;; Run projects migration
+    (migrate-projects-table!)
     ;; Projects table
     (jdbc/execute! ds
       ["CREATE TABLE IF NOT EXISTS projects (
@@ -167,6 +180,15 @@
       ["UPDATE projects SET name = ?, updated_at = datetime('now') WHERE id = ?"
        (:name changes) id])
     (find-project-by-id id)))
+
+(defn update-project-metadata-cache!
+  "Update the metadata_cache column for a project.
+   metadata-json should be a JSON string with title, author, year, custom fields, word_count, char_count"
+  [project-id metadata-json]
+  (let [ds (get-datasource)]
+    (jdbc/execute! ds
+      ["UPDATE projects SET metadata_cache = ?, updated_at = datetime('now') WHERE id = ?"
+       metadata-json project-id])))
 
 (defn delete-project! [id]
   (let [ds (get-datasource)]

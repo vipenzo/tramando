@@ -5,10 +5,92 @@
             [reitit.ring.middleware.muuntaja :as muuntaja]
             [muuntaja.core :as m]
             [clojure.string :as str]
+            [cheshire.core :as json]
             [tramando.server.auth :as auth]
             [tramando.server.db :as db]
             [tramando.server.storage :as storage]
             [tramando.server.config :refer [config]]))
+
+;; =============================================================================
+;; Content Metadata Extraction
+;; =============================================================================
+
+(defn- parse-yaml-frontmatter
+  "Extract YAML frontmatter from TRMD content.
+   Returns a map with metadata fields or nil if no frontmatter."
+  [content]
+  (when (and content (str/starts-with? (str/trim content) "---"))
+    (let [trimmed (str/trim content)
+          ;; Find closing ---
+          end-idx (str/index-of trimmed "---" 3)]
+      (when end-idx
+        (let [yaml-str (subs trimmed 3 end-idx)]
+          ;; Simple YAML parsing for key: value pairs
+          (->> (str/split-lines yaml-str)
+               (map str/trim)
+               (filter #(str/includes? % ":"))
+               (map (fn [line]
+                      (let [colon-idx (str/index-of line ":")]
+                        (when colon-idx
+                          [(keyword (str/trim (subs line 0 colon-idx)))
+                           (str/trim (subs line (inc colon-idx)))]))))
+               (filter some?)
+               (into {})))))))
+
+(defn- count-words
+  "Count words in text content (excluding YAML frontmatter and chunk headers)"
+  [content]
+  (if (str/blank? content)
+    0
+    (let [;; Remove YAML frontmatter
+          text (if (str/starts-with? (str/trim content) "---")
+                 (let [end-idx (str/index-of content "---" 3)]
+                   (if end-idx
+                     (subs content (+ end-idx 3))
+                     content))
+                 content)
+          ;; Remove chunk headers (lines starting with #)
+          lines (str/split-lines text)
+          content-lines (remove #(str/starts-with? (str/trim %) "#") lines)
+          text-only (str/join " " content-lines)]
+      (count (re-seq #"\S+" text-only)))))
+
+(defn- count-chars
+  "Count characters in text content (excluding YAML frontmatter and chunk headers)"
+  [content]
+  (if (str/blank? content)
+    0
+    (let [;; Remove YAML frontmatter
+          text (if (str/starts-with? (str/trim content) "---")
+                 (let [end-idx (str/index-of content "---" 3)]
+                   (if end-idx
+                     (subs content (+ end-idx 3))
+                     content))
+                 content)
+          ;; Remove chunk headers (lines starting with #)
+          lines (str/split-lines text)
+          content-lines (remove #(str/starts-with? (str/trim %) "#") lines)
+          text-only (str/join "\n" content-lines)]
+      (count (str/replace text-only #"\s+" "")))))
+
+(defn- extract-metadata-cache
+  "Extract metadata from TRMD content and return as JSON string.
+   Includes: title, author, year, genre, custom fields, word_count, char_count"
+  [content]
+  (let [frontmatter (or (parse-yaml-frontmatter content) {})
+        word-count (count-words content)
+        char-count (count-chars content)
+        metadata (assoc frontmatter
+                        :word_count word-count
+                        :char_count char-count)]
+    (json/generate-string metadata)))
+
+(defn- update-metadata-cache!
+  "Update the metadata cache for a project based on its content"
+  [project-id content]
+  (when content
+    (let [metadata-json (extract-metadata-cache content)]
+      (db/update-project-metadata-cache! project-id metadata-json))))
 
 ;; =============================================================================
 ;; Auth Handlers
@@ -65,7 +147,9 @@
       (let [project (db/create-project! {:name name :owner-id user-id})]
         ;; Save initial content if provided
         (when content
-          (storage/save-project-content! (:id project) content))
+          (storage/save-project-content! (:id project) content)
+          ;; Update metadata cache
+          (update-metadata-cache! (:id project) content))
         {:status 201
          :body {:project project}}))))
 
@@ -119,10 +203,13 @@
         (if content
           (let [save-result (storage/save-project-content-if-matches! project-id content base-hash)]
             (if (:ok save-result)
-              (let [project (db/find-project-by-id project-id)]
-                {:status 200
-                 :body {:project project
-                        :content-hash (:hash save-result)}})
+              (do
+                ;; Update metadata cache with new content
+                (update-metadata-cache! project-id content)
+                (let [project (db/find-project-by-id project-id)]
+                  {:status 200
+                   :body {:project project
+                          :content-hash (:hash save-result)}}))
               ;; Conflict - return 409 with current content for client-side merge
               {:status 409
                :body {:error "Conflict: content was modified by another user"
@@ -252,6 +339,20 @@
       :else
       (let [msg (db/add-chat-message! project-id user-id username message)]
         {:status 201 :body {:message msg}}))))
+
+;; =============================================================================
+;; Users Handlers (for authenticated users)
+;; =============================================================================
+
+(defn list-users-basic-handler
+  "List all active users with basic info (id, username, display_name).
+   Available to all authenticated users for adding collaborators."
+  [_request]
+  (let [users (->> (db/list-all-users)
+                   (filter #(= "active" (:status %)))
+                   (map #(select-keys % [:id :username :display_name])))]
+    {:status 200
+     :body {:users users}}))
 
 ;; =============================================================================
 ;; Admin Handlers
@@ -433,6 +534,10 @@
                         :middleware [auth/require-auth]}}]
     ["/profile/password" {:put {:handler change-password-handler
                                 :middleware [auth/require-auth]}}]
+
+    ;; Public users list (basic info only, for adding collaborators)
+    ["/users" {:get {:handler list-users-basic-handler
+                     :middleware [auth/require-auth]}}]
 
     ["/admin/users"
      ["" {:get {:handler list-users-handler

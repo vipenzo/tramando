@@ -319,14 +319,85 @@
 ;; Projects List
 ;; =============================================================================
 
+(defn- update-title-in-content
+  "Update the title field in YAML frontmatter of TRMD content.
+   If there's a title: line, replace it. Otherwise add it after ---"
+  [content new-title]
+  (if (and content (str/starts-with? (str/trim content) "---"))
+    (let [lines (str/split-lines content)
+          ;; Find the closing --- of frontmatter
+          end-idx (loop [i 1]
+                    (when (< i (count lines))
+                      (if (str/starts-with? (str/trim (nth lines i)) "---")
+                        i
+                        (recur (inc i)))))]
+      (if end-idx
+        ;; We have frontmatter, update or add title
+        (let [frontmatter-lines (subvec (vec lines) 0 (inc end-idx))
+              rest-lines (subvec (vec lines) (inc end-idx))
+              ;; Check if there's already a title line
+              title-idx (loop [i 1]
+                          (when (< i end-idx)
+                            (if (re-find #"^title\s*:" (nth lines i))
+                              i
+                              (recur (inc i)))))
+              updated-fm (if title-idx
+                           ;; Replace existing title
+                           (assoc frontmatter-lines title-idx (str "title: " new-title))
+                           ;; Add title after first ---
+                           (vec (concat [(first frontmatter-lines)
+                                         (str "title: " new-title)]
+                                        (subvec frontmatter-lines 1))))]
+          (str/join "\n" (concat updated-fm rest-lines)))
+        ;; No valid frontmatter end found
+        content))
+    ;; No frontmatter, add one with title
+    (str "---\ntitle: " new-title "\n---\n\n" content)))
+
+(defn- parse-metadata-cache
+  "Parse metadata_cache JSON string into a map"
+  [project]
+  (if-let [cache (:metadata_cache project)]
+    (try
+      (js->clj (.parse js/JSON cache) :keywordize-keys true)
+      (catch :default _
+        {}))
+    {}))
+
+(defn- fuzzy-match?
+  "Check if query matches any metadata value (case insensitive)"
+  [query metadata]
+  (let [q (str/lower-case (str/trim query))
+        ;; Get all string values from metadata (excluding word_count and char_count)
+        values (->> metadata
+                    (filter (fn [[k v]]
+                              (and (string? v)
+                                   (not (#{:word_count :char_count} k)))))
+                    (map (fn [[_ v]] (str/lower-case v))))]
+    (some #(str/includes? % q) values)))
+
+(defn- format-word-count
+  "Format word count for display"
+  [n]
+  (cond
+    (nil? n) ""
+    (< n 1000) (str n)
+    (< n 1000000) (str (quot n 1000) "k")
+    :else (str (quot n 1000000) "M")))
+
 (defn- project-card
   "Single project card with duplicate/delete actions"
   [{:keys [project on-open duplicating-id confirm-delete-id load-projects!]}]
-  [:div {:style {:background (settings/get-color :sidebar)
-                 :border (str "1px solid " (settings/get-color :border))
-                 :border-radius "6px"
-                 :padding "15px"
-                 :transition "border-color 0.2s"}}
+  (let [is-owner? (= (:user_role project) "owner")
+        metadata (parse-metadata-cache project)
+        word-count (:word_count metadata)]
+    [:div {:style {:background (if is-owner?
+                                 (settings/get-color :sidebar)
+                                 (settings/get-color :background))
+                   :border (str "1px solid " (settings/get-color :border))
+                   :border-radius "6px"
+                   :padding "15px"
+                   :transition "border-color 0.2s"}}
    ;; Project name (clickable)
    [:div {:style {:font-weight "500"
                   :color (settings/get-color :text)
@@ -334,7 +405,7 @@
                   :cursor "pointer"}
           :on-click #(when on-open (on-open project))}
     (:name project)]
-   ;; Role and date
+   ;; Role, word count and date
    [:div {:style {:display "flex"
                   :justify-content "space-between"
                   :font-size "0.8rem"
@@ -344,40 +415,47 @@
              "admin" "Admin"
              "collaborator" "Collaboratore"
              (:user_role project))]
-    [:span (when-let [date (:updated_at project)]
-             (subs date 0 10))]]
-   ;; Buttons for owners
-   (when (= (:user_role project) "owner")
-     [:div {:style {:display "flex"
-                    :gap "8px"
-                    :margin-top "12px"
-                    :padding-top "12px"
-                    :border-top (str "1px solid " (settings/get-color :border))}}
-      ;; Duplicate button
-      [:button {:on-click (fn [e]
-                            (.stopPropagation e)
-                            (reset! duplicating-id (:id project))
-                            (-> (api/get-project (:id project))
-                                (.then (fn [result]
-                                         (when (:ok result)
-                                           (-> (api/create-project! (str (:name project) " (copia)")
-                                                                    (get-in result [:data :content]))
+    [:span {:style {:display "flex" :gap "10px"}}
+     (when (and word-count (pos? word-count))
+       [:span {:title (str word-count " parole")}
+        (str (format-word-count word-count) " parole")])
+     [:span (when-let [date (:updated_at project)]
+              (subs date 0 10))]]]
+   ;; Action buttons
+   [:div {:style {:display "flex"
+                  :gap "8px"
+                  :margin-top "12px"
+                  :padding-top "12px"
+                  :border-top (str "1px solid " (settings/get-color :border))}}
+    ;; Duplicate button (available for everyone)
+    [:button {:on-click (fn [e]
+                          (.stopPropagation e)
+                          (reset! duplicating-id (:id project))
+                          (-> (api/get-project (:id project))
+                              (.then (fn [result]
+                                       (when (:ok result)
+                                         (let [new-name (str (:name project) " (copia)")
+                                               original-content (get-in result [:data :content])
+                                               ;; Update title in YAML frontmatter to match new name
+                                               updated-content (update-title-in-content original-content new-name)]
+                                           (-> (api/create-project! new-name updated-content)
                                                (.then (fn [cr]
                                                         (reset! duplicating-id nil)
                                                         (when (:ok cr)
                                                           (events/show-toast! "Progetto duplicato")
-                                                          (load-projects!))))))))))
-                :disabled (= @duplicating-id (:id project))
-                :style {:flex 1
-                        :padding "6px 10px"
-                        :background "transparent"
-                        :color (settings/get-color :text-muted)
-                        :border (str "1px solid " (settings/get-color :border))
-                        :border-radius "4px"
-                        :cursor "pointer"
-                        :font-size "0.8rem"}}
-       (if (= @duplicating-id (:id project)) "..." "Duplica")]
-      ;; Delete button (or confirm/cancel)
+                                                          (load-projects!)))))))))))
+              :disabled (= @duplicating-id (:id project))
+              :style {:flex 1
+                      :padding "6px 10px"
+                      :background "transparent"
+                      :color (settings/get-color :text-muted)
+                      :border (str "1px solid " (settings/get-color :border))
+                      :border-radius "4px"
+                      :cursor "pointer"
+                      :font-size "0.8rem"}}
+     (if (= @duplicating-id (:id project)) "..." "Duplica")]
+    ;; Delete button (only for owners)
+    (when is-owner?
       (if (= @confirm-delete-id (:id project))
         [:<>
          [:button {:on-click (fn [e]
@@ -420,7 +498,7 @@
                           :border-radius "4px"
                           :cursor "pointer"
                           :font-size "0.8rem"}}
-         "Elimina"])])])
+         "Elimina"]))]]))
 
 (defn projects-list
   "List of server projects with create/open/delete actions"
@@ -428,15 +506,14 @@
   (let [projects (r/atom nil)
         loading? (r/atom true)
         error (r/atom nil)
-        new-project-name (r/atom "")
         creating? (r/atom false)
-        show-create-form? (r/atom false)
         show-import-form? (r/atom false)
         import-type (r/atom :trmd)
         importing? (r/atom false)
         import-file-input (r/atom nil)
         duplicating-id (r/atom nil)
         confirm-delete-id (r/atom nil)
+        filter-text (r/atom "")
         load-projects! (fn []
                          (reset! loading? true)
                          (-> (api/list-projects)
@@ -444,7 +521,18 @@
                                       (reset! loading? false)
                                       (if (:ok result)
                                         (reset! projects (get-in result [:data :projects]))
-                                        (reset! error (:error result)))))))]
+                                        (reset! error (:error result)))))))
+        generate-project-name (fn []
+                                ;; Generate "Nuovo progetto" or "Nuovo progetto 2", etc.
+                                (let [existing-names (set (map :name @projects))
+                                      base-name "Nuovo progetto"]
+                                  (if-not (existing-names base-name)
+                                    base-name
+                                    (loop [n 2]
+                                      (let [name-n (str base-name " " n)]
+                                        (if-not (existing-names name-n)
+                                          name-n
+                                          (recur (inc n))))))))]
     ;; Load on mount
     (load-projects!)
     (fn [{:keys [on-open on-create]}]
@@ -453,11 +541,30 @@
        [:div {:style {:display "flex"
                       :justify-content "space-between"
                       :align-items "center"
-                      :margin-bottom "20px"}}
+                      :margin-bottom "20px"
+                      :gap "15px"}}
         [:h2 {:style {:margin 0
                       :font-weight "400"
-                      :color (settings/get-color :text)}}
+                      :color (settings/get-color :text)
+                      :white-space "nowrap"}}
          "I tuoi progetti"]
+        ;; Filter input
+        [:div {:style {:flex 1
+                       :max-width "300px"}}
+         [:input {:type "text"
+                  :placeholder "Cerca nei metadati..."
+                  :value @filter-text
+                  :on-change #(reset! filter-text (-> % .-target .-value))
+                  :on-key-down (fn [e]
+                                 (when (= (.-key e) "Escape")
+                                   (reset! filter-text "")))
+                  :style {:width "100%"
+                          :padding "8px 12px"
+                          :border (str "1px solid " (settings/get-color :border))
+                          :border-radius "4px"
+                          :background (settings/get-color :editor-bg)
+                          :color (settings/get-color :text)
+                          :font-size "0.9rem"}}]]
         [:div {:style {:display "flex" :gap "10px"}}
          [:button {:on-click #(reset! show-import-form? true)
                    :style {:padding "8px 16px"
@@ -467,64 +574,26 @@
                            :border-radius "4px"
                            :cursor "pointer"}}
           "↑ " (t :import)]
-         [:button {:on-click #(reset! show-create-form? true)
+         [:button {:on-click (fn []
+                              (when-not @creating?
+                                (reset! creating? true)
+                                (let [project-name (generate-project-name)]
+                                  (-> (api/create-project! project-name "")
+                                      (.then (fn [result]
+                                               (reset! creating? false)
+                                               (when (:ok result)
+                                                 (load-projects!)
+                                                 (when on-create
+                                                   (on-create (get-in result [:data :project]))))))))))
+                   :disabled @creating?
                    :style {:padding "8px 16px"
                            :background (settings/get-color :accent)
                            :color "white"
                            :border "none"
                            :border-radius "4px"
-                           :cursor "pointer"}}
-          "+ Nuovo progetto"]]]
-
-       ;; Create form
-       (when @show-create-form?
-         [:div {:style {:background (settings/get-color :sidebar)
-                        :border (str "1px solid " (settings/get-color :border))
-                        :border-radius "6px"
-                        :padding "15px"
-                        :margin-bottom "20px"}}
-          [:div {:style {:display "flex" :gap "10px"}}
-           [:input {:type "text"
-                    :placeholder "Nome del progetto"
-                    :value @new-project-name
-                    :on-change #(reset! new-project-name (-> % .-target .-value))
-                    :disabled @creating?
-                    :style {:flex 1
-                            :padding "8px 12px"
-                            :border (str "1px solid " (settings/get-color :border))
-                            :border-radius "4px"
-                            :background (settings/get-color :editor-bg)
-                            :color (settings/get-color :text)}}]
-           [:button {:on-click (fn []
-                                 (when (seq @new-project-name)
-                                   (reset! creating? true)
-                                   (-> (api/create-project! @new-project-name "")
-                                       (.then (fn [result]
-                                                (reset! creating? false)
-                                                (when (:ok result)
-                                                  (reset! new-project-name "")
-                                                  (reset! show-create-form? false)
-                                                  (load-projects!)
-                                                  (when on-create
-                                                    (on-create (get-in result [:data :project])))))))))
-                     :disabled (or @creating? (empty? @new-project-name))
-                     :style {:padding "8px 16px"
-                             :background (settings/get-color :accent)
-                             :color "white"
-                             :border "none"
-                             :border-radius "4px"
-                             :cursor "pointer"
-                             :opacity (if (or @creating? (empty? @new-project-name)) 0.5 1)}}
-            (if @creating? "..." "Crea")]
-           [:button {:on-click #(do (reset! show-create-form? false)
-                                    (reset! new-project-name ""))
-                     :style {:padding "8px 12px"
-                             :background "transparent"
-                             :color (settings/get-color :text-muted)
-                             :border (str "1px solid " (settings/get-color :border))
-                             :border-radius "4px"
-                             :cursor "pointer"}}
-            "Annulla"]]])
+                           :cursor "pointer"
+                           :opacity (if @creating? 0.5 1)}}
+          (if @creating? "..." "+ Nuovo progetto")]]]
 
        ;; Import form
        (when @show-import-form?
@@ -675,21 +744,35 @@
 
        ;; Projects grid
        (when (and (not @loading?) @projects)
-         (if (empty? @projects)
-           [:div {:style {:text-align "center"
-                          :padding "40px"
-                          :color (settings/get-color :text-muted)}}
-            "Nessun progetto. Crea il tuo primo progetto!"]
-           [:div {:style {:display "grid"
-                          :grid-template-columns "repeat(auto-fill, minmax(280px, 1fr))"
-                          :gap "15px"}}
-            (for [project @projects]
-              ^{:key (:id project)}
-              [project-card {:project project
-                             :on-open on-open
-                             :duplicating-id duplicating-id
-                             :confirm-delete-id confirm-delete-id
-                             :load-projects! load-projects!}])]))])))
+         (let [query (str/trim @filter-text)
+               filtered-projects (if (empty? query)
+                                   @projects
+                                   (filter (fn [p]
+                                             (let [metadata (parse-metadata-cache p)
+                                                   ;; Also search in project name
+                                                   metadata-with-name (assoc metadata :name (:name p))]
+                                               (fuzzy-match? query metadata-with-name)))
+                                           @projects))]
+           (if (empty? @projects)
+             [:div {:style {:text-align "center"
+                            :padding "40px"
+                            :color (settings/get-color :text-muted)}}
+              "Nessun progetto. Crea il tuo primo progetto!"]
+             (if (and (seq query) (empty? filtered-projects))
+               [:div {:style {:text-align "center"
+                              :padding "40px"
+                              :color (settings/get-color :text-muted)}}
+                "Nessun progetto corrisponde alla ricerca."]
+               [:div {:style {:display "grid"
+                              :grid-template-columns "repeat(auto-fill, minmax(280px, 1fr))"
+                              :gap "15px"}}
+                (for [project filtered-projects]
+                  ^{:key (:id project)}
+                  [project-card {:project project
+                                 :on-open on-open
+                                 :duplicating-id duplicating-id
+                                 :confirm-delete-id confirm-delete-id
+                                 :load-projects! load-projects!}])]))))])))
 
 
 ;; =============================================================================
@@ -698,7 +781,7 @@
 
 (defn modal-wrapper
   "Reusable modal wrapper that handles:
-   - Overlay with click-outside to close
+   - Overlay with optional click-outside to close
    - ESC key to close
    - Focus management (focus once on mount)
    - Stop propagation of keyboard events
@@ -708,18 +791,19 @@
    - on-close: function to call when closing
    - on-enter: optional function to call on Enter key (if not in input/textarea/select)
    - disable-esc?: optional atom or function that returns true to disable ESC handling
+   - disable-click-outside?: if true, clicking outside won't close (default false)
    - z-index: z-index for the modal (default 2000)
    - width: width of the modal content (default \"450px\")
    - max-height: max height (default \"80vh\")
    - title: optional title for the header
    - show-close-button?: whether to show the X button (default true)
    - children: the modal content"
-  [{:keys [_on-close _on-enter _disable-esc? _z-index _width _max-height _title _show-close-button?]}]
+  [{:keys [_on-close _on-enter _disable-esc? _disable-click-outside? _z-index _width _max-height _title _show-close-button?]}]
   (let [el-ref (atom nil)
         mounted? (atom false)
         was-blocked? (atom false)]
-    (fn [{:keys [on-close on-enter disable-esc? z-index width max-height title show-close-button?]
-          :or {z-index 2000 width "450px" max-height "80vh" show-close-button? true}}
+    (fn [{:keys [on-close on-enter disable-esc? disable-click-outside? z-index width max-height title show-close-button?]
+          :or {z-index 2000 width "450px" max-height "80vh" show-close-button? true disable-click-outside? false}}
          & children]
       ;; Re-focus only when child modal closes (disable-esc? transitions from true to false)
       (let [child-blocking? (cond
@@ -748,7 +832,8 @@
                                (.focus el))))
              ;; Use mousedown to avoid closing when text selection drag ends outside
              :on-mouse-down (fn [e]
-                              (when (= (.-target e) (.-currentTarget e))
+                              (when (and (not disable-click-outside?)
+                                         (= (.-target e) (.-currentTarget e)))
                                 (on-close)))
              :on-key-down (fn [e]
                             ;; Always stop propagation
@@ -824,8 +909,8 @@
                                       ;; Cache display names globally
                                       (auth/cache-users-from-collaborators! collab-data))
                                     (reset! error (:error result))))))
-                     ;; Load all users for selection
-                     (-> (api/list-users)
+                     ;; Load all users for selection (basic info, available to all users)
+                     (-> (api/list-users-basic)
                          (.then (fn [result]
                                   (reset! loading? false)
                                   (when (:ok result)
@@ -1015,7 +1100,9 @@
 (defn collaborators-modal
   "Modal wrapper for collaborators panel"
   [{:keys [project-id on-close]}]
-  [modal-wrapper {:on-close on-close :title "Collaboratori"}
+  [modal-wrapper {:on-close on-close
+                  :title "Collaboratori"
+                  :disable-click-outside? true}
    [collaborators-panel {:project-id project-id}]])
 
 ;; =============================================================================

@@ -654,20 +654,21 @@
 (def ^:private max-history-size 100)
 
 (defonce history
-  (r/atom {:states []      ; vector of {:chunks [...] :selected-id ...}
+  (r/atom {:states []      ; vector of {:chunks [...] :selected-id ... :metadata {...}}
            :current -1     ; index of current state (-1 = no history yet)
            :checkpoints []}))
 
 (defn- get-snapshot
-  "Get a snapshot of the current state for history"
+  "Get a snapshot of the current state for history (includes metadata)"
   []
   {:chunks (:chunks @app-state)
-   :selected-id (:selected-id @app-state)})
+   :selected-id (:selected-id @app-state)
+   :metadata (:metadata @app-state)})
 
 (defn- restore-snapshot!
   "Restore app state from a snapshot (without triggering history push)"
   [snapshot]
-  (swap! app-state merge (select-keys snapshot [:chunks :selected-id])))
+  (swap! app-state merge (select-keys snapshot [:chunks :selected-id :metadata])))
 
 (defn push-history!
   "Push current state to history. Called after state changes."
@@ -1996,9 +1997,11 @@
   (or (not-empty (:title (:metadata @app-state))) "Senza titolo"))
 
 (defn update-metadata!
-  "Update metadata with given changes"
+  "Update metadata with given changes. Pushes to history for undo support."
   [changes]
   (let [old-title (get-in @app-state [:metadata :title])]
+    ;; Push current state to history before making changes (for undo)
+    (push-history!)
     (swap! app-state update :metadata merge changes)
     ;; If title changed, notify callback (for server mode sync)
     (when (and (:title changes)

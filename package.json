@@ -17,6 +17,7 @@
   "devDependencies": {
     "@playwright/test": "^1.57.0",
     "@tauri-apps/cli": "^2.9.6",
+    "better-sqlite3": "^12.6.0",
     "shadow-cljs": "^2.28.0"
   },
   "dependencies": {

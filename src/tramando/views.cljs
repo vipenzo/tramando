@@ -107,13 +107,12 @@
                    :z-index 1000}
            :tab-index -1
            :ref (fn [el] (when el (.focus el)))
-           ;; Use mousedown to avoid closing when text selection drag ends outside
-           :on-mouse-down #(when (= (.-target %) (.-currentTarget %))
-                             (reset! settings/settings-open? false))
+           ;; Click outside does NOT close - must use Save button or Escape
            :on-key-down (fn [e]
                           (.stopPropagation e)
                           (when (= "Escape" (.-key e))
                             (.preventDefault e)
+                            (settings/save-settings!)
                             (reset! settings/settings-open? false)))}
      [:div {:style {:background (settings/get-color :sidebar)
                     :border-radius "8px"
@@ -695,15 +694,50 @@
 ;; =============================================================================
 
 (defn metadata-modal []
-  (let [el-ref (atom nil)]
+  ;; Capture initial metadata ONCE when component is created (not on each render)
+  (let [initial-metadata (model/get-metadata)
+        el-ref (atom nil)
+        ;; Local atoms initialized with current values - all editing happens locally
+        ;; Changes are only applied to model on explicit "Save"
+        local-title (r/atom (or (:title initial-metadata) ""))
+        local-author (r/atom (or (:author initial-metadata) ""))
+        local-year (r/atom (:year initial-metadata))
+        local-isbn (r/atom (or (:isbn initial-metadata) ""))
+        local-publisher (r/atom (or (:publisher initial-metadata) ""))
+        local-language (r/atom (or (:language initial-metadata) "it"))
+        local-custom (r/atom (or (:custom initial-metadata) {}))
+        ;; Track if there are unsaved changes
+        has-changes? (fn []
+                       (let [current (model/get-metadata)]
+                         (or (not= @local-title (or (:title current) ""))
+                             (not= @local-author (or (:author current) ""))
+                             (not= @local-year (:year current))
+                             (not= @local-isbn (or (:isbn current) ""))
+                             (not= @local-publisher (or (:publisher current) ""))
+                             (not= @local-language (or (:language current) "it"))
+                             (not= @local-custom (or (:custom current) {})))))
+        ;; Save all changes to model
+        save-changes! (fn []
+                        (model/update-metadata! {:title @local-title
+                                                 :author @local-author
+                                                 :year @local-year
+                                                 :isbn @local-isbn
+                                                 :publisher @local-publisher
+                                                 :language @local-language
+                                                 :custom @local-custom})
+                        (reset! metadata-open? false))
+        ;; Cancel and close without saving
+        cancel! (fn []
+                  (reset! metadata-open? false))]
     (r/create-class
      {:component-did-mount
-      (fn [_] (when @el-ref (.focus @el-ref)))
+      (fn [_]
+        (when @el-ref (.focus @el-ref)))
 
       :reagent-render
       (fn []
-        (let [metadata (model/get-metadata)
-              _ @i18n/current-lang]  ; subscribe to language changes
+        ;; Only subscribe to language changes for translations
+        (let [_ @i18n/current-lang]
           [:div {:style {:position "fixed"
                          :top 0 :left 0 :right 0 :bottom 0
                          :background "rgba(0,0,0,0.7)"
@@ -713,14 +747,17 @@
                          :z-index 1000}
                  :tab-index -1
                  :ref #(reset! el-ref %)
-                 ;; Use mousedown to avoid closing when text selection drag ends outside
-                 :on-mouse-down #(when (= (.-target %) (.-currentTarget %))
-                                   (reset! metadata-open? false))
+                 ;; Click outside does NOT close - must use Save/Cancel buttons
                  :on-key-down (fn [e]
                                 (.stopPropagation e)
-                                (when (= "Escape" (.-key e))
-                                  (.preventDefault e)
-                                  (reset! metadata-open? false)))}
+                                (let [tag-name (.-tagName (.-target e))]
+                                  (case (.-key e)
+                                    "Escape" (do (.preventDefault e) (cancel!))
+                                    ;; Enter to save (unless in textarea)
+                                    "Enter" (when (not= tag-name "TEXTAREA")
+                                              (.preventDefault e)
+                                              (save-changes!))
+                                    nil)))}
      [:div {:style {:background (settings/get-color :sidebar)
                     :border-radius "8px"
                     :padding "24px"
@@ -758,7 +795,7 @@
                         :margin-bottom "6px"}}
         (t :title-required)]
        [:input {:type "text"
-                :value (or (:title metadata) "")
+                :value @local-title
                 :placeholder (t :project-title-placeholder)
                 :style {:width "100%"
                         :background (settings/get-color :editor-bg)
@@ -768,7 +805,7 @@
                         :padding "10px"
                         :font-size "1rem"
                         :box-sizing "border-box"}
-                :on-change #(model/update-metadata! {:title (-> % .-target .-value)})}]]
+                :on-change #(reset! local-title (-> % .-target .-value))}]]
 
       ;; Author
       [:div {:style {:margin-bottom "16px"}}
@@ -778,7 +815,7 @@
                         :margin-bottom "6px"}}
         (t :author)]
        [:input {:type "text"
-                :value (or (:author metadata) "")
+                :value @local-author
                 :placeholder (t :author-placeholder)
                 :style {:width "100%"
                         :background (settings/get-color :editor-bg)
@@ -788,7 +825,7 @@
                         :padding "10px"
                         :font-size "0.9rem"
                         :box-sizing "border-box"}
-                :on-change #(model/update-metadata! {:author (-> % .-target .-value)})}]]
+                :on-change #(reset! local-author (-> % .-target .-value))}]]
 
       ;; Language and Year row
       [:div {:style {:display "flex" :gap "16px" :margin-bottom "16px"}}
@@ -798,7 +835,7 @@
                          :display "block"
                          :margin-bottom "6px"}}
          (t :language)]
-        [:select {:value (or (:language metadata) "it")
+        [:select {:value @local-language
                   :style {:width "100%"
                           :background (settings/get-color :editor-bg)
                           :border (str "1px solid " (settings/get-color :border))
@@ -807,7 +844,7 @@
                           :padding "10px"
                           :font-size "0.9rem"
                           :cursor "pointer"}
-                  :on-change #(model/update-metadata! {:language (-> % .-target .-value)})}
+                  :on-change #(reset! local-language (-> % .-target .-value))}
          (for [[code label] model/available-languages]
            ^{:key code}
            [:option {:value code} label])]]
@@ -818,7 +855,7 @@
                          :margin-bottom "6px"}}
          (t :year)]
         [:input {:type "number"
-                 :value (or (:year metadata) "")
+                 :value (or @local-year "")
                  :placeholder "2024"
                  :style {:width "100%"
                          :background (settings/get-color :editor-bg)
@@ -828,9 +865,9 @@
                          :padding "10px"
                          :font-size "0.9rem"
                          :box-sizing "border-box"}
-                 :on-change #(let [v (-> % .-target .-value)]
-                               (model/update-metadata!
-                                {:year (when (seq v) (js/parseInt v))}))}]]]
+                 :on-change #(let [v (-> % .-target .-value)
+                                   parsed (when (seq v) (js/parseInt v))]
+                               (reset! local-year parsed))}]]]
 
       ;; ISBN and Publisher row
       [:div {:style {:display "flex" :gap "16px" :margin-bottom "16px"}}
@@ -841,7 +878,7 @@
                          :margin-bottom "6px"}}
          (t :isbn)]
         [:input {:type "text"
-                 :value (or (:isbn metadata) "")
+                 :value @local-isbn
                  :placeholder "978-..."
                  :style {:width "100%"
                          :background (settings/get-color :editor-bg)
@@ -851,7 +888,7 @@
                          :padding "10px"
                          :font-size "0.9rem"
                          :box-sizing "border-box"}
-                 :on-change #(model/update-metadata! {:isbn (-> % .-target .-value)})}]]
+                 :on-change #(reset! local-isbn (-> % .-target .-value))}]]
        [:div {:style {:flex 1}}
         [:label {:style {:color (settings/get-color :text)
                          :font-size "0.85rem"
@@ -859,7 +896,7 @@
                          :margin-bottom "6px"}}
          (t :publisher)]
         [:input {:type "text"
-                 :value (or (:publisher metadata) "")
+                 :value @local-publisher
                  :placeholder (t :publisher-placeholder)
                  :style {:width "100%"
                          :background (settings/get-color :editor-bg)
@@ -869,7 +906,7 @@
                          :padding "10px"
                          :font-size "0.9rem"
                          :box-sizing "border-box"}
-                 :on-change #(model/update-metadata! {:publisher (-> % .-target .-value)})}]]]
+                 :on-change #(reset! local-publisher (-> % .-target .-value))}]]]
 
       ;; Custom fields section
       [:div {:style {:margin-bottom "16px"
@@ -882,8 +919,8 @@
                         :margin-bottom "12px"}}
         (t :custom-fields)]
 
-       ;; Existing custom fields
-       (for [[k v] (:custom metadata)]
+       ;; Existing custom fields (from local-custom atom)
+       (for [[k v] @local-custom]
          ^{:key (name k)}
          [:div {:style {:display "flex" :gap "8px" :margin-bottom "8px" :align-items "center"}}
           [:input {:type "text"
@@ -905,17 +942,17 @@
                            :color (settings/get-color :text)
                            :padding "8px"
                            :font-size "0.85rem"}
-                   :on-change #(model/set-custom-field! k (-> % .-target .-value))}]
+                   :on-change #(swap! local-custom assoc k (-> % .-target .-value))}]
           [:button {:style {:background "transparent"
                             :border "none"
                             :color (settings/get-color :accent)
                             :cursor "pointer"
                             :font-size "1.2rem"
                             :padding "4px 8px"}
-                    :on-click #(model/remove-custom-field! k)}
+                    :on-click #(swap! local-custom dissoc k)}
            "×"]])
 
-       ;; Add new custom field
+       ;; Add new custom field (locally)
        [:div {:style {:display "flex" :gap "8px" :align-items "center"}}
         [:input {:type "text"
                  :value @new-custom-key
@@ -949,13 +986,22 @@
                   :disabled (empty? @new-custom-key)
                   :on-click (fn []
                               (when (seq @new-custom-key)
-                                (model/set-custom-field! @new-custom-key @new-custom-value)
+                                (swap! local-custom assoc (keyword @new-custom-key) @new-custom-value)
                                 (reset! new-custom-key "")
                                 (reset! new-custom-value "")))}
          "+"]]]
 
-      ;; Close button
-      [:div {:style {:display "flex" :justify-content "flex-end" :margin-top "20px"}}
+      ;; Save/Cancel buttons
+      [:div {:style {:display "flex" :justify-content "flex-end" :gap "12px" :margin-top "20px"}}
+       [:button {:style {:background "transparent"
+                         :color (settings/get-color :text-muted)
+                         :border (str "1px solid " (settings/get-color :border))
+                         :padding "10px 20px"
+                         :border-radius "4px"
+                         :cursor "pointer"
+                         :font-size "0.9rem"}
+                 :on-click cancel!}
+        (t :cancel)]
        [:button {:style {:background (settings/get-color :accent)
                          :color "white"
                          :border "none"
@@ -963,8 +1009,8 @@
                          :border-radius "4px"
                          :cursor "pointer"
                          :font-size "0.9rem"}
-                 :on-click #(reset! metadata-open? false)}
-        (t :close)]]]]))})))
+                 :on-click save-changes!}
+        (t :save)]]]]))})))
 
 ;; =============================================================================
 ;; Tutorial Modal
