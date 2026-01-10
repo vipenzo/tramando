@@ -362,3 +362,13 @@ Contenuto."
       (is (not (:ok? result)))
       ;; Should have: duplicate-id, missing-parent, dangling-aspect
       (is (>= (count (:errors result)) 2)))))
+
+(deftest validate-quotes-in-summary-test
+  (testing "summary containing quotes is detected as invalid"
+    (let [chunks [{:id "cap1" :summary "He said \"ciao\"" :content "Test"
+                   :parent-id nil :aspects #{}}]
+          result (model/validate-project chunks)]
+      (is (not (:ok? result)))
+      (is (= 1 (count (:errors result))))
+      (is (= :invalid-summary (:type (first (:errors result)))))
+      (is (= "cap1" (:id (first (:errors result))))))))

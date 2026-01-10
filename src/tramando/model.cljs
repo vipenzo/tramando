@@ -187,6 +187,22 @@
                                               "' references non-existent aspect '"
                                               asp-id "'")}))))))))
 
+(defn- check-invalid-summaries
+  "Check for invalid characters in chunk summaries.
+   Quotes are forbidden because they break the [C:id\"summary\"] format."
+  [chunks]
+  (->> chunks
+       (filter (fn [chunk]
+                 (and (:summary chunk)
+                      (str/includes? (:summary chunk) "\""))))
+       (map (fn [chunk]
+              {:type :invalid-summary
+               :id (:id chunk)
+               :summary (:summary chunk)
+               :message (str "Chunk '" (:id chunk)
+                             "' has invalid summary containing quotes: \""
+                             (:summary chunk) "\"")}))))
+
 (defn validate-project
   "Validate a collection of chunks for structural integrity.
    Returns {:ok? true} if valid, or {:ok? false :errors [...]} with error details.
@@ -195,13 +211,15 @@
    - Duplicate IDs
    - Parent IDs that don't exist
    - Cycles in parent-child graph
-   - Aspect references to non-existent IDs"
+   - Aspect references to non-existent IDs
+   - Invalid characters in summaries (quotes)"
   [chunks]
   (let [all-ids (set (map :id chunks))
         all-errors (concat (check-duplicate-ids chunks)
                            (check-missing-parents chunks all-ids)
                            (check-cycles chunks)
-                           (check-dangling-aspects chunks all-ids))]
+                           (check-dangling-aspects chunks all-ids)
+                           (check-invalid-summaries chunks))]
     (if (empty? all-errors)
       {:ok? true}
       {:ok? false :errors (vec all-errors)})))
