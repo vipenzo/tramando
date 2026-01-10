@@ -68,6 +68,48 @@ Intro capitolo.
       (is (= "scena1" (:parent-id beat1)))
       (is (= "cap1" (:parent-id scena2))))))
 
+(deftest parse-multiple-chapters-test
+  (testing "parsing multiple chapters with interleaved scenes"
+    (let [input "[C:cap1\"Capitolo 1\"]
+Intro primo capitolo.
+
+  [C:scena1-1\"Scena 1.1\"]
+  Prima scena del primo capitolo.
+
+  [C:scena1-2\"Scena 1.2\"]
+  Seconda scena del primo capitolo.
+
+[C:cap2\"Capitolo 2\"]
+Intro secondo capitolo.
+
+  [C:scena2-1\"Scena 2.1\"]
+  Prima scena del secondo capitolo.
+
+    [C:beat2-1-1\"Beat profondo\"]
+    Dettaglio annidato nel secondo capitolo.
+
+  [C:scena2-2\"Scena 2.2\"]
+  Seconda scena del secondo capitolo.
+
+[C:cap3\"Capitolo 3\"]
+Terzo capitolo senza scene."
+          result (model/parse-file input)
+          chunks (:chunks result)
+          get-chunk (fn [id] (first (filter #(= id (:id %)) chunks)))]
+      ;; Verify count
+      (is (= 8 (count chunks)))
+      ;; Verify root chapters have no parent
+      (is (nil? (:parent-id (get-chunk "cap1"))))
+      (is (nil? (:parent-id (get-chunk "cap2"))))
+      (is (nil? (:parent-id (get-chunk "cap3"))))
+      ;; Verify scenes belong to correct chapters
+      (is (= "cap1" (:parent-id (get-chunk "scena1-1"))))
+      (is (= "cap1" (:parent-id (get-chunk "scena1-2"))))
+      (is (= "cap2" (:parent-id (get-chunk "scena2-1"))))
+      (is (= "cap2" (:parent-id (get-chunk "scena2-2"))))
+      ;; Verify deep nesting
+      (is (= "scena2-1" (:parent-id (get-chunk "beat2-1-1")))))))
+
 (deftest parse-aspects-test
   (testing "parsing chunk with aspects"
     (let [input "[C:scena1\"Scena al bar\"][@Mario][@BarCentrale]
@@ -241,3 +283,82 @@ Contenuto."
           serialized (model/serialize-chunks chunks)]
       (is (clojure.string/includes? serialized "[C:cap1\"Test\"]"))
       (is (not (clojure.string/includes? serialized "[@"))))))
+
+;; =============================================================================
+;; Validation Tests
+;; =============================================================================
+
+(deftest validate-valid-project-test
+  (testing "valid project returns ok"
+    (let [chunks [{:id "cap1" :summary "Capitolo 1" :content "Test"
+                   :parent-id nil :aspects #{}}
+                  {:id "scena1" :summary "Scena 1" :content "Test"
+                   :parent-id "cap1" :aspects #{"cap1"}}]
+          result (model/validate-project chunks)]
+      (is (:ok? result))
+      (is (nil? (:errors result))))))
+
+(deftest validate-duplicate-ids-test
+  (testing "duplicate IDs are detected"
+    (let [chunks [{:id "cap1" :summary "Capitolo 1" :content "Test"
+                   :parent-id nil :aspects #{}}
+                  {:id "cap1" :summary "Capitolo 1 bis" :content "Test"
+                   :parent-id nil :aspects #{}}]
+          result (model/validate-project chunks)]
+      (is (not (:ok? result)))
+      (is (= 1 (count (:errors result))))
+      (is (= :duplicate-id (:type (first (:errors result)))))
+      (is (= "cap1" (:id (first (:errors result))))))))
+
+(deftest validate-missing-parent-test
+  (testing "missing parent-id is detected"
+    (let [chunks [{:id "cap1" :summary "Capitolo 1" :content "Test"
+                   :parent-id nil :aspects #{}}
+                  {:id "scena1" :summary "Scena 1" :content "Test"
+                   :parent-id "nonexistent" :aspects #{}}]
+          result (model/validate-project chunks)]
+      (is (not (:ok? result)))
+      (is (= 1 (count (:errors result))))
+      (is (= :missing-parent (:type (first (:errors result)))))
+      (is (= "scena1" (:id (first (:errors result)))))
+      (is (= "nonexistent" (:parent-id (first (:errors result))))))))
+
+(deftest validate-cycle-test
+  (testing "cycle in parent-child graph is detected"
+    (let [chunks [{:id "a" :summary "A" :content "Test"
+                   :parent-id "b" :aspects #{}}
+                  {:id "b" :summary "B" :content "Test"
+                   :parent-id "a" :aspects #{}}]
+          result (model/validate-project chunks)]
+      (is (not (:ok? result)))
+      (is (some #(= :cycle (:type %)) (:errors result))))))
+
+(deftest validate-self-cycle-test
+  (testing "self-referencing parent-id is detected as cycle"
+    (let [chunks [{:id "a" :summary "A" :content "Test"
+                   :parent-id "a" :aspects #{}}]
+          result (model/validate-project chunks)]
+      (is (not (:ok? result)))
+      (is (some #(= :cycle (:type %)) (:errors result))))))
+
+(deftest validate-dangling-aspect-test
+  (testing "aspect referencing non-existent chunk is detected"
+    (let [chunks [{:id "cap1" :summary "Capitolo 1" :content "Test"
+                   :parent-id nil :aspects #{"pers-999"}}]
+          result (model/validate-project chunks)]
+      (is (not (:ok? result)))
+      (is (= 1 (count (:errors result))))
+      (is (= :dangling-aspect (:type (first (:errors result)))))
+      (is (= "cap1" (:id (first (:errors result)))))
+      (is (= "pers-999" (:aspect-id (first (:errors result))))))))
+
+(deftest validate-multiple-errors-test
+  (testing "multiple errors are all reported"
+    (let [chunks [{:id "cap1" :summary "Capitolo 1" :content "Test"
+                   :parent-id nil :aspects #{"nonexistent"}}
+                  {:id "cap1" :summary "Duplicate" :content "Test"
+                   :parent-id "missing" :aspects #{}}]
+          result (model/validate-project chunks)]
+      (is (not (:ok? result)))
+      ;; Should have: duplicate-id, missing-parent, dangling-aspect
+      (is (>= (count (:errors result)) 2)))))

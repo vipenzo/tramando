@@ -122,6 +122,91 @@
                :owner owner}))
 
 ;; =============================================================================
+;; Project Validation
+;; =============================================================================
+
+(defn- check-duplicate-ids
+  "Check for duplicate IDs in chunks"
+  [chunks]
+  (let [id-counts (frequencies (map :id chunks))
+        duplicate-ids (keep (fn [[id cnt]] (when (> cnt 1) id)) id-counts)]
+    (map (fn [id]
+           {:type :duplicate-id
+            :id id
+            :message (str "Duplicate ID: " id)})
+         duplicate-ids)))
+
+(defn- check-missing-parents
+  "Check for parent-id references to non-existent chunks"
+  [chunks all-ids]
+  (->> chunks
+       (filter :parent-id)
+       (remove (fn [chunk] (contains? all-ids (:parent-id chunk))))
+       (map (fn [chunk]
+              {:type :missing-parent
+               :id (:id chunk)
+               :parent-id (:parent-id chunk)
+               :message (str "Chunk '" (:id chunk) "' has parent-id '"
+                             (:parent-id chunk) "' which does not exist")}))))
+
+(defn- check-cycles
+  "Check for cycles in parent-child graph"
+  [chunks]
+  (let [parent-map (into {} (map (fn [c] [(:id c) (:parent-id c)]) chunks))
+        find-cycle (fn [start-id]
+                     (loop [current start-id
+                            visited #{}]
+                       (cond
+                         (nil? current) nil
+                         (contains? visited current) current
+                         :else (recur (get parent-map current)
+                                      (conj visited current)))))
+        cycle-ids (->> chunks
+                       (map :id)
+                       (keep find-cycle)
+                       (set))]
+    (map (fn [id]
+           {:type :cycle
+            :id id
+            :message (str "Cycle detected involving chunk: " id)})
+         cycle-ids)))
+
+(defn- check-dangling-aspects
+  "Check for aspect references to non-existent chunks"
+  [chunks all-ids]
+  (->> chunks
+       (mapcat (fn [chunk]
+                 (when-let [aspects (seq (:aspects chunk))]
+                   (->> aspects
+                        (remove (fn [asp-id] (contains? all-ids asp-id)))
+                        (map (fn [asp-id]
+                               {:type :dangling-aspect
+                                :id (:id chunk)
+                                :aspect-id asp-id
+                                :message (str "Chunk '" (:id chunk)
+                                              "' references non-existent aspect '"
+                                              asp-id "'")}))))))))
+
+(defn validate-project
+  "Validate a collection of chunks for structural integrity.
+   Returns {:ok? true} if valid, or {:ok? false :errors [...]} with error details.
+
+   Checks performed:
+   - Duplicate IDs
+   - Parent IDs that don't exist
+   - Cycles in parent-child graph
+   - Aspect references to non-existent IDs"
+  [chunks]
+  (let [all-ids (set (map :id chunks))
+        all-errors (concat (check-duplicate-ids chunks)
+                           (check-missing-parents chunks all-ids)
+                           (check-cycles chunks)
+                           (check-dangling-aspects chunks all-ids))]
+    (if (empty? all-errors)
+      {:ok? true}
+      {:ok? false :errors (vec all-errors)})))
+
+;; =============================================================================
 ;; Parsing
 ;; =============================================================================
 ;; File format (.trmd):
