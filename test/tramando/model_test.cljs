@@ -265,6 +265,37 @@ Contenuto.
       ;; Should have both discussions merged
       (is (>= (count (:discussion merged-chunk)) 1)))))
 
+(deftest merge-idempotence-test
+  (testing "merge is idempotent: merge(merge(local, server), server) == merge(local, server)"
+    (let [server-content "[C:cap1\"Capitolo 1\"][#owner:luigi]
+Contenuto server.
+
+  [C:scena1\"Scena 1\"][#owner:luigi]
+  Testo scena server."
+          local-chunks [{:id "cap1" :summary "Capitolo 1" :content "Contenuto locale."
+                         :parent-id nil :aspects #{} :owner "filippo" :discussion []}
+                        {:id "scena1" :summary "Scena 1" :content "Testo scena locale."
+                         :parent-id "cap1" :aspects #{} :owner "filippo" :discussion []}
+                        {:id "nuovo" :summary "Nuovo locale" :content "Chunk solo locale."
+                         :parent-id nil :aspects #{} :owner "filippo" :discussion []}]
+          ;; First merge
+          result1 (model/merge-with-server-content local-chunks server-content)
+          merged1 (:merged-chunks result1)
+          ;; Second merge (merge result with same server)
+          result2 (model/merge-with-server-content merged1 server-content)
+          merged2 (:merged-chunks result2)]
+      ;; Same number of chunks
+      (is (= (count merged1) (count merged2)))
+      ;; Same chunk IDs
+      (is (= (set (map :id merged1)) (set (map :id merged2))))
+      ;; Same content for each chunk
+      (doseq [id (map :id merged1)]
+        (let [c1 (first (filter #(= id (:id %)) merged1))
+              c2 (first (filter #(= id (:id %)) merged2))]
+          (is (= (:content c1) (:content c2)) (str "Content mismatch for " id))
+          (is (= (:owner c1) (:owner c2)) (str "Owner mismatch for " id))
+          (is (= (:summary c1) (:summary c2)) (str "Summary mismatch for " id)))))))
+
 ;; =============================================================================
 ;; Edge Cases
 ;; =============================================================================
