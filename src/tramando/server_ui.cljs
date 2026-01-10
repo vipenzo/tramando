@@ -486,11 +486,14 @@
   [{:keys [project on-open duplicating-id confirm-delete-id load-projects!]}]
   (let [is-owner? (= (:user_role project) "owner")
         metadata (parse-metadata-cache project)
-        word-count (:word_count metadata)]
+        word-count (:word_count metadata)
+        has-errors? (= 1 (:has_validation_errors project))]
     [:div {:style {:background (if is-owner?
                                  (settings/get-color :sidebar)
                                  (settings/get-color :background))
-                   :border (str "1px solid " (settings/get-color :border))
+                   :border (str "1px solid " (if has-errors?
+                                               (settings/get-color :danger)
+                                               (settings/get-color :border)))
                    :border-radius "6px"
                    :padding "15px"
                    :transition "border-color 0.2s"}}
@@ -498,9 +501,17 @@
    [:div {:style {:font-weight "500"
                   :color (settings/get-color :text)
                   :margin-bottom "8px"
-                  :cursor "pointer"}
+                  :cursor "pointer"
+                  :display "flex"
+                  :align-items "center"
+                  :gap "6px"}
           :on-click #(when on-open (on-open project))}
-    (:name project)]
+    (:name project)
+    (when has-errors?
+      [:span {:title (t :validation-errors)
+              :style {:color (settings/get-color :danger)
+                      :font-size "0.9em"}}
+       "\u26A0"])]
    ;; Role, word count and date
    [:div {:style {:display "flex"
                   :justify-content "space-between"

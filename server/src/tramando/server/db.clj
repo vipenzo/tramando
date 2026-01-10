@@ -48,9 +48,10 @@
         (jdbc/execute! ds ["ALTER TABLE users ADD COLUMN notes TEXT"])))))
 
 (defn- migrate-projects-table!
-  "Add metadata_cache and disabled columns to projects table if they don't exist.
+  "Add metadata_cache, disabled, and has_validation_errors columns to projects table if they don't exist.
    metadata_cache stores JSON with: title, author, year, custom fields, word_count, char_count
-   disabled is used for soft delete (0 = active, 1 = in trash)"
+   disabled is used for soft delete (0 = active, 1 = in trash)
+   has_validation_errors flags projects with structural issues (0 = ok, 1 = has errors)"
   []
   (let [ds (get-datasource)]
     ;; Add metadata_cache column
@@ -62,7 +63,12 @@
     (try
       (jdbc/execute! ds ["SELECT disabled FROM projects LIMIT 1"])
       (catch Exception _
-        (jdbc/execute! ds ["ALTER TABLE projects ADD COLUMN disabled INTEGER DEFAULT 0"])))))
+        (jdbc/execute! ds ["ALTER TABLE projects ADD COLUMN disabled INTEGER DEFAULT 0"])))
+    ;; Add has_validation_errors column for validation flag
+    (try
+      (jdbc/execute! ds ["SELECT has_validation_errors FROM projects LIMIT 1"])
+      (catch Exception _
+        (jdbc/execute! ds ["ALTER TABLE projects ADD COLUMN has_validation_errors INTEGER DEFAULT 0"])))))
 
 (defn create-tables!
   "Create database tables if they don't exist"
@@ -207,6 +213,15 @@
     (jdbc/execute! ds
       ["UPDATE projects SET metadata_cache = ?, updated_at = datetime('now') WHERE id = ?"
        metadata-json project-id])))
+
+(defn update-project-validation-status!
+  "Update the has_validation_errors flag for a project.
+   has-errors? should be true if validation found errors, false otherwise."
+  [project-id has-errors?]
+  (let [ds (get-datasource)]
+    (jdbc/execute! ds
+      ["UPDATE projects SET has_validation_errors = ? WHERE id = ?"
+       (if has-errors? 1 0) project-id])))
 
 (defn disable-project!
   "Soft delete a project by setting disabled = 1"

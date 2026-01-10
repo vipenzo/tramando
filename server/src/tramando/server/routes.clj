@@ -93,6 +93,71 @@
       (db/update-project-metadata-cache! project-id metadata-json))))
 
 ;; =============================================================================
+;; Content Validation
+;; =============================================================================
+
+(def ^:private chunk-header-re
+  "Regex to match chunk headers: [C:id\"summary\"]..."
+  #"\[C:([^\]\"]+)\"([^\"]*)\"\]")
+
+(defn- extract-chunk-ids-and-summaries
+  "Extract all chunk IDs and summaries from TRMD content"
+  [content]
+  (when content
+    (map (fn [[_ id summary]]
+           {:id id :summary summary})
+         (re-seq chunk-header-re content))))
+
+(defn- validate-trmd-content
+  "Validate TRMD content for structural integrity.
+   Returns {:ok? true} or {:ok? false :errors [...]}
+
+   Checks:
+   - Duplicate IDs
+   - Quotes in summaries (breaks format)"
+  [content]
+  (if (str/blank? content)
+    {:ok? true}
+    (let [chunks (extract-chunk-ids-and-summaries content)
+          ;; Check duplicate IDs
+          id-counts (frequencies (map :id chunks))
+          duplicate-ids (keep (fn [[id cnt]] (when (> cnt 1) id)) id-counts)
+          duplicate-errors (map (fn [id]
+                                  {:type :duplicate-id
+                                   :id id
+                                   :message (str "Duplicate ID: " id)})
+                                duplicate-ids)
+          ;; Check quotes in summaries
+          invalid-summaries (filter #(and (:summary %)
+                                          (str/includes? (:summary %) "\""))
+                                    chunks)
+          summary-errors (map (fn [chunk]
+                                {:type :invalid-summary
+                                 :id (:id chunk)
+                                 :message (str "Summary contains quotes: " (:summary chunk))})
+                              invalid-summaries)
+          ;; Combine errors
+          all-errors (concat duplicate-errors summary-errors)]
+      (if (empty? all-errors)
+        {:ok? true}
+        {:ok? false :errors (vec all-errors)}))))
+
+(defn- validate-and-update-status!
+  "Validate content and update project validation status in DB.
+   Logs errors if found. Always saves anyway (save-anyway behavior)."
+  [project-id content]
+  (let [result (validate-trmd-content content)]
+    (if (:ok? result)
+      (db/update-project-validation-status! project-id false)
+      (do
+        ;; Log validation errors
+        (println (str "[VALIDATION] Project " project-id " has errors:"))
+        (doseq [err (:errors result)]
+          (println (str "  - " (:type err) ": " (:message err))))
+        ;; Set flag in DB
+        (db/update-project-validation-status! project-id true)))))
+
+;; =============================================================================
 ;; Auth Handlers
 ;; =============================================================================
 
@@ -149,7 +214,9 @@
         (when content
           (storage/save-project-content! (:id project) content)
           ;; Update metadata cache
-          (update-metadata-cache! (:id project) content))
+          (update-metadata-cache! (:id project) content)
+          ;; Validate content and update status flag
+          (validate-and-update-status! (:id project) content))
         {:status 201
          :body {:project project}}))))
 
@@ -206,6 +273,8 @@
               (do
                 ;; Update metadata cache with new content
                 (update-metadata-cache! project-id content)
+                ;; Validate content and update status flag (save anyway)
+                (validate-and-update-status! project-id content)
                 (let [project (db/find-project-by-id project-id)]
                   {:status 200
                    :body {:project project

@@ -537,7 +537,10 @@
     :permanent-delete "Elimina definitivamente"
     :project-restored "Progetto ripristinato"
     :project-permanently-deleted "Progetto eliminato definitivamente"
-    :empty-trash "Il cestino è vuoto"}
+    :empty-trash "Il cestino è vuoto"
+
+    ;; Validation
+    :validation-errors "Errori di validazione"}
 
    :en
    {;; General
@@ -1062,7 +1065,10 @@
     :permanent-delete "Delete permanently"
     :project-restored "Project restored"
     :project-permanently-deleted "Project permanently deleted"
-    :empty-trash "Trash is empty"}})
+    :empty-trash "Trash is empty"
+
+    ;; Validation
+    :validation-errors "Validation errors"}})
 
 ;; =============================================================================
 ;; Translation Functions
