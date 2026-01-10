@@ -68,7 +68,12 @@
     (try
       (jdbc/execute! ds ["SELECT has_validation_errors FROM projects LIMIT 1"])
       (catch Exception _
-        (jdbc/execute! ds ["ALTER TABLE projects ADD COLUMN has_validation_errors INTEGER DEFAULT 0"])))))
+        (jdbc/execute! ds ["ALTER TABLE projects ADD COLUMN has_validation_errors INTEGER DEFAULT 0"])))
+    ;; Add validation_errors column for detailed error JSON
+    (try
+      (jdbc/execute! ds ["SELECT validation_errors FROM projects LIMIT 1"])
+      (catch Exception _
+        (jdbc/execute! ds ["ALTER TABLE projects ADD COLUMN validation_errors TEXT"])))))
 
 (defn create-tables!
   "Create database tables if they don't exist"
@@ -215,13 +220,14 @@
        metadata-json project-id])))
 
 (defn update-project-validation-status!
-  "Update the has_validation_errors flag for a project.
-   has-errors? should be true if validation found errors, false otherwise."
-  [project-id has-errors?]
-  (let [ds (get-datasource)]
+  "Update the has_validation_errors flag and detailed errors for a project.
+   errors-json should be a JSON string with error details, or nil if no errors."
+  [project-id errors-json]
+  (let [ds (get-datasource)
+        has-errors? (some? errors-json)]
     (jdbc/execute! ds
-      ["UPDATE projects SET has_validation_errors = ? WHERE id = ?"
-       (if has-errors? 1 0) project-id])))
+      ["UPDATE projects SET has_validation_errors = ?, validation_errors = ? WHERE id = ?"
+       (if has-errors? 1 0) errors-json project-id])))
 
 (defn disable-project!
   "Soft delete a project by setting disabled = 1"

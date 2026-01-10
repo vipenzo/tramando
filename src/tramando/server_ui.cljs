@@ -481,13 +481,27 @@
                           :font-size "0.8rem"}}
          (t :permanent-delete)])]]))
 
+(defn- format-validation-errors
+  "Format validation errors for tooltip display"
+  [errors-json]
+  (when errors-json
+    (try
+      (let [errors (js->clj (.parse js/JSON errors-json) :keywordize-keys true)]
+        (str (t :validation-errors) ":\n"
+             (->> errors
+                  (map #(str "• " (:message %)))
+                  (clojure.string/join "\n"))))
+      (catch :default _ (t :validation-errors)))))
+
 (defn- project-card
   "Single project card with duplicate/delete actions"
   [{:keys [project on-open duplicating-id confirm-delete-id load-projects!]}]
   (let [is-owner? (= (:user_role project) "owner")
         metadata (parse-metadata-cache project)
         word-count (:word_count metadata)
-        has-errors? (= 1 (:has_validation_errors project))]
+        has-errors? (= 1 (:has_validation_errors project))
+        errors-tooltip (when has-errors?
+                         (format-validation-errors (:validation_errors project)))]
     [:div {:style {:background (if is-owner?
                                  (settings/get-color :sidebar)
                                  (settings/get-color :background))
@@ -508,9 +522,10 @@
           :on-click #(when on-open (on-open project))}
     (:name project)
     (when has-errors?
-      [:span {:title (t :validation-errors)
+      [:span {:title errors-tooltip
               :style {:color (settings/get-color :danger)
-                      :font-size "0.9em"}}
+                      :font-size "0.9em"
+                      :cursor "help"}}
        "\u26A0"])]
    ;; Role, word count and date
    [:div {:style {:display "flex"

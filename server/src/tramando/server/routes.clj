@@ -146,16 +146,17 @@
   "Validate content and update project validation status in DB.
    Logs errors if found. Always saves anyway (save-anyway behavior)."
   [project-id content]
-  (let [result (validate-trmd-content content)]
+  (let [result (validate-trmd-content content)
+        file-path (storage/project-file-path project-id)]
     (if (:ok? result)
-      (db/update-project-validation-status! project-id false)
-      (do
-        ;; Log validation errors
-        (println (str "[VALIDATION] Project " project-id " has errors:"))
+      (db/update-project-validation-status! project-id nil)
+      (let [errors-json (json/generate-string (:errors result))]
+        ;; Log validation errors with file path
+        (println (str "[VALIDATION] Project " project-id " (" file-path ") has errors:"))
         (doseq [err (:errors result)]
-          (println (str "  - " (:type err) ": " (:message err))))
-        ;; Set flag in DB
-        (db/update-project-validation-status! project-id true)))))
+          (println (str "  - " (name (:type err)) ": " (:message err))))
+        ;; Save errors to DB
+        (db/update-project-validation-status! project-id errors-json)))))
 
 ;; =============================================================================
 ;; Auth Handlers
