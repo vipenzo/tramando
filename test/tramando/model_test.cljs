@@ -387,3 +387,68 @@ Contenuto."
       (is (= 1 (count (:errors result))))
       (is (= :invalid-summary (:type (first (:errors result)))))
       (is (= "cap1" (:id (first (:errors result))))))))
+
+;; =============================================================================
+;; Proposal Tests
+;; =============================================================================
+
+(deftest proposal-insert-basic-test
+  (testing "insert proposal marker in content"
+    (let [content "Il gatto nero corre."
+          ;; Select "gatto nero" (positions 3-13)
+          result (model/insert-proposal-in-content content 3 13 "cane bianco" "mario")]
+      (is (clojure.string/includes? result "[!PROPOSAL:gatto nero:Pmario:"))
+      (is (clojure.string/includes? result "Il "))
+      (is (clojure.string/includes? result " corre.")))))
+
+(deftest proposal-with-whitespace-test
+  (testing "proposal with leading/trailing whitespace in selection"
+    (let [content "Testo con  spazi  extra."
+          ;; "Testo con  spazi  extra." has double spaces
+          ;; positions 9-17 selects "  spazi " (two leading spaces, one trailing)
+          result (model/insert-proposal-in-content content 9 17 "parole" "luigi")]
+      ;; The marker should contain the exact selected whitespace
+      (is (clojure.string/includes? result "[!PROPOSAL:  spazi :Pluigi:")))))
+
+(deftest proposal-with-regex-special-chars-test
+  (testing "proposal with regex special characters in text"
+    (let [content "Formula: (a+b)*c = x?"
+          ;; Select "(a+b)*c = x?" - lots of regex special chars
+          result (model/insert-proposal-in-content content 9 21 "y^2" "mario")]
+      (is (clojure.string/includes? result "[!PROPOSAL:(a+b)*c = x?:Pmario:"))
+      ;; Verify the marker is properly formed
+      (is (clojure.string/includes? result "Formula: [!PROPOSAL:")))))
+
+(deftest proposal-marker-roundtrip-test
+  (testing "make-proposal-marker creates valid marker"
+    (let [original-text "vecchio"
+          proposed-text "nuovo"
+          marker (model/make-proposal-marker original-text proposed-text "mario" 0)]
+      ;; Verify marker format
+      (is (clojure.string/starts-with? marker "[!PROPOSAL:vecchio:Pmario:"))
+      (is (clojure.string/ends-with? marker "]"))
+      ;; Verify base64 part exists
+      (is (re-find #":P[^:]+:[A-Za-z0-9+/=]+\]$" marker)))))
+
+(deftest proposal-reject-restores-original-test
+  (testing "reject proposal restores original text including whitespace"
+    (let [original " spazi "
+          marker (model/make-proposal-marker original "senza_spazi" "luigi" 1)
+          content (str "Testo" marker "qui.")
+          annotation {:selected-text (clojure.string/trim original)
+                      :priority {:proposal-from "luigi"}}
+          result (model/reject-proposal-in-content content annotation)]
+      ;; After reject, original text (with spaces) should be restored
+      (is (clojure.string/includes? result "Testo spazi qui.")))))
+
+(deftest proposal-multiple-occurrences-test
+  (testing "proposal marker is unique even with repeated text"
+    (let [content "casa bella casa bella casa"
+          ;; Insert proposal on second "casa" (position 11-15)
+          result (model/insert-proposal-in-content content 11 15 "villa" "mario")]
+      ;; First "casa" should remain unchanged
+      (is (clojure.string/starts-with? result "casa bella "))
+      ;; Second "casa" should have the proposal
+      (is (clojure.string/includes? result "[!PROPOSAL:casa:Pmario:"))
+      ;; Third "casa" should remain unchanged
+      (is (clojure.string/ends-with? result " bella casa")))))
