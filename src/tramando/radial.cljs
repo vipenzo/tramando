@@ -133,10 +133,15 @@
                                      ;; No children: must have content
                                      (seq (:content chapter))))
                                  all-chapters)
-        total-chapters (count structural-tree)
-        chapter-angle (if (pos? total-chapters)
-                        (/ (* 2 js/Math.PI) total-chapters)
-                        0)
+        ;; Leaf-weighted distribution: each leaf gets equal angular space
+        ;; A chapter with no children counts as 1 leaf, otherwise count its children
+        leaf-count-fn (fn [chapter]
+                        (let [children (:children chapter)]
+                          (if (seq children) (count children) 1)))
+        total-leaves (reduce + (map leaf-count-fn structural-tree))
+        angle-per-leaf (if (pos? total-leaves)
+                         (/ (* 2 js/Math.PI) total-leaves)
+                         0)
         r-chapter-outer (+ r-inner (* 0.5 (- r-outer r-inner)))
         r-scene-inner r-chapter-outer
         r-scene-outer r-outer]
@@ -148,6 +153,8 @@
         (let [chapter (first chapters)
               children (:children chapter)
               child-count (count children)
+              ;; Chapter angle based on number of leaves it contains
+              chapter-angle (* angle-per-leaf (leaf-count-fn chapter))
               end-angle (+ angle chapter-angle)
               ;; Chapter layout
               chapter-layout {:id (:id chapter)
