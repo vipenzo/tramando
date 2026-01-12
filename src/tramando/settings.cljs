@@ -57,7 +57,7 @@
 (def default-settings
   {:theme :dark
    :colors (:dark default-themes)
-   :autosave-delay-ms 3000
+   :autosave-delay-ms 30000
    :language :it
    :tutorial-completed false
    :ai {:enabled false

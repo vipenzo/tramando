@@ -9,7 +9,8 @@
             [tramando.ai.templates :as templates]
             [tramando.ai.handlers :as ai-handlers]
             [tramando.events :as events]
-            [tramando.auth :as auth]))
+            [tramando.auth :as auth]
+            [tramando.store.remote :as remote]))
 
 ;; =============================================================================
 ;; Context Menu State
@@ -38,6 +39,12 @@
                                      :selected-text nil
                                      :priority ""
                                      :comment ""}))
+
+;; State for proposal create modal
+(defonce proposal-modal-state (r/atom {:visible false
+                                       :chunk nil
+                                       :selected-text nil
+                                       :proposed-text ""}))
 
 ;; Callbacks - these will be set by the main app
 (defonce on-template-action (atom nil))
@@ -108,7 +115,11 @@
 (defn show-edit-modal!
   "Show the annotation edit modal"
   [annotation]
-  (let [priority (:priority annotation)
+  ;; Get priority and comment from new EDN format (:data) or legacy format
+  (let [priority (or (get-in annotation [:data :priority])
+                     (:priority annotation))
+        ann-comment (or (get-in annotation [:data :comment])
+                        (:comment annotation))
         ;; Convert priority to string for the select (handles nil, numbers, strings, keywords)
         priority-str (cond
                        (nil? priority) ""
@@ -118,7 +129,7 @@
     (reset! edit-modal-state {:visible true
                               :annotation annotation
                               :priority priority-str
-                              :comment (or (:comment annotation) "")})))
+                              :comment (or ann-comment "")})))
 
 (defn hide-edit-modal!
   "Hide the annotation edit modal"
@@ -129,9 +140,15 @@
                             :comment ""}))
 
 (defn- build-annotation-markup
-  "Build the full annotation markup string"
-  [type selected-text priority comment]
-  (str "[!" (str/upper-case (name type)) ":" selected-text ":" (or priority "") ":" (or comment "") "]"))
+  "Build the full annotation markup string in EDN format"
+  [type text author priority comment]
+  (let [data (cond-> {:text text}
+               author (assoc :author author)
+               (and priority (seq (str priority))) (assoc :priority (if (and (string? priority) (re-matches #"\d+" priority))
+                                                                      (js/parseInt priority)
+                                                                      priority))
+               (and comment (seq comment)) (assoc :comment comment))]
+    (str "[!" (str/upper-case (name type)) (pr-str data) "]")))
 
 (defn save-annotation-edit!
   "Save the edited annotation"
@@ -139,30 +156,29 @@
   (let [{:keys [annotation priority comment]} @edit-modal-state
         chunk-id (:chunk-id annotation)
         ann-type (:type annotation)
-        selected-text (:selected-text annotation)
-        ;; Convert old priority to string for markup building
-        raw-priority (:priority annotation)
-        old-priority-str (cond
-                           (nil? raw-priority) ""
-                           (keyword? raw-priority) (name raw-priority)
-                           (number? raw-priority) (str raw-priority)
-                           :else (str raw-priority))
-        old-comment (or (:comment annotation) "")
-        ;; Build old and new markup
-        old-markup (build-annotation-markup ann-type selected-text old-priority-str old-comment)
-        new-markup (build-annotation-markup ann-type selected-text priority comment)]
-    (when (not= old-markup new-markup)
-      ;; Use editor dispatch for undo support
-      (if (events/replace-text-in-editor! old-markup new-markup)
-        (events/show-toast! (t :annotation-updated))
-        ;; Fallback: direct model update
-        (when-let [chunk (model/get-chunk chunk-id)]
-          (let [content (:content chunk)
-                new-content (str/replace-first content old-markup new-markup)]
-            (when (not= content new-content)
-              (model/update-chunk! chunk-id {:content new-content})
-              (events/refresh-editor!)
-              (events/show-toast! (t :annotation-updated)))))))
+        ;; Get text and author from new format (:data) or old format
+        selected-text (or (get-in annotation [:data :text])
+                          (:selected-text annotation))
+        author (or (get-in annotation [:data :author])
+                   (:author annotation))]
+    (when-let [chunk (model/get-chunk chunk-id)]
+      (let [content (:content chunk)
+            ;; Find the actual annotation in content by position
+            start (:start annotation)
+            end (:end annotation)
+            old-markup (when (and start end (<= 0 start) (<= end (count content)))
+                         (subs content start end))
+            new-markup (build-annotation-markup ann-type selected-text author priority comment)]
+        (when (and old-markup (not= old-markup new-markup))
+          ;; Use editor dispatch for undo support
+          (if (events/replace-text-in-editor! old-markup new-markup)
+            (events/show-toast! (t :annotation-updated))
+            ;; Fallback: direct model update
+            (let [new-content (str (subs content 0 start) new-markup (subs content end))]
+              (when (not= content new-content)
+                (model/update-chunk! chunk-id {:content new-content})
+                (events/refresh-editor!)
+                (events/show-toast! (t :annotation-updated))))))))
     (hide-edit-modal!)))
 
 (defn annotation-edit-modal
@@ -171,8 +187,13 @@
   (let [{:keys [visible annotation priority comment]} @edit-modal-state
         colors (:colors @settings/settings)
         ann-type (:type annotation)
-        author (:author annotation)
+        ;; Get author from new EDN format (:data) or legacy format
+        author (or (get-in annotation [:data :author])
+                   (:author annotation))
         author-display (when author (auth/get-cached-display-name author))
+        ;; Get text from new EDN format (:data) or legacy format
+        selected-text (or (get-in annotation [:data :text])
+                          (:selected-text annotation))
         type-color (annotation-type-color ann-type colors)]
     (when visible
       [:div {:style {:position "fixed"
@@ -221,7 +242,7 @@
                         :border-radius "4px"
                         :color (:text colors)
                         :font-style "italic"}}
-          (:selected-text annotation)]]
+          selected-text]]
 
         ;; Priority field (decimal number with "." separator)
         [:div {:style {:margin-bottom "16px"}}
@@ -246,25 +267,30 @@
                           :font-size "0.95rem"
                           :box-sizing "border-box"}}]]
 
-        ;; Comment field
+        ;; Comment field (textarea for multi-line)
         [:div {:style {:margin-bottom "20px"}}
          [:label {:style {:display "block"
                           :color (:text-muted colors)
                           :font-size "0.85rem"
                           :margin-bottom "4px"}}
           (t :annotation-comment)]
-         [:input {:type "text"
-                  :value comment
-                  :on-change #(swap! edit-modal-state assoc :comment (.. % -target -value))
-                  :placeholder (t :comment-placeholder)
-                  :style {:width "100%"
-                          :padding "8px"
-                          :border (str "1px solid " (:border colors))
-                          :border-radius "4px"
-                          :background (:editor-bg colors)
-                          :color (:text colors)
-                          :font-size "0.95rem"
-                          :box-sizing "border-box"}}]]
+         [:textarea {:value comment
+                     :on-change #(swap! edit-modal-state assoc :comment (.. % -target -value))
+                     :on-key-down (fn [e]
+                                    (when (= (.-key e) "Escape")
+                                      (hide-edit-modal!)))
+                     :placeholder (t :comment-placeholder)
+                     :rows 3
+                     :style {:width "100%"
+                             :padding "8px"
+                             :border (str "1px solid " (:border colors))
+                             :border-radius "4px"
+                             :background (:editor-bg colors)
+                             :color (:text colors)
+                             :font-size "0.95rem"
+                             :box-sizing "border-box"
+                             :resize "vertical"
+                             :font-family "inherit"}}]]
 
         ;; Buttons
         [:div {:style {:display "flex"
@@ -382,34 +408,35 @@
                         :overflow-y "auto"}}
           selected-text]]
 
-        ;; Comment field (with auto-focus)
+        ;; Comment field (textarea for multi-line, with auto-focus)
         [:div {:style {:margin-bottom "16px"}}
          [:label {:style {:display "block"
                           :color (:text-muted colors)
                           :font-size "0.85rem"
                           :margin-bottom "4px"}}
           (t :annotation-comment)]
-         [:input {:type "text"
-                  :ref (fn [el]
-                         (when el
-                           (reset! input-ref el)
-                           ;; Auto-focus after a brief delay
-                           (js/setTimeout #(.focus el) 50)))
-                  :value comment
-                  :on-change #(swap! create-modal-state assoc :comment (.. % -target -value))
-                  :on-key-down (fn [e]
-                                 (when (= (.-key e) "Enter")
-                                   (.preventDefault e)
-                                   (confirm-create-annotation!)))
-                  :placeholder (t :comment-placeholder)
-                  :style {:width "100%"
-                          :padding "8px"
-                          :border (str "1px solid " (:border colors))
-                          :border-radius "4px"
-                          :background (:editor-bg colors)
-                          :color (:text colors)
-                          :font-size "0.95rem"
-                          :box-sizing "border-box"}}]]
+         [:textarea {:ref (fn [el]
+                            (when el
+                              (reset! input-ref el)
+                              ;; Auto-focus after a brief delay
+                              (js/setTimeout #(.focus el) 50)))
+                     :value comment
+                     :on-change #(swap! create-modal-state assoc :comment (.. % -target -value))
+                     :on-key-down (fn [e]
+                                    (when (= (.-key e) "Escape")
+                                      (hide-create-modal!)))
+                     :placeholder (t :comment-placeholder)
+                     :rows 2
+                     :style {:width "100%"
+                             :padding "8px"
+                             :border (str "1px solid " (:border colors))
+                             :border-radius "4px"
+                             :background (:editor-bg colors)
+                             :color (:text colors)
+                             :font-size "0.95rem"
+                             :box-sizing "border-box"
+                             :resize "vertical"
+                             :font-family "inherit"}}]]
 
         ;; Priority field
         [:div {:style {:margin-bottom "20px"}}
@@ -437,13 +464,6 @@
                           :font-size "0.95rem"
                           :box-sizing "border-box"}}]]
 
-        ;; Hint for Enter key
-        [:div {:style {:color (:text-dim colors)
-                       :font-size "0.75rem"
-                       :margin-bottom "16px"
-                       :text-align "center"}}
-         (t :press-enter-to-confirm)]
-
         ;; Buttons
         [:div {:style {:display "flex"
                        :justify-content "flex-end"
@@ -465,6 +485,163 @@
                            :cursor "pointer"
                            :font-weight "500"}}
           (t :add)]]]])))
+
+;; =============================================================================
+;; Proposal Create Modal
+;; =============================================================================
+
+(defn show-proposal-modal!
+  "Show the proposal create modal"
+  [chunk selected-text]
+  (reset! proposal-modal-state {:visible true
+                                :chunk chunk
+                                :selected-text selected-text
+                                :proposed-text selected-text}))
+
+(defn hide-proposal-modal!
+  "Hide the proposal create modal"
+  []
+  (reset! proposal-modal-state {:visible false
+                                :chunk nil
+                                :selected-text nil
+                                :proposed-text ""}))
+
+(defn confirm-create-proposal!
+  "Confirm and create the proposal"
+  []
+  (let [{:keys [chunk selected-text proposed-text]} @proposal-modal-state]
+    (when (and chunk (seq selected-text) (seq proposed-text) (not= proposed-text selected-text))
+      (let [content (:content chunk)
+            start (.indexOf content selected-text)]
+        (when (>= start 0)
+          (let [end (+ start (count selected-text))]
+            (model/create-proposal-in-chunk! (:id chunk) start end proposed-text)
+            (js/setTimeout #(events/refresh-editor!) 50))))))
+  (hide-proposal-modal!))
+
+(defn proposal-create-modal
+  "Modal for creating a new proposal"
+  []
+  (let [{:keys [visible selected-text proposed-text]} @proposal-modal-state
+        colors (:colors @settings/settings)
+        textarea-ref (atom nil)]
+    (when visible
+      [:div {:style {:position "fixed"
+                     :top 0 :left 0 :right 0 :bottom 0
+                     :background "rgba(0,0,0,0.5)"
+                     :display "flex"
+                     :align-items "center"
+                     :justify-content "center"
+                     :z-index 10002}
+             :on-mouse-down #(hide-proposal-modal!)
+             :on-key-down (fn [e]
+                            (case (.-key e)
+                              "Escape" (hide-proposal-modal!)
+                              nil))}
+       [:div {:style {:background (:sidebar colors)
+                      :border-radius "8px"
+                      :padding "20px"
+                      :min-width "400px"
+                      :max-width "600px"
+                      :box-shadow "0 4px 20px rgba(0,0,0,0.4)"
+                      :border-top (str "3px solid " (:accent colors))}
+              :on-mouse-down #(.stopPropagation %)}
+        ;; Title
+        [:div {:style {:display "flex"
+                       :align-items "center"
+                       :gap "10px"
+                       :margin-bottom "16px"}}
+         [:span {:style {:background (:accent colors)
+                         :color "#fff"
+                         :padding "4px 10px"
+                         :border-radius "4px"
+                         :font-size "0.85rem"
+                         :font-weight "600"}}
+          "PROPOSAL"]
+         [:span {:style {:color (:text colors)
+                         :font-size "1rem"}}
+          (t :proposal-create)]]
+
+        ;; Show original text (read-only)
+        [:div {:style {:margin-bottom "16px"}}
+         [:label {:style {:display "block"
+                          :color (:text-muted colors)
+                          :font-size "0.85rem"
+                          :margin-bottom "4px"}}
+          (t :proposal-original)]
+         [:div {:style {:background (:editor-bg colors)
+                        :padding "8px 12px"
+                        :border-radius "4px"
+                        :color (:text colors)
+                        :font-style "italic"
+                        :max-height "80px"
+                        :overflow-y "auto"
+                        :white-space "pre-wrap"}}
+          selected-text]]
+
+        ;; Proposed text field (textarea for multi-line)
+        [:div {:style {:margin-bottom "20px"}}
+         [:label {:style {:display "block"
+                          :color (:text-muted colors)
+                          :font-size "0.85rem"
+                          :margin-bottom "4px"}}
+          (t :proposal-proposed)]
+         [:textarea {:ref (fn [el]
+                            (when el
+                              (reset! textarea-ref el)
+                              (js/setTimeout #(.focus el) 50)))
+                     :value proposed-text
+                     :on-change #(swap! proposal-modal-state assoc :proposed-text (.. % -target -value))
+                     :on-key-down (fn [e]
+                                    (when (and (= (.-key e) "Enter") (.-metaKey e))
+                                      (.preventDefault e)
+                                      (confirm-create-proposal!)))
+                     :placeholder (t :proposal-enter-text)
+                     :style {:width "100%"
+                             :min-height "100px"
+                             :padding "8px"
+                             :border (str "1px solid " (:border colors))
+                             :border-radius "4px"
+                             :background (:editor-bg colors)
+                             :color (:text colors)
+                             :font-size "0.95rem"
+                             :font-family "inherit"
+                             :resize "vertical"
+                             :box-sizing "border-box"}}]]
+
+        ;; Hint for Cmd+Enter
+        [:div {:style {:color (:text-dim colors)
+                       :font-size "0.75rem"
+                       :margin-bottom "16px"
+                       :text-align "center"}}
+         "⌘+Enter " (t :press-enter-to-confirm)]
+
+        ;; Buttons
+        [:div {:style {:display "flex"
+                       :justify-content "flex-end"
+                       :gap "12px"}}
+         [:button {:on-click #(hide-proposal-modal!)
+                   :style {:padding "8px 16px"
+                           :border (str "1px solid " (:border colors))
+                           :border-radius "4px"
+                           :background "transparent"
+                           :color (:text colors)
+                           :cursor "pointer"}}
+          (t :cancel)]
+         [:button {:on-click #(confirm-create-proposal!)
+                   :disabled (or (empty? proposed-text) (= proposed-text selected-text))
+                   :style {:padding "8px 16px"
+                           :border "none"
+                           :border-radius "4px"
+                           :background (if (or (empty? proposed-text) (= proposed-text selected-text))
+                                         (:text-muted colors)
+                                         (:accent colors))
+                           :color "#fff"
+                           :cursor (if (or (empty? proposed-text) (= proposed-text selected-text))
+                                     "not-allowed"
+                                     "pointer")
+                           :font-weight "500"}}
+          (t :proposal-create)]]]])))
 
 ;; =============================================================================
 ;; AI Configuration Check
@@ -504,17 +681,8 @@
   (let [chunk (:chunk @menu-state)
         selected-text (:selected-text @menu-state)]
     (when (and chunk (seq selected-text))
-      ;; Prompt for proposed text
-      (when-let [proposed-text (js/prompt (t :proposal-enter-text) selected-text)]
-        (when (and (seq proposed-text) (not= proposed-text selected-text))
-          (let [content (:content chunk)
-                ;; Find the position of selected text in content
-                start (.indexOf content selected-text)]
-            (when (>= start 0)
-              (let [end (+ start (count selected-text))]
-                (model/create-proposal-in-chunk! (:id chunk) start end proposed-text)
-                ;; Refresh editor to update decorations
-                (js/setTimeout #(events/refresh-editor!) 50))))))))
+      ;; Show modal for entering proposed text
+      (show-proposal-modal! chunk selected-text)))
   (hide-menu!))
 
 ;; =============================================================================
@@ -661,18 +829,17 @@
   "Context menu for AI-DONE annotations showing alternatives"
   [{:keys [x y annotation chunk]}]
   (let [menu-width 280
-        selected-text (:selected-text annotation)
+        selected-text (annotations/get-text annotation)
         chunk-id (:chunk-id annotation)
         ;; Read fresh data from chunk to get current selection state
         fresh-chunk (model/get-chunk chunk-id)
         fresh-content (:content fresh-chunk)
         ;; Find the annotation in fresh content and parse its data
-        fresh-annotation (first (filter #(= (:selected-text %) selected-text)
+        fresh-annotation (first (filter #(= (annotations/get-text %) selected-text)
                                         (annotations/parse-annotations fresh-content)))
-        fresh-comment (or (:comment fresh-annotation) (:comment annotation))
-        ai-data (annotations/parse-ai-data fresh-comment)
-        alternatives (or (:alts ai-data) [])
-        current-sel (or (:sel ai-data) 0)
+        ann (or fresh-annotation annotation)
+        alternatives (or (annotations/get-ai-alternatives ann) [])
+        current-sel (or (annotations/get-ai-selection ann) 0)
         ;; Preview helper
         make-preview (fn [text]
                        (if (> (count text) 60)
@@ -839,19 +1006,18 @@
   [{:keys [x y annotation]}]
   (let [menu-width 300
         chunk-id (:chunk-id annotation)
-        original-text (:selected-text annotation)
+        original-text (annotations/get-text annotation)
         sender (annotations/get-proposal-from annotation)
         ;; Read fresh data from chunk to get current selection state
         fresh-chunk (model/get-chunk chunk-id)
         fresh-content (:content fresh-chunk)
         ;; Find the annotation in fresh content and parse its data
-        fresh-annotation (first (filter #(and (= (:selected-text %) original-text)
+        fresh-annotation (first (filter #(and (= (annotations/get-text %) original-text)
                                               (annotations/is-proposal? %))
                                         (annotations/parse-annotations fresh-content)))
-        fresh-comment (or (:comment fresh-annotation) (:comment annotation))
-        proposal-data (annotations/parse-proposal-data fresh-comment)
-        proposed-text (or (:text proposal-data) "")
-        current-sel (or (:sel proposal-data) 0)
+        ann (or fresh-annotation annotation)
+        proposed-text (or (annotations/get-proposed-text ann) "")
+        current-sel (or (annotations/get-proposal-selection ann) 0)
         ;; Preview helper
         make-preview (fn [text]
                        (if (> (count text) 60)
@@ -890,6 +1056,7 @@
               :on-mouse-out #(set! (.. % -currentTarget -style -background) (if is-original-selected? (settings/get-color :editor-bg) "transparent"))
               :on-click (fn [e]
                           (.stopPropagation e)
+                          (js/console.log "=== Clicking Original, chunk-id:" chunk-id "original-text:" original-text)
                           (model/update-proposal-selection! chunk-id original-text 0)
                           (js/setTimeout #(events/refresh-editor!) 50))}
         [:span {:style {:color (if is-original-selected? (settings/get-color :accent) (settings/get-color :text-muted))
@@ -922,6 +1089,7 @@
               :on-mouse-out #(set! (.. % -currentTarget -style -background) (if is-proposed-selected? (settings/get-color :editor-bg) "transparent"))
               :on-click (fn [e]
                           (.stopPropagation e)
+                          (js/console.log "=== Clicking Proposed, chunk-id:" chunk-id "original-text:" original-text)
                           (model/update-proposal-selection! chunk-id original-text 1)
                           (js/setTimeout #(events/refresh-editor!) 50))}
         [:span {:style {:color (if is-proposed-selected? (settings/get-color :accent) (settings/get-color :text-muted))
@@ -956,23 +1124,52 @@
                              ;; Get fresh annotation at click time (sel may have changed)
                              (let [chunk (model/get-chunk chunk-id)
                                    content (:content chunk)
-                                   current-annotation (first (filter #(and (= (:selected-text %) original-text)
-                                                                           (annotations/is-proposal? %))
-                                                                     (annotations/parse-annotations content)))
+                                   all-annotations (annotations/parse-annotations content)
+                                   proposals (filter annotations/is-proposal? all-annotations)
+                                   current-annotation (first (filter #(= (annotations/get-text %) original-text) proposals))
                                    ann (or current-annotation annotation)
-                                   sel-data (annotations/parse-proposal-data (:comment ann))
-                                   sel-now (or (:sel sel-data) 0)]
-                               (if (pos? sel-now)
-                                 ;; Apply proposed text
+                                   sel-now (or (annotations/get-proposal-selection ann) 0)
+                                   ;; Check if we're in remote mode
+                                   user-role (model/get-user-role)
+                                   remote-mode? (and user-role (not= user-role "local"))]
+                               ;; DEBUG
+                               (js/console.log "=== PROPOSAL DEBUG ===")
+                               (js/console.log "user-role:" user-role)
+                               (js/console.log "remote-mode?:" remote-mode?)
+                               (js/console.log "original-text:" original-text)
+                               (js/console.log "proposals count:" (count proposals))
+                               (js/console.log "current-annotation found?" (some? current-annotation))
+                               (js/console.log "ann :start" (:start ann))
+                               (js/console.log "ann :end" (:end ann))
+                               (js/console.log "ann :data" (pr-str (:data ann)))
+                               (js/console.log "sel-now:" sel-now)
+                               (js/console.log "content length:" (count content))
+                               (if remote-mode?
+                                 ;; Remote mode: use atomic REST API (async)
+                                 (let [position (:start ann)]
+                                   (hide-menu!)
+                                   (if (pos? sel-now)
+                                     (-> (remote/accept-proposal! chunk-id position)
+                                         (.then (fn [success]
+                                                  (when success
+                                                    (events/show-toast! (t :discussion-proposal-accepted))
+                                                    (events/refresh-editor!)))))
+                                     (-> (remote/reject-proposal! chunk-id position)
+                                         (.then (fn [success]
+                                                  (when success
+                                                    (events/show-toast! (t :discussion-proposal-rejected))
+                                                    (events/refresh-editor!)))))))
+                                 ;; Local mode: use model functions (sync)
                                  (do
-                                   (model/accept-proposal! chunk-id ann)
-                                   (events/show-toast! (t :discussion-proposal-accepted)))
-                                 ;; Keep original (reject)
-                                 (do
-                                   (model/reject-proposal! chunk-id ann)
-                                   (events/show-toast! (t :discussion-proposal-rejected)))))
-                             (events/refresh-editor!)
-                             (hide-menu!))}]]))
+                                   (if (pos? sel-now)
+                                     (do
+                                       (model/accept-proposal! chunk-id ann)
+                                       (events/show-toast! (t :discussion-proposal-accepted)))
+                                     (do
+                                       (model/reject-proposal! chunk-id ann)
+                                       (events/show-toast! (t :discussion-proposal-rejected))))
+                                   (events/refresh-editor!)
+                                   (hide-menu!)))))}]]))
 
 ;; =============================================================================
 ;; Aspect Link Context Menu
@@ -1148,7 +1345,9 @@
      ;; Annotation edit modal (rendered independently)
      [annotation-edit-modal]
      ;; Annotation create modal (for new annotation workflow)
-     [annotation-create-modal]]))
+     [annotation-create-modal]
+     ;; Proposal create modal
+     [proposal-create-modal]]))
 
 ;; =============================================================================
 ;; Event Handler for Context Menu

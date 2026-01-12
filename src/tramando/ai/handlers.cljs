@@ -16,21 +16,24 @@
             [clojure.string :as str]))
 
 ;; =============================================================================
-;; EDN Serialization for AI Annotation Data (Base64 encoded)
+;; AI Annotation EDN Format
 ;; =============================================================================
-;; Base64 encoding is used to avoid ] in EDN closing the annotation prematurely
+;; New format: [!NOTE{:text "selected" :ai :pending :author "user"}]
+;;             [!NOTE{:text "selected" :ai :done :alts ["a" "b"] :sel 0 :author "user"}]
 
-(defn serialize-ai-data
-  "Serialize alternatives and selection to Base64-encoded EDN string.
-   Uses encodeURIComponent to handle Unicode characters."
-  [alternatives selected]
-  (-> {:alts (vec alternatives) :sel selected}
-      pr-str
-      js/encodeURIComponent
-      js/btoa))
+(defn make-ai-annotation
+  "Create an AI annotation string in EDN format."
+  [text ai-state & {:keys [author alts sel]}]
+  (str "[!NOTE"
+       (pr-str (cond-> {:text text :ai ai-state}
+                 author (assoc :author author)
+                 alts (assoc :alts (vec alts))
+                 sel (assoc :sel sel)))
+       "]"))
 
+;; Legacy parsing for backwards compatibility
 (defn parse-ai-data
-  "Parse Base64-encoded EDN string to get alternatives and selection.
+  "Parse Base64-encoded EDN string (legacy format).
    Returns {:alts [...] :sel n} or nil if invalid."
   [encoded-string]
   (when (and encoded-string (not (str/blank? encoded-string)))
@@ -43,6 +46,15 @@
           data))
       (catch :default _e
         nil))))
+
+;; Legacy serialization (kept for transition period)
+(defn serialize-ai-data
+  "Serialize alternatives and selection to Base64-encoded EDN string (legacy)."
+  [alternatives selected]
+  (-> {:alts (vec alternatives) :sel selected}
+      pr-str
+      js/encodeURIComponent
+      js/btoa))
 
 ;; =============================================================================
 ;; Regex Helpers
@@ -94,14 +106,14 @@
 (defn- contains-annotation?
   "Check if text contains any annotation markers"
   [text]
-  (boolean (re-find #"\[!(TODO|NOTE|FIX|PROPOSAL)(?:@[^:]+)?:" text)))
+  (boolean (or (re-find #"\[!(TODO|NOTE|FIX|PROPOSAL)\{" text)
+               (re-find #"\[!(TODO|NOTE|FIX|PROPOSAL)(?:@[^:]+)?:" text))))
 
 (defn insert-ai-annotation!
-  "Insert [!NOTE@user:text:AI:] annotation in chunk content.
+  "Insert AI pending annotation in chunk content (EDN format).
    Called when user selects text and chooses an annotation template.
    Returns the pending key for tracking, or nil if text contains nested annotations.
-   Uses editor dispatch for proper content sync and undo support.
-   In server mode, adds @username. In Tauri/local mode, no @user is added."
+   Uses editor dispatch for proper content sync and undo support."
   [chunk-id selected-text]
   (cond
     ;; Prevent nested annotations
@@ -112,13 +124,11 @@
 
     ;; Normal case
     (and chunk-id (not (str/blank? selected-text)))
-    (let [;; Add @username if logged in (server mode)
+    (let [;; Get username if logged in (server mode)
           username (auth/get-username)
-          author-part (if (and username (not= username "local"))
-                        (str "@" username)
-                        "")
-          ;; Create the annotation markup: [!NOTE@user:text:AI:]
-          annotation-markup (str "[!NOTE" author-part ":" selected-text ":AI:]")
+          author (when (and username (not= username "local")) username)
+          ;; Create EDN annotation: [!NOTE{:text "..." :ai :pending :author "..."}]
+          annotation-markup (make-ai-annotation selected-text :pending :author author)
           pending-key (make-pending-key chunk-id selected-text)]
       ;; Try editor dispatch first (handles content sync and undo)
       (if (events/replace-text-in-editor! selected-text annotation-markup)

@@ -81,17 +81,34 @@
      "Content-Type" "application/json"}
     {"Content-Type" "application/json"}))
 
+;; Callback for session invalidation (set by auth.cljs)
+(defonce on-session-invalid (atom nil))
+
+(defn set-session-invalid-callback!
+  "Set callback to be called when server returns 401 (session invalidated)"
+  [callback]
+  (reset! on-session-invalid callback))
+
 (defn- fetch-json
-  "Make a fetch request and parse JSON response"
+  "Make a fetch request and parse JSON response.
+   Triggers session-invalid callback on 401 responses."
   [url opts]
   (-> (js/fetch url (clj->js opts))
       (.then (fn [response]
-               (-> (.json response)
-                   (.then (fn [data]
-                            (let [result (js->clj data :keywordize-keys true)]
-                              (if (.-ok response)
-                                {:ok true :data result}
-                                {:ok false :error (:error result) :status (.-status response)})))))))))
+               (let [status (.-status response)]
+                 ;; Check for 401 BEFORE parsing JSON (in case body is empty/invalid)
+                 (when (and (= status 401) @on-session-invalid)
+                   (@on-session-invalid))
+                 ;; Try to parse JSON response
+                 (-> (.json response)
+                     (.then (fn [data]
+                              (let [result (js->clj data :keywordize-keys true)]
+                                (if (.-ok response)
+                                  {:ok true :data result}
+                                  {:ok false :error (:error result) :status status}))))
+                     (.catch (fn [_]
+                               ;; JSON parsing failed, return error with status
+                               {:ok false :error "Invalid response" :status status}))))))))
 
 (defn- api-get [path]
   (fetch-json (api-url path) {:method "GET" :headers (auth-headers)}))
@@ -315,6 +332,196 @@
   "Send a chat message to a project"
   [project-id message]
   (api-post (str "/api/projects/" project-id "/chat") {:message message}))
+
+;; =============================================================================
+;; Chunk Operations API (Atomic REST)
+;; =============================================================================
+
+(defn add-chunk!
+  "Add a new chunk to the project.
+   Returns {:ok true :data {:chunk {...} :content-hash string}}
+   or {:ok false :status 403 :error string}"
+  [project-id {:keys [parent-id summary content]}]
+  (api-post (str "/api/projects/" project-id "/chunks")
+            {:parent-id parent-id
+             :summary summary
+             :content content}))
+
+(defn delete-chunk!
+  "Delete a chunk from the project.
+   Returns {:ok true :data {:success true :content-hash string}}
+   or {:ok false :status 403/404 :error string}"
+  [project-id chunk-id]
+  (api-delete (str "/api/projects/" project-id "/chunks/" chunk-id)))
+
+;; =============================================================================
+;; Aspect Operations API (Atomic REST)
+;; =============================================================================
+
+(defn add-aspect!
+  "Create a new aspect under an aspect container.
+   Returns {:ok true :data {:aspect {...} :content-hash string}}"
+  [project-id {:keys [container-id summary]}]
+  (api-post (str "/api/projects/" project-id "/aspects")
+            {:container-id container-id
+             :summary summary}))
+
+(defn delete-aspect!
+  "Delete an aspect.
+   Returns {:ok true :data {:success true :content-hash string}}"
+  [project-id aspect-id]
+  (api-delete (str "/api/projects/" project-id "/aspects/" aspect-id)))
+
+(defn add-aspect-to-chunk!
+  "Add an aspect reference to a chunk.
+   Returns {:ok true :data {:success true :content-hash string}}"
+  [project-id chunk-id aspect-id]
+  (api-post (str "/api/projects/" project-id "/chunks/" chunk-id "/aspects")
+            {:aspect-id aspect-id}))
+
+(defn remove-aspect-from-chunk!
+  "Remove an aspect reference from a chunk.
+   Returns {:ok true :data {:success true :content-hash string}}"
+  [project-id chunk-id aspect-id]
+  (api-delete (str "/api/projects/" project-id "/chunks/" chunk-id "/aspects/" aspect-id)))
+
+;; =============================================================================
+;; Annotation Operations API (Atomic REST)
+;; =============================================================================
+
+(defn add-annotation!
+  "Add an annotation to a chunk's content.
+   type: 'TODO', 'NOTE', or 'FIX'
+   selected-text: the text to annotate
+   position: character position in content (or nil to append)
+   priority: optional priority value (number or string)
+   comment: optional comment text
+   Returns {:ok true :data {:success true :chunk {...} :content-hash string}}"
+  [project-id chunk-id {:keys [type selected-text position priority comment]}]
+  (api-post (str "/api/projects/" project-id "/chunks/" chunk-id "/annotations")
+            {:type type
+             :selected-text selected-text
+             :position position
+             :priority priority
+             :comment comment}))
+
+(defn delete-annotation!
+  "Delete an annotation from a chunk's content.
+   annotation-id format: TYPE-position (e.g., 'TODO-42')
+   Returns {:ok true :data {:success true :chunk {...} :content-hash string}}"
+  [project-id chunk-id annotation-id]
+  (api-delete (str "/api/projects/" project-id "/chunks/" chunk-id "/annotations/" annotation-id)))
+
+;; =============================================================================
+;; Proposal Operations API (Atomic REST)
+;; =============================================================================
+
+(defn create-proposal!
+  "Create a proposal annotation in a chunk's content.
+   original-text: the text to replace
+   proposed-text: the suggested replacement
+   position: character position in content (or nil to find first occurrence)
+   Returns {:ok true :data {:success true :chunk {...} :content-hash string}}"
+  [project-id chunk-id {:keys [original-text proposed-text position]}]
+  (api-post (str "/api/projects/" project-id "/chunks/" chunk-id "/proposals")
+            {:original-text original-text
+             :proposed-text proposed-text
+             :position position}))
+
+(defn accept-proposal!
+  "Accept a proposal: replace annotation with proposed text.
+   position: character position of the proposal in content
+   Returns {:ok true :data {:success true :chunk {...} :content-hash string}}"
+  [project-id chunk-id position]
+  (api-post (str "/api/projects/" project-id "/chunks/" chunk-id "/proposals/accept")
+            {:position position}))
+
+(defn reject-proposal!
+  "Reject a proposal: replace annotation with original text.
+   position: character position of the proposal in content
+   Returns {:ok true :data {:success true :chunk {...} :content-hash string}}"
+  [project-id chunk-id position]
+  (api-post (str "/api/projects/" project-id "/chunks/" chunk-id "/proposals/reject")
+            {:position position}))
+
+;; =============================================================================
+;; Undo/Redo API
+;; =============================================================================
+
+(defn undo!
+  "Undo the last operation on a project (owner only).
+   Returns {:ok true :data {:content string :content-hash string :can-undo bool :can-redo bool}}
+   or {:ok false :status 400 :error 'Nothing to undo'}"
+  [project-id]
+  (api-post (str "/api/projects/" project-id "/undo") {}))
+
+(defn redo!
+  "Redo the last undone operation on a project (owner only).
+   Returns {:ok true :data {:content string :content-hash string :can-undo bool :can-redo bool}}
+   or {:ok false :status 400 :error 'Nothing to redo'}"
+  [project-id]
+  (api-post (str "/api/projects/" project-id "/redo") {}))
+
+(defn get-undo-status
+  "Get undo/redo availability for a project.
+   Returns {:ok true :data {:can-undo bool :can-redo bool :undo-count int :redo-count int}}"
+  [project-id]
+  (api-get (str "/api/projects/" project-id "/undo-status")))
+
+;; =============================================================================
+;; Presence API
+;; =============================================================================
+
+(defn notify-editing!
+  "Notify server that user is editing a chunk (call on first keypress, then as heartbeat).
+   Returns {:ok true :data {:success true}}"
+  [project-id chunk-id]
+  (api-post (str "/api/projects/" project-id "/presence/editing")
+            {:chunk_id chunk-id}))
+
+(defn notify-stopped-editing!
+  "Notify server that user stopped editing a chunk (call on blur or chunk change).
+   Returns {:ok true :data {:success true}}"
+  [project-id chunk-id]
+  (api-post (str "/api/projects/" project-id "/presence/stopped")
+            {:chunk_id chunk-id}))
+
+(defn get-presence
+  "Get current editing presence for a project.
+   Returns {:ok true :data {:editing {chunk-id [username1 username2 ...]}}}"
+  [project-id]
+  (api-get (str "/api/projects/" project-id "/presence")))
+
+;; =============================================================================
+;; Versioning API
+;; =============================================================================
+
+(defn list-versions
+  "List all versions (commits and tags) for a project.
+   Returns {:ok true :data {:versions [{:ref :short-ref :message :date :is-tag :tag} ...]}}"
+  [project-id]
+  (api-get (str "/api/projects/" project-id "/versions")))
+
+(defn get-version-content
+  "Get the content of a specific version.
+   ref can be a commit hash or tag name.
+   Returns {:ok true :data {:content string}}"
+  [project-id ref]
+  (api-get (str "/api/projects/" project-id "/versions/" ref)))
+
+(defn create-version-tag!
+  "Create a tagged version (git tag) with an optional message.
+   Returns {:ok true :data {:success true}}"
+  [project-id tag-name message]
+  (api-post (str "/api/projects/" project-id "/versions")
+            {:tag-name tag-name :message message}))
+
+(defn fork-version!
+  "Create a new project from a specific version.
+   Returns {:ok true :data {:project {:id ... :name ...}}}"
+  [project-id ref new-name]
+  (api-post (str "/api/projects/" project-id "/versions/" ref "/fork")
+            {:name new-name}))
 
 ;; =============================================================================
 ;; Token and Server URL Persistence

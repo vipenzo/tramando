@@ -15,13 +15,15 @@
             [tramando.ai.ui :as ai-ui]
             [tramando.chunk-selector :as selector]
             [tramando.versioning :as versioning]
+            [tramando.versions :as versions]
             [tramando.platform :as platform]
             [tramando.auth :as auth]
             [tramando.api :as api]
             [tramando.server-ui :as server-ui]
             [tramando.store.remote :as remote-store]
             [tramando.store.protocol :as store]
-            [tramando.annotations :as annotations]))
+            [tramando.annotations :as annotations]
+            [tramando.events :as events]))
 
 ;; =============================================================================
 ;; App Mode State (for webapp routing)
@@ -55,6 +57,13 @@
 (defonce show-splash? (r/atom true))
 (defonce splash-fade-in? (r/atom false))
 (defonce splash-file-input-ref (r/atom nil))
+
+(defn return-to-splash!
+  "Reset app state and return to splash screen.
+   Called when session is invalidated or user logs out."
+  []
+  (reset! app-mode nil)
+  (reset! show-splash? true))
 
 ;; =============================================================================
 ;; Settings File Input Ref
@@ -1609,6 +1618,59 @@
       (when server-mode?
         [export-dropdown])
 
+      ;; === GROUP 2.5: Undo/Redo ===
+      [header-separator colors]
+      (let [undo-source (editor/get-undo-source)
+            redo-source (editor/get-redo-source)
+            ;; Color based on source: server = accent, codemirror/local = normal
+            undo-color (case undo-source
+                         :server (:accent colors)
+                         :codemirror nil
+                         :local nil
+                         nil)
+            redo-color (case redo-source
+                         :server (:accent colors)
+                         :codemirror nil
+                         :local nil
+                         nil)]
+        [:<>
+         ;; Undo button
+         [:button
+          {:style (merge (header-icon-style colors)
+                         (when-not undo-source
+                           {:opacity "0.3" :cursor "default"})
+                         (when undo-color
+                           {:color undo-color}))
+           :title (case undo-source
+                    :server "Annulla (server)"
+                    :codemirror "Annulla"
+                    :local "Annulla (locale)"
+                    "Nessun annulla disponibile")
+           :disabled (not undo-source)
+           :on-mouse-down (fn [e]
+                            (.preventDefault e)
+                            (when (editor/get-undo-source)
+                              (editor/do-undo!)))}
+          "↶"]
+         ;; Redo button
+         [:button
+          {:style (merge (header-icon-style colors)
+                         (when-not redo-source
+                           {:opacity "0.3" :cursor "default"})
+                         (when redo-color
+                           {:color redo-color}))
+           :title (case redo-source
+                    :server "Ripristina (server)"
+                    :codemirror "Ripristina"
+                    :local "Ripristina (locale)"
+                    "Nessun ripristina disponibile")
+           :disabled (not redo-source)
+           :on-mouse-down (fn [e]
+                            (.preventDefault e)
+                            (when (editor/get-redo-source)
+                              (editor/do-redo!)))}
+          "↷"]])
+
       ;; === GROUP 3: View tools ===
       [header-separator colors]
       ;; View toggle (Mappa)
@@ -1625,6 +1687,13 @@
         :title (t :help-metadata)
         :on-click #(reset! metadata-open? true)}
        "≡"]
+      ;; Versions button (only for server projects)
+      (when (remote-store/get-project-id)
+        [:button
+         {:style (header-icon-style colors)
+          :title (t :versions)
+          :on-click versions/show-versions!}
+         "⏱"])
 
       ;; === GROUP 4: Settings ===
       [header-separator colors]
@@ -1827,13 +1896,15 @@
       (and ctrl-or-cmd shift (= key "z"))
       (do
         (.preventDefault e)
-        (model/redo!))
+        (when (model/redo!)
+          (events/refresh-editor!)))
 
       ;; Undo: Ctrl+Z or Cmd+Z (without shift)
       (and ctrl-or-cmd (not shift) (= key "z"))
       (do
         (.preventDefault e)
-        (model/undo!))
+        (when (model/undo!)
+          (events/refresh-editor!)))
 
       ;; Context menu for selection/annotation: Ctrl+M or Cmd+M
       (and ctrl-or-cmd (= key "m"))
@@ -2262,8 +2333,11 @@
           (case current-view
             :radial [radial/radial-view]
             [editor-panel])
-          ;; Right panel (Annotations)
-          [outline/annotations-panel]]
+          ;; Right panel (Annotations) - hidden when versions panel is visible
+          (when-not (versions/versions-visible?)
+            [outline/annotations-panel])
+          ;; Versions Panel (for git history) - inside main container
+          [versions/versions-panel]]
          ;; Status bar
          [status-bar]
          ;; AI Assistant Panel
@@ -2360,6 +2434,8 @@
 ;; =============================================================================
 
 (defn- determine-initial-mode! []
+  ;; Register callback for session invalidation (returns to splash)
+  (auth/set-return-to-splash-callback! return-to-splash!)
   (when-not (platform/tauri?)
     (auth/check-auth!)
     (js/setTimeout

@@ -423,6 +423,255 @@ Owner corrente → clicca "Trasferisci" → inserisce username → conferma
 - Documentazione
 - Deploy
 
+## Undo e Versioning (da implementare)
+
+### Obiettivo
+
+Sistema di undo seamless che funzioni sia in locale che in remoto, con versioning persistente per recovery a lungo termine.
+
+### Due livelli di granularità
+
+1. **Undo recente (in memoria, volatile)**: massima granularità per le modifiche recenti
+2. **Versioni (persistenti su git)**: granularità ridotta per lo storico a lungo termine
+
+### Architettura Undo
+
+#### Undo locale (CodeMirror)
+- Funziona come oggi per le modifiche di testo "normali"
+- Granularità fine (carattere per carattere)
+- Volatile, locale al browser
+- Si azzera quando arriva una modifica dal server per lo stesso chunk
+
+#### Undo server-side
+- Cattura ogni operazione che modifica il contenuto:
+  - `PUT /chunks/:id` (sync da autosave)
+  - `POST /proposals/accept`
+  - `POST /proposals/reject`
+  - `DELETE /chunks/:id`
+  - `POST /chunks` (nuovo chunk)
+- Snapshot completi del contenuto TRMD (non diff)
+- Stack in memoria per ogni progetto
+
+Struttura in memoria:
+```clojure
+{project-id {:undo-stack [snapshot-n ... snapshot-1]  ;; più recente prima
+             :redo-stack [snapshot-1 ... snapshot-m]
+             :current-hash "abc123"}}
+```
+
+#### Flusso seamless CMD-Z
+
+Il client traccia l'hash del contenuto all'ultimo sync:
+
+```clojure
+(defonce last-synced-hash (atom nil))
+```
+
+Quando l'utente fa CMD-Z:
+1. Se CodeMirror ha history → usa undo locale
+2. Se il contenuto corrente ha lo stesso hash dell'ultimo sync (siamo al "confine") → prossimo CMD-Z chiede al server
+3. Se la history di CodeMirror è vuota → chiede al server
+
+```
+Timeline esempio:
+
+Server history:  [S1] → [S2] → [S3]
+                               ↑ ultimo sync
+
+CodeMirror:      [S3] → [C1] → [C2] → [C3]
+                  ↑              ↑
+            stesso punto    stato attuale
+
+CMD-Z x3 → C3→C2→C1→S3 (tutto locale)
+CMD-Z x1 → chiede al server → riceve S2
+```
+
+#### Undo attraverso le versioni
+
+L'undo server-side **non** attraversa le versioni. Quando lo stack è vuoto, l'utente deve ricorrere manualmente al versioning.
+
+#### Permessi
+
+Solo l'owner del progetto può fare undo. I collaboratori possono solo visualizzare le versioni e creare fork da una versione.
+
+### Architettura Versioning
+
+#### Storage: Git
+
+Ogni progetto usa git per le versioni:
+```
+data/projects/
+  23/
+    .git/           # repository git
+    project.trmd    # file corrente
+```
+
+#### Tipi di commit
+
+- **Automatici**: messaggio tipo "Auto-save 2024-01-15 14:32"
+- **Tagged**: l'utente può dare un nome, diventa un git tag
+
+#### Soglia per auto-versione
+
+Quando lo stack undo supera N operazioni (es. 50), il server:
+1. Crea un commit automatico
+2. Svuota lo stack undo
+
+#### API Versioning
+
+```
+GET  /api/projects/:id/versions          # lista commit + tags
+POST /api/projects/:id/versions          # crea tag manuale
+GET  /api/projects/:id/versions/:ref     # contenuto di una versione
+POST /api/projects/:id/versions/:ref/fork # crea nuovo progetto da versione
+```
+
+#### Operazioni git interne
+
+```clojure
+;; Init (alla creazione progetto)
+(git-init project-dir)
+(git-add "project.trmd")
+(git-commit "Initial commit")
+
+;; Auto-save
+(git-add "project.trmd")
+(git-commit (str "Auto-save " (now)))
+
+;; Tag manuale
+(git-tag tag-name message)
+
+;; Lista versioni
+(git-log "--oneline")
+(git-tag "-l")
+
+;; Recupera versione
+(git-show (str ref ":project.trmd"))
+```
+
+### Interazione Undo/Autosave
+
+Flusso attuale:
+1. Utente digita nel CodeMirror
+2. CodeMirror ha il suo undo interno
+3. Dopo 5 sec di inattività → sync al server
+4. Server salva il file
+
+Con il nuovo sistema:
+1. Ogni sync = una operazione nello stack undo server
+2. Se l'utente scrive per 2 minuti senza pause, poi si ferma → 1 sola operazione
+3. CMD-Z prima dei 5 secondi → undo locale (CodeMirror)
+4. CMD-Z dopo sync → prima esaurisce CodeMirror, poi chiede al server
+
+### Gestione conflitti
+
+Quando arriva una modifica dal server per il chunk corrente:
+- La history di CodeMirror si azzera (contenuto sostituito)
+- Da quel momento ogni CMD-Z va al server
+- Le modifiche dell'altro utente sono già nella history del server
+
+Caso critico (modifica su chunk che sto editando):
+- Se ho modifiche locali non syncate e arriva update dal server
+- Mostro warning: "Tieni le mie / Prendi quelle del server"
+- Problema già esistente oggi, indipendente dall'undo
+
+### Undo in modalità locale (Tauri/webapp senza login)
+
+In modalità locale non c'è un server, ma il comportamento dell'undo deve essere consistente con la modalità remota.
+
+**Soluzione**: `LocalStore` implementa lo stesso meccanismo di undo, ma tutto in memoria nel browser:
+
+```clojure
+;; In store/local.cljs
+(defonce undo-stack (atom []))
+(defonce redo-stack (atom []))
+
+;; Prima di ogni modifica "strutturale" (non testo in CodeMirror)
+(defn push-undo! []
+  (swap! undo-stack conj (get-current-snapshot))
+  (reset! redo-stack []))
+```
+
+**Flusso CMD-Z identico**:
+1. CodeMirror ha history → undo locale CodeMirror
+2. Siamo al confine / history vuota → pop da `undo-stack` (atom locale)
+
+**Differenze rispetto a remoto**:
+- Lo stack vive nel browser, non sul server
+- Nessun versioning git (l'utente può salvare copie manuali del file)
+- Nessun limite di operazioni / auto-versione
+
+```
+RemoteStore                          LocalStore
+    │                                    │
+    ▼                                    ▼
+Server undo-stack                   Browser undo-stack (atom)
+    │                                    │
+    └────────── stessa logica ───────────┘
+```
+
+Questo garantisce che operazioni come `accept-proposal!`, `delete-chunk!`, etc. siano annullabili anche in locale, dove oggi l'undo di CodeMirror non le cattura.
+
+## Presence Notification (da implementare)
+
+### Obiettivo
+
+Mostrare "L'utente X sta scrivendo nel chunk Y" per evitare conflitti di editing, simile alle notifiche di WhatsApp.
+
+### Architettura
+
+#### Client → Server
+
+Quando l'utente inizia a scrivere in un chunk:
+```clojure
+;; Al primo keypress in un chunk
+(api/notify-editing project-id chunk-id)
+
+;; Al blur, cambio chunk, o timeout 10 sec senza keypress
+(api/notify-stopped-editing project-id chunk-id)
+```
+
+#### Server
+
+Mantiene in memoria una mappa:
+```clojure
+{project-id {chunk-id #{username1 username2 ...}}}
+```
+
+Include l'informazione nelle risposte del polling:
+```clojure
+{:chunks [...]
+ :editing {"cap-3" ["mario"] "cap-5" ["luigi" "anna"]}}
+```
+
+#### UI
+
+- Indicatore nell'outline: icona o badge sul chunk che qualcuno sta editando
+- Tooltip: "Mario sta scrivendo..."
+- Se sto guardando un chunk che qualcuno sta editando: banner in alto
+
+### Blocco tecnico (opzionale)
+
+Per prevenire conflitti, si può impedire modifiche a un chunk se qualcun altro lo sta editando da meno di 10 secondi:
+
+```clojure
+;; Lato server, prima di accettare una modifica
+(when-let [editors (get-editors project-id chunk-id)]
+  (when (and (seq editors)
+             (not (contains? editors current-user)))
+    {:status 423  ;; Locked
+     :body {:error "Chunk in modifica da altro utente"
+            :editors editors}}))
+```
+
+Lato client: mostrare il chunk in read-only con messaggio "Mario sta scrivendo, attendi..."
+
+### Note implementative
+
+- Il timeout di 10 secondi è un compromesso: abbastanza lungo da coprire pause di pensiero, abbastanza corto da non bloccare troppo
+- In assenza di WebSocket, il polling trasporta sia le modifiche che le notifiche di editing
+- La feature è indipendente dall'undo/versioning e può essere implementata separatamente
+
 ## Considerazioni future
 
 ### Supporto mobile

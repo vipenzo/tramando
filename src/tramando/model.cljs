@@ -296,45 +296,21 @@
      :discussion []}))
 
 ;; =============================================================================
-;; Inline Proposals (Annotation-based format)
+;; Inline Proposals (EDN Annotation format)
 ;; =============================================================================
-;; Format: [!PROPOSAL:original-text:Puser:base64(proposed-text)]
+;; Format: [!PROPOSAL{:text "original" :proposed "new" :from "user" :sel 0}]
 ;; This integrates with the annotation system for consistent UI/UX
 
-(defn- encode-proposal-data
-  "Encode proposal data (text + selection) to Base64 EDN"
-  [proposed-text sel]
-  (js/btoa (js/encodeURIComponent (pr-str {:text proposed-text :sel sel}))))
-
-(defn- parse-proposal-data
-  "Parse Base64-encoded EDN data from a PROPOSAL annotation comment.
-   Returns {:text string :sel 0|1} or nil.
-   For backwards compatibility, also handles plain base64 text (old format)."
-  [encoded-string]
-  (when (and encoded-string (seq encoded-string))
-    (try
-      (let [decoded (-> encoded-string js/atob js/decodeURIComponent)
-            data (reader/read-string decoded)]
-        (if (map? data)
-          {:text (or (:text data) "") :sel (or (:sel data) 0)}
-          {:text decoded :sel 0}))
-      (catch :default _
-        (try
-          {:text (js/decodeURIComponent (js/atob encoded-string)) :sel 0}
-          (catch :default _ nil))))))
-
-(defn- decode-proposed-text
-  "Decode proposed text from PROPOSAL annotation comment"
-  [base64-str]
-  (:text (parse-proposal-data base64-str)))
-
 (defn make-proposal-marker
-  "Create a proposal annotation marker.
-   Format: [!PROPOSAL:original-text:Puser:base64({:text \"...\" :sel 0})]"
+  "Create a proposal annotation marker in EDN format.
+   Format: [!PROPOSAL{:text \"original\" :proposed \"new\" :from \"user\" :sel 0}]"
   ([original-text proposed-text user]
    (make-proposal-marker original-text proposed-text user 0))
   ([original-text proposed-text user sel]
-   (str "[!PROPOSAL:" original-text ":P" user ":" (encode-proposal-data proposed-text sel) "]")))
+   (str "[!PROPOSAL" (pr-str {:text original-text
+                              :proposed proposed-text
+                              :from user
+                              :sel sel}) "]")))
 
 (defn insert-proposal-in-content
   "Replace selected text with a proposal annotation in content"
@@ -343,45 +319,35 @@
         marker (make-proposal-marker original-text proposed-text user)]
     (str (subs content 0 start) marker (subs content end))))
 
-(defn- find-proposal-annotation-pattern
-  "Create a regex pattern to find a PROPOSAL annotation by original text.
-   Allows optional whitespace around the selected text (handles trimmed vs untrimmed)."
-  [original-text user]
-  (let [escaped-text (str/replace original-text #"[.*+?^${}()\[\]\\|]" (fn [m] (str "\\" m)))]
-    (re-pattern (str "\\[!PROPOSAL:\\s*" escaped-text "\\s*:P" user ":([A-Za-z0-9+/=]+)\\]"))))
-
 (defn accept-proposal-in-content
   "Accept a proposal: replace annotation with the currently selected text.
-   If sel=0 (original), keeps original (preserving whitespace).
-   If sel=1 (proposed), applies proposed text."
+   If sel=0 (original), keeps original.
+   If sel=1 (proposed), applies proposed text.
+   Uses the annotation's :start and :end positions for precise replacement.
+   Annotation should have :data with :text, :proposed, :sel."
   [content annotation]
-  (let [data (parse-proposal-data (:comment annotation))
-        proposed-text (:text data)
+  (let [data (:data annotation)
+        original-text (:text data)
+        proposed-text (:proposed data)
         sel (or (:sel data) 0)
-        user (or (:proposal-from (:priority annotation)) "local")
-        ;; Escape the trimmed text for regex
-        escaped-text (str/replace (:selected-text annotation) #"[.*+?^${}()\[\]\\|]" (fn [m] (str "\\" m)))
-        ;; Capture the actual text including any surrounding whitespace
-        pattern (re-pattern (str "\\[!PROPOSAL:(\\s*" escaped-text "\\s*):P" user ":([A-Za-z0-9+/=]+)\\]"))
-        match (re-find pattern content)]
-    (if match
-      (let [original-with-spaces (second match)
-            replacement (if (zero? sel) original-with-spaces proposed-text)]
-        (str/replace content (first match) replacement))
+        start (:start annotation)
+        end (:end annotation)]
+    (if (and start end (<= 0 start) (<= end (count content)))
+      (let [replacement (if (zero? sel) original-text proposed-text)]
+        (str (subs content 0 start) replacement (subs content end)))
       content)))
 
 (defn reject-proposal-in-content
-  "Reject a proposal: always replace annotation with original-text (preserving whitespace)"
+  "Reject a proposal: always replace annotation with original-text.
+   Uses the annotation's :start and :end positions for precise replacement.
+   Annotation should have :data with :text."
   [content annotation]
-  (let [user (or (:proposal-from (:priority annotation)) "local")
-        ;; Escape the trimmed text for regex
-        escaped-text (str/replace (:selected-text annotation) #"[.*+?^${}()\[\]\\|]" (fn [m] (str "\\" m)))
-        ;; Capture the actual text including any surrounding whitespace
-        pattern (re-pattern (str "\\[!PROPOSAL:(\\s*" escaped-text "\\s*):P" user ":([A-Za-z0-9+/=]+)\\]"))
-        match (re-find pattern content)]
-    (if match
-      ;; Replace with the captured text (preserving original whitespace)
-      (str/replace content (first match) (second match))
+  (let [data (:data annotation)
+        original-text (:text data)
+        start (:start annotation)
+        end (:end annotation)]
+    (if (and start end (<= 0 start) (<= end (count content)))
+      (str (subs content 0 start) original-text (subs content end))
       content)))
 
 (defn- count-indent
@@ -831,6 +797,9 @@
 ;; Optional external callback for modifications (used by server mode)
 (defonce on-modified-callback (atom nil))
 
+;; Flag to suppress sync during reload (prevents undo content from being overwritten)
+(defonce ^:private suppress-sync? (atom false))
+
 ;; Optional callback when title changes (used by server mode to sync project name)
 (defonce on-title-changed-callback (atom nil))
 
@@ -842,6 +811,9 @@
 
 ;; Timer ID for "Salvato" fade
 (defonce ^:private saved-fade-timer (atom nil))
+
+;; Right panel (annotations) collapsed state - shared between outline and versions
+(defonce right-panel-collapsed? (r/atom false))
 
 (def ^:private saved-fade-delay-ms 2000)
 
@@ -916,10 +888,11 @@
 (defn mark-modified!
   "Mark the document as modified and schedule autosave"
   []
-  (versioning/mark-dirty!)
-  (if @on-modified-callback
-    (@on-modified-callback)
-    (schedule-autosave!)))
+  (when-not @suppress-sync?
+    (versioning/mark-dirty!)
+    (if @on-modified-callback
+      (@on-modified-callback)
+      (schedule-autosave!))))
 
 ;; =============================================================================
 ;; Ownership Management
@@ -1052,7 +1025,7 @@
    comment-data should be {:text \"...\"}
    Author and timestamp are added automatically."
   [chunk-id comment-data]
-  (let [comment {:author "local"  ;; In collaborative mode, this will be the username
+  (let [comment {:author (get-current-owner)  ;; Uses username in collaborative mode, "local" otherwise
                  :timestamp (.toISOString (js/Date.))
                  :type :comment
                  :text (:text comment-data)}]
@@ -1110,7 +1083,9 @@
   [chunk-id start end proposed-text]
   (when-let [chunk (get-chunk chunk-id)]
     (let [content (:content chunk)
-          new-content (insert-proposal-in-content content start end proposed-text "local")]
+          ;; Use actual username in collaborative mode, "local" otherwise
+          author (get-current-owner)
+          new-content (insert-proposal-in-content content start end proposed-text author)]
       (push-history!)
       (swap! app-state update :chunks
              (fn [chunks]
@@ -1122,54 +1097,134 @@
       (mark-modified!)
       new-content)))
 
+(defn- find-balanced-brace-local
+  "Find the closing brace for EDN starting at pos (which should point to {).
+   Returns the index of the closing }, or nil if not found."
+  [s pos]
+  (when (and s (< pos (count s)) (= (nth s pos) \{))
+    (loop [i (inc pos)
+           depth 1
+           in-string false
+           escape false]
+      (if (>= i (count s))
+        nil
+        (let [c (nth s i)]
+          (cond
+            escape (recur (inc i) depth in-string false)
+            (= c \\) (recur (inc i) depth in-string true)
+            (= c \") (recur (inc i) depth (not in-string) false)
+            in-string (recur (inc i) depth in-string false)
+            (= c \{) (recur (inc i) (inc depth) in-string false)
+            (= c \}) (if (= depth 1) i (recur (inc i) (dec depth) in-string false))
+            :else (recur (inc i) depth in-string false)))))))
+
+(defn- find-edn-proposal
+  "Find an EDN PROPOSAL annotation matching the given text.
+   Returns [full-match data start end] or nil.
+   Handles nested braces correctly."
+  [content original-text]
+  (let [trimmed (str/trim original-text)
+        pattern #"\[!PROPOSAL\{"]
+    (loop [remaining content
+           offset 0]
+      (when-let [match (re-find pattern remaining)]
+        (let [match-idx (str/index-of remaining match)
+              abs-start (+ offset match-idx)
+              brace-start (+ abs-start 10)  ;; "[!PROPOSAL{" is 11 chars, brace at index 10
+              brace-end (find-balanced-brace-local content brace-start)
+              ;; Calculate next search position for continue cases
+              next-remaining (subs remaining (inc match-idx))
+              next-offset (+ offset match-idx 1)]
+          (if (and brace-end
+                   (< (inc brace-end) (count content))
+                   (= (nth content (inc brace-end)) \]))
+            (let [end-pos (+ brace-end 2)
+                  full-match (subs content abs-start end-pos)
+                  edn-str (subs content brace-start (inc brace-end))
+                  data (try (reader/read-string edn-str) (catch :default _ nil))]
+              (if (and (map? data) (= (str/trim (:text data)) trimmed))
+                [full-match data abs-start end-pos]
+                ;; Not matching or parse error, continue search
+                (recur next-remaining next-offset)))
+            ;; Brace not balanced, continue search
+            (recur next-remaining next-offset)))))))
+
 (defn update-proposal-selection!
   "Update the :sel value in a PROPOSAL annotation.
    chunk-id: the chunk containing the annotation
    original-text: the selected text in the annotation (may be trimmed)
-   new-sel: 0 = original, 1 = proposed"
+   new-sel: 0 = original, 1 = proposed
+   Works with both EDN and legacy formats."
   [chunk-id original-text new-sel]
+  (js/console.log "=== update-proposal-selection! called ===" chunk-id original-text new-sel)
   (when-let [chunk (get-chunk chunk-id)]
     (let [content (:content chunk)
-          ;; Pattern to find the PROPOSAL annotation - capture original text with any whitespace
-          escaped-text (str/replace original-text #"[.*+?^${}()\[\]\\|]" (fn [m] (str "\\" m)))
-          pattern (re-pattern (str "\\[!PROPOSAL:(\\s*" escaped-text "\\s*):P([^:]+):([A-Za-z0-9+/=]+)\\]"))
-          match (re-find pattern content)]
-      (when match
-        (let [old-annotation (first match)
-              original-with-spaces (second match)  ; Captured text with whitespace
-              user (nth match 2)
-              old-b64 (nth match 3)
-              old-data (parse-proposal-data old-b64)]
-          (when old-data
-            (let [new-data (assoc old-data :sel new-sel)
-                  new-b64 (encode-proposal-data (:text new-data) (:sel new-data))
-                  ;; Preserve original whitespace in the new annotation
-                  new-annotation (str "[!PROPOSAL:" original-with-spaces ":P" user ":" new-b64 "]")
-                  new-content (str/replace content old-annotation new-annotation)]
-              (push-history!)
-              (swap! app-state update :chunks
-                     (fn [chunks]
-                       (mapv (fn [c]
-                               (if (= (:id c) chunk-id)
-                                 (assoc c :content new-content)
-                                 c))
-                             chunks)))
-              (mark-modified!))))))))
+          trimmed-original (str/trim original-text)
+          found (find-edn-proposal content original-text)]
+      (js/console.log "find-edn-proposal result:" (pr-str found))
+      ;; Try EDN format first (returns [full-match data start end])
+      (if-let [[_full-match data start end] found]
+        (let [new-data (assoc data :sel new-sel)
+              new-annotation (str "[!PROPOSAL" (pr-str new-data) "]")
+              ;; Use position-based replacement for accuracy
+              new-content (str (subs content 0 start) new-annotation (subs content end))]
+          (js/console.log "EDN found! Updating content")
+          (push-history!)
+          (swap! app-state update :chunks
+                 (fn [chunks]
+                   (mapv (fn [c]
+                           (if (= (:id c) chunk-id)
+                             (assoc c :content new-content)
+                             c))
+                         chunks)))
+          (mark-modified!))
+        ;; Try legacy pattern
+        (let [legacy-pattern (js/RegExp. "\\[!PROPOSAL(?:@([^:]+))?:(.+?):P([^:]+):([^\\]:]+)\\]" "g")]
+          (loop [match (.exec legacy-pattern content)]
+            (when match
+              (let [full-match (aget match 0)
+                    matched-text (aget match 2)
+                    user (aget match 3)
+                    old-b64 (aget match 4)]
+                (if (= (str/trim matched-text) trimmed-original)
+                  ;; Convert to new EDN format
+                  (try
+                    (let [decoded (-> old-b64 js/atob js/decodeURIComponent)
+                          old-data (reader/read-string decoded)
+                          proposed (if (map? old-data) (:text old-data) decoded)
+                          new-annotation (str "[!PROPOSAL" (pr-str {:text matched-text
+                                                                     :proposed proposed
+                                                                     :from user
+                                                                     :sel new-sel}) "]")
+                          new-content (str/replace content full-match new-annotation)]
+                      (push-history!)
+                      (swap! app-state update :chunks
+                             (fn [chunks]
+                               (mapv (fn [c]
+                                       (if (= (:id c) chunk-id)
+                                         (assoc c :content new-content)
+                                         c))
+                                     chunks)))
+                      (mark-modified!))
+                    (catch :default _ nil))
+                  (recur (.exec legacy-pattern content)))))))))))
 
 (defn accept-proposal!
   "Accept a proposal annotation: apply selected text and add to discussion.
-   annotation should be a parsed annotation with :type :PROPOSAL"
+   annotation should be a parsed annotation with :data containing :text, :proposed, :from, :sel"
   [chunk-id annotation & {:keys [reason] :or {reason nil}}]
   (when-let [chunk (get-chunk chunk-id)]
     (let [content (:content chunk)
-          proposed-text (decode-proposed-text (:comment annotation))
-          sender (or (:proposal-from (:priority annotation)) "local")
+          data (:data annotation)
+          original-text (:text data)
+          proposed-text (:proposed data)
+          sender (or (:from data) "local")
           new-content (accept-proposal-in-content content annotation)
           ;; Create discussion entry
           discussion-entry {:author sender
                             :timestamp (.toISOString (js/Date.))
                             :type :proposal
-                            :previous-text (:selected-text annotation)
+                            :previous-text original-text
                             :proposed-text proposed-text
                             :answer :accepted
                             :reason reason}]
@@ -1194,15 +1249,17 @@
   [chunk-id annotation & {:keys [reason no-log] :or {reason nil no-log false}}]
   (when-let [chunk (get-chunk chunk-id)]
     (let [content (:content chunk)
-          proposed-text (decode-proposed-text (:comment annotation))
-          sender (or (:proposal-from (:priority annotation)) "local")
+          data (:data annotation)
+          original-text (:text data)
+          proposed-text (:proposed data)
+          sender (or (:from data) "local")
           new-content (reject-proposal-in-content content annotation)
           ;; Create discussion entry (only if not suppressed)
           discussion-entry (when-not no-log
                              {:author sender
                               :timestamp (.toISOString (js/Date.))
                               :type :proposal
-                              :previous-text (:selected-text annotation)
+                              :previous-text original-text
                               :proposed-text proposed-text
                               :answer :rejected
                               :reason reason})]
@@ -1708,14 +1765,14 @@
    (events/refresh-editor!)))
 
 (defn reload-from-remote!
-  "Reload content from server during polling.
-   Preserves current selection and doesn't trigger modified callback."
+  "Reload content from server during polling or undo.
+   Preserves current selection and doesn't trigger modified callback.
+   Uses suppress-sync? flag to prevent any sync triggers during the reload."
   [content filename]
   (js/console.log "reload-from-remote! called, content length:" (count content))
-  (let [current-selected-id (get-selected-id)
-        saved-callback @on-modified-callback]
-    ;; Temporarily disable modified callback to avoid sync loop
-    (reset! on-modified-callback nil)
+  ;; Set suppress flag BEFORE any state changes
+  (reset! suppress-sync? true)
+  (let [current-selected-id (get-selected-id)]
     ;; Parse the new content
     (let [{:keys [metadata chunks]} (parse-file content)
           ;; Get current aspect containers
@@ -1747,12 +1804,13 @@
     (reset! history {:states [] :current -1 :checkpoints []})
     (push-history!)
     (reset! save-status :idle)
-    ;; Restore callback
-    (reset! on-modified-callback saved-callback)
     ;; Force editor to refresh (triggers CodeMirror re-render)
     (events/refresh-editor!)
     ;; Force Reagent to flush pending updates
-    (r/flush)))
+    (r/flush)
+    ;; Clear suppress flag AFTER flush completes
+    ;; Use setTimeout to ensure all React updates have processed
+    (js/setTimeout #(reset! suppress-sync? false) 100)))
 
 (defn open-file!
   "Show open dialog and load selected file (works on both Tauri and webapp)"
@@ -1921,28 +1979,32 @@
   (zero? (aspect-usage-count aspect-id)))
 
 (defn add-aspect-to-chunk!
-  "Add an aspect reference to a chunk"
+  "Add an aspect reference to a chunk.
+   Only allowed if user can edit the chunk (owner or project owner)."
   [chunk-id aspect-id]
-  (push-history!)
-  (swap! app-state update :chunks
-         (fn [chunks]
-           (mapv #(if (= (:id %) chunk-id)
-                    (update % :aspects conj aspect-id)
-                    %)
-                 chunks)))
-  (mark-modified!))
+  (when (can-edit-chunk? chunk-id)
+    (push-history!)
+    (swap! app-state update :chunks
+           (fn [chunks]
+             (mapv #(if (= (:id %) chunk-id)
+                      (update % :aspects conj aspect-id)
+                      %)
+                   chunks)))
+    (mark-modified!)))
 
 (defn remove-aspect-from-chunk!
-  "Remove an aspect reference from a chunk"
+  "Remove an aspect reference from a chunk.
+   Only allowed if user can edit the chunk (owner or project owner)."
   [chunk-id aspect-id]
-  (push-history!)
-  (swap! app-state update :chunks
-         (fn [chunks]
-           (mapv #(if (= (:id %) chunk-id)
-                    (update % :aspects disj aspect-id)
-                    %)
-                 chunks)))
-  (mark-modified!))
+  (when (can-edit-chunk? chunk-id)
+    (push-history!)
+    (swap! app-state update :chunks
+           (fn [chunks]
+             (mapv #(if (= (:id %) chunk-id)
+                      (update % :aspects disj aspect-id)
+                      %)
+                   chunks)))
+    (mark-modified!)))
 
 (defn get-all-aspects
   "Get all aspect chunks (children of aspect containers)"
@@ -1962,29 +2024,36 @@
     (update-chunk! aspect-id {:priority (when (pos? clamped) clamped)})))
 
 (defn add-aspect!
-  "Add a new aspect under the specified container"
+  "Add a new aspect under the specified container.
+   Only project owner can create new aspects."
   [container-id]
-  (push-history!)
-  (let [container (first (filter #(= (:id %) container-id) aspect-containers))
-        type-name (case container-id
-                    "personaggi" "Personaggio"
-                    "luoghi" "Luogo"
-                    "temi" "Tema"
-                    "sequenze" "Sequenza"
-                    "timeline" "Timeline"
-                    "Aspetto")
-        chunk (new-chunk :summary (str "Nuovo " type-name)
-                         :parent-id container-id
-                         :existing-chunks (get-chunks))]
-    (swap! app-state update :chunks conj chunk)
-    (select-chunk! (:id chunk))
-    (mark-modified!)
-    chunk))
+  (when (is-project-owner?)
+    (push-history!)
+    (let [container (first (filter #(= (:id %) container-id) aspect-containers))
+          type-name (case container-id
+                      "personaggi" "Personaggio"
+                      "luoghi" "Luogo"
+                      "temi" "Tema"
+                      "sequenze" "Sequenza"
+                      "timeline" "Timeline"
+                      "Aspetto")
+          chunk (new-chunk :summary (str "Nuovo " type-name)
+                           :parent-id container-id
+                           :existing-chunks (get-chunks))]
+      (swap! app-state update :chunks conj chunk)
+      (select-chunk! (:id chunk))
+      (mark-modified!)
+      chunk)))
 
 (defn try-delete-chunk!
-  "Try to delete a chunk. Returns {:ok true} or {:error \"message\"}"
+  "Try to delete a chunk. Returns {:ok true} or {:error \"message\"}.
+   Only project owner can delete chunks (structure and aspects)."
   [id]
   (cond
+    ;; Only project owner can delete chunks
+    (not (is-project-owner?))
+    {:error :not-owner}
+
     (has-children? id)
     {:error :has-children}
 

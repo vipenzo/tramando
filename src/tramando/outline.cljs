@@ -10,7 +10,9 @@
             [tramando.context-menu :as context-menu]
             [tramando.events :as events]
             [tramando.chat :as chat]
-            [tramando.auth :as auth]))
+            [tramando.auth :as auth]
+            [tramando.store.remote :as remote-store]
+            [tramando.versions :as versions]))
 
 ;; =============================================================================
 ;; Chunk Tree Item
@@ -238,7 +240,11 @@
         can-move-up? (and idx (pos? idx))
         can-move-down? (and idx (< idx (dec (count siblings))))
         colors (:colors @settings/settings)
-        display-summary (model/expand-summary-macros summary chunk)]
+        display-summary (model/expand-summary-macros summary chunk)
+        ;; Presence: check if others are editing this chunk
+        editors (when (remote-store/get-project-id)
+                  (remote-store/get-chunk-editors id))
+        being-edited? (seq editors)]
     [:div
      [:div.chunk-item
       {:style {:background (when selected? (:accent-muted colors))
@@ -259,6 +265,11 @@
                             (.stopPropagation e)
                             (toggle-expanded! id))}
          (if is-collapsed? "▶" "▼")])
+      ;; Presence indicator
+      (when being-edited?
+        [:span {:style {:margin-right "4px" :font-size "0.7rem"}
+                :title (str (str/join ", " editors) " sta scrivendo...")}
+         "✏️"])
       [:span.chunk-summary {:style {:flex 1 :color (if selected? (:accent colors) (:text colors))}}
        (or (when (seq display-summary) display-summary) (t :no-title))]
       (when selected?
@@ -485,53 +496,55 @@
   (let [open? (r/atom false)]
     (fn []
       (let [colors (:colors @settings/settings)]
-        [:div {:style {:position "relative" :margin-top "8px"}}
-         [:button
-          {:style {:background "transparent"
-                   :color (:text-muted colors)
-                   :border (str "1px dashed " (:border colors))
-                   :padding "6px 12px"
-                   :border-radius "4px"
-                   :cursor "pointer"
-                   :width "100%"
-                   :font-size "0.8rem"
-                   :display "flex"
-                   :justify-content "space-between"
-                   :align-items "center"
-                   :transition "all 0.15s"}
-           :on-mouse-over (fn [e]
-                            (set! (.. e -currentTarget -style -borderColor) (:accent colors))
-                            (set! (.. e -currentTarget -style -color) (:accent colors)))
-           :on-mouse-out (fn [e]
-                           (when-not @open?
-                             (set! (.. e -currentTarget -style -borderColor) (:border colors))
-                             (set! (.. e -currentTarget -style -color) (:text-muted colors))))
-           :on-click #(swap! open? not)}
-          [:span (str "+ " (t :new-aspect))]
-          [:span {:style {:font-size "0.7rem"}} (if @open? "▲" "▼")]]
-         (when @open?
-           [:div {:style {:position "absolute"
-                          :top "100%"
-                          :left 0
-                          :right 0
-                          :background (:sidebar colors)
-                          :border (str "1px solid " (:border colors))
-                          :border-radius "4px"
-                          :margin-top "4px"
-                          :z-index 100}}
-            (doall
-             (for [{:keys [id]} model/aspect-containers]
-               ^{:key id}
-               [:div {:style {:padding "8px 12px"
-                              :cursor "pointer"
-                              :font-size "0.85rem"
-                              :color (container-color id)}
-                      :on-mouse-over (fn [e] (set! (.. e -target -style -background) (:editor-bg colors)))
-                      :on-mouse-out (fn [e] (set! (.. e -target -style -background) "transparent"))
-                      :on-click (fn []
-                                  (model/add-aspect! id)
-                                  (reset! open? false))}
-                (t (keyword id))]))])]))))
+        ;; Only show for project owners
+        (when (model/is-project-owner?)
+          [:div {:style {:position "relative" :margin-top "8px"}}
+           [:button
+            {:style {:background "transparent"
+                     :color (:text-muted colors)
+                     :border (str "1px dashed " (:border colors))
+                     :padding "6px 12px"
+                     :border-radius "4px"
+                     :cursor "pointer"
+                     :width "100%"
+                     :font-size "0.8rem"
+                     :display "flex"
+                     :justify-content "space-between"
+                     :align-items "center"
+                     :transition "all 0.15s"}
+             :on-mouse-over (fn [e]
+                              (set! (.. e -currentTarget -style -borderColor) (:accent colors))
+                              (set! (.. e -currentTarget -style -color) (:accent colors)))
+             :on-mouse-out (fn [e]
+                             (when-not @open?
+                               (set! (.. e -currentTarget -style -borderColor) (:border colors))
+                               (set! (.. e -currentTarget -style -color) (:text-muted colors))))
+             :on-click #(swap! open? not)}
+            [:span (str "+ " (t :new-aspect))]
+            [:span {:style {:font-size "0.7rem"}} (if @open? "▲" "▼")]]
+           (when @open?
+             [:div {:style {:position "absolute"
+                            :top "100%"
+                            :left 0
+                            :right 0
+                            :background (:sidebar colors)
+                            :border (str "1px solid " (:border colors))
+                            :border-radius "4px"
+                            :margin-top "4px"
+                            :z-index 100}}
+              (doall
+               (for [{:keys [id]} model/aspect-containers]
+                 ^{:key id}
+                 [:div {:style {:padding "8px 12px"
+                                :cursor "pointer"
+                                :font-size "0.85rem"
+                                :color (container-color id)}
+                        :on-mouse-over (fn [e] (set! (.. e -target -style -background) (:editor-bg colors)))
+                        :on-mouse-out (fn [e] (set! (.. e -target -style -background) "transparent"))
+                        :on-click (fn []
+                                    (model/add-aspect! id)
+                                    (reset! open? false))}
+                  (t (keyword id))]))])])))))
 
 ;; =============================================================================
 ;; Annotations Section
@@ -547,23 +560,27 @@
     :PROPOSAL (:accent colors)
     (:accent colors)))
 
-(defn- annotation-item [{:keys [chunk-id selected-text comment type priority author]}]
+(defn- annotation-item [annotation]
   (let [colors (:colors @settings/settings)
+        type (:type annotation)
+        chunk-id (:chunk-id annotation)
         type-color (annotation-type-color type colors)
         path (annotations/get-chunk-path chunk-id)
+        selected-text (annotations/get-text annotation)
         display-text (if (> (count selected-text) 50)
                        (str (subs selected-text 0 47) "...")
                        selected-text)
-        is-ai-done? (= priority :AI-DONE)
-        is-ai-pending? (= priority :AI)
+        is-ai-done? (annotations/is-ai-done? annotation)
+        is-ai-pending? (annotations/is-ai-pending? annotation)
         is-ai? (or is-ai-pending? is-ai-done?)
         ;; For AI-DONE, show selected alternative if any
-        ai-data (when is-ai-done? (annotations/parse-ai-data comment))
-        current-selection (or (:sel ai-data) 0)
-        alternatives (or (:alts ai-data) [])
+        current-selection (or (annotations/get-ai-selection annotation) 0)
+        alternatives (or (annotations/get-ai-alternatives annotation) [])
         selected-alt (when (and (pos? current-selection) (<= current-selection (count alternatives)))
                        (nth alternatives (dec current-selection)))
-        ;; Get display name for author
+        ;; Get comment and author
+        ann-comment (annotations/get-comment annotation)
+        author (annotations/get-author annotation)
         author-display (when author (auth/get-cached-display-name author))]
     [:div.annotation-item
      {:style {:border-left-color type-color}
@@ -582,8 +599,8 @@
      ;; Annotation text
      [:div.annotation-text
       [:span {:style {:font-style "italic"}} (str "\"" display-text "\"")]
-      (when (and (seq comment) (not is-ai?))
-        [:span {:style {:opacity "0.7"}} (str " — " comment)])]
+      (when (and (seq ann-comment) (not is-ai?))
+        [:span {:style {:opacity "0.7"}} (str " — " ann-comment)])]
      ;; Location path
      [:div.annotation-location path]
      ;; AI pending message
@@ -655,15 +672,13 @@
 ;; Right Panel (Annotations)
 ;; =============================================================================
 
-(defonce right-panel-collapsed? (r/atom false))
-
 (defn toggle-right-panel! []
-  (swap! right-panel-collapsed? not))
+  (swap! model/right-panel-collapsed? not))
 
 (defn annotations-panel
   "Standalone annotations panel for the right side"
   []
-  (let [collapsed? @right-panel-collapsed?
+  (let [collapsed? @model/right-panel-collapsed?
         colors (:colors @settings/settings)
         _chunks @model/app-state ; subscribe to changes
         {:keys [TODO NOTE FIX PROPOSAL]} (annotations/get-all-annotations)
@@ -933,14 +948,33 @@
                        :margin-bottom "8px"}}
           (t :structure)
           [help/help-icon :struttura {:below? true}]]
-         ;; Project title
-         [:div {:style {:color (:accent colors)
-                        :font-size "1rem"
-                        :font-weight "500"
+         ;; Project title with versions button
+         [:div {:style {:display "flex"
+                        :align-items "center"
+                        :justify-content "space-between"
                         :padding "4px 0 8px 0"
                         :margin-bottom "8px"
                         :border-bottom (str "1px solid " (:border colors))}}
-          (model/get-title)]
+          [:span {:style {:color (:accent colors)
+                          :font-size "1rem"
+                          :font-weight "500"}}
+           (model/get-title)]
+          ;; Versions button (only in remote mode)
+          (when (remote-store/get-project-id)
+            [:button {:style {:background "transparent"
+                              :border "none"
+                              :color (:text-muted colors)
+                              :cursor "pointer"
+                              :font-size "0.9rem"
+                              :padding "2px 6px"
+                              :border-radius "4px"}
+                      :title "Cronologia versioni"
+                      :on-click versions/toggle-versions!
+                      :on-mouse-over (fn [e]
+                                       (set! (.. e -target -style -background) (:hover colors)))
+                      :on-mouse-out (fn [e]
+                                      (set! (.. e -target -style -background) "transparent"))}
+             "🕐"])]
          (if (seq tree)
            [:div.outline-tree
             (doall

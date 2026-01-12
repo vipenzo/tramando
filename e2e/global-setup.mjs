@@ -143,6 +143,9 @@ async function createDatabaseWithPrehashedPasswords() {
       name TEXT NOT NULL,
       owner_id INTEGER NOT NULL,
       metadata_cache TEXT,
+      disabled INTEGER DEFAULT 0,
+      has_validation_errors INTEGER DEFAULT 0,
+      validation_errors TEXT,
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (owner_id) REFERENCES users(id)
@@ -244,62 +247,83 @@ async function createDatabaseWithPrehashedPasswords() {
 
 /**
  * Create project content files
+ * NOTA: Il formato TRMD interno usa [C:id"summary"] per i chunk
  */
 function createProjectFiles() {
   if (!existsSync(testProjectsDir)) {
     mkdirSync(testProjectsDir, { recursive: true });
   }
 
+  // Formato TRMD interno: [C:id"summary"][@aspect][#owner:user]
+  // Indentazione con 2 spazi per chunk figli
   const projects = {
     '1.trmd': `---
-title: Il mio romanzo
-author: Alice
+title: "Il mio romanzo"
+author: "Alice"
 year: 2024
+language: "it"
 ---
 
-# Capitolo 1
+[C:cap-1"Capitolo 1"]
+C'era una volta in un paese lontano, viveva una principessa coraggiosa.
+Questa è la storia delle sue avventure.
 
-C'era una volta...
-
-# Capitolo 2
-
-E vissero felici e contenti.`,
+[C:cap-2"Capitolo 2"]
+E vissero felici e contenti.
+La fine della storia è sempre lieta.`,
     '2.trmd': `---
-title: Racconti brevi
-author: Alice
+title: "Racconti brevi"
+author: "Alice"
+language: "it"
 ---
 
-# Racconto 1
+[C:r-1"Racconto 1"]
+Un breve racconto inizia qui.
+Parla di un gatto curioso.
 
-Un breve racconto.
-
-# Racconto 2
-
-Un altro racconto.`,
+[C:r-2"Racconto 2"]
+Un altro racconto interessante.
+Questa volta parla di un cane.`,
     '3.trmd': `---
-title: Saggio
-author: Bob
+title: "Saggio"
+author: "Bob"
+language: "it"
 ---
 
-# Introduzione
+[C:intro"Introduzione"]
+Questo è un saggio accademico.
+Tratta di argomenti importanti.
 
-Questo è un saggio.
-
-# Conclusione
-
-Fine del saggio.`,
+[C:concl"Conclusione"]
+Fine del saggio con le conclusioni.
+Abbiamo imparato molto.`,
     '4.trmd': `---
-title: Documentazione
-author: Admin
+title: "Documentazione"
+author: "Admin"
+language: "it"
 ---
 
-# Documentazione
+[C:doc-1"Documentazione"]
+Contenuto della documentazione tecnica.
+Include istruzioni dettagliate.
 
-Contenuto della documentazione.`
+[C:app-1"Appendice"]
+Materiale supplementare per approfondimenti.`
   };
 
   for (const [filename, content] of Object.entries(projects)) {
+    // Il server cerca i file in <project-id>/project.trmd (formato git repo)
+    // oppure <project-id>.trmd (formato legacy)
+    // Usiamo il formato legacy
     writeFileSync(join(testProjectsDir, filename), content);
+
+    // Ma il server con versioning usa directory, quindi creiamo anche quelle
+    const projectId = filename.replace('.trmd', '');
+    const projectDir = join(testProjectsDir, projectId);
+    if (!existsSync(projectDir)) {
+      mkdirSync(projectDir, { recursive: true });
+    }
+    writeFileSync(join(projectDir, 'project.trmd'), content);
   }
 
   console.log('Project files created');

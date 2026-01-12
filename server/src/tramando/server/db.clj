@@ -45,7 +45,12 @@
         (jdbc/execute! ds ["ALTER TABLE users ADD COLUMN max_projects INTEGER DEFAULT 10"])
         (jdbc/execute! ds ["ALTER TABLE users ADD COLUMN max_project_size_mb INTEGER DEFAULT 50"])
         (jdbc/execute! ds ["ALTER TABLE users ADD COLUMN max_collaborators INTEGER DEFAULT 10"])
-        (jdbc/execute! ds ["ALTER TABLE users ADD COLUMN notes TEXT"])))))
+        (jdbc/execute! ds ["ALTER TABLE users ADD COLUMN notes TEXT"])))
+    ;; Add token_version for session invalidation (single-login enforcement)
+    (try
+      (jdbc/execute! ds ["SELECT token_version FROM users LIMIT 1"])
+      (catch Exception _
+        (jdbc/execute! ds ["ALTER TABLE users ADD COLUMN token_version INTEGER DEFAULT 1"])))))
 
 (defn- migrate-projects-table!
   "Add metadata_cache, disabled, and has_validation_errors columns to projects table if they don't exist.
@@ -395,6 +400,17 @@
       ["UPDATE users SET password_hash = ? WHERE id = ?"
        password-hash user-id])))
 
+(defn increment-token-version!
+  "Increment user's token version to invalidate all existing sessions.
+   Returns the new token version."
+  [user-id]
+  (let [ds (get-datasource)]
+    (jdbc/execute! ds
+      ["UPDATE users SET token_version = COALESCE(token_version, 0) + 1 WHERE id = ?"
+       user-id])
+    ;; Return the new version
+    (:token_version (find-user-by-id user-id))))
+
 (defn get-user-quotas
   "Get user's quota limits and current usage"
   [user-id]
@@ -415,15 +431,17 @@
    (get-chat-messages project-id nil))
   ([project-id after-id]
    (if after-id
-     (query ["SELECT id, username, message, created_at
-              FROM chat_messages
-              WHERE project_id = ? AND id > ?
-              ORDER BY id ASC"
+     (query ["SELECT cm.id, cm.username, u.display_name, cm.message, cm.created_at
+              FROM chat_messages cm
+              JOIN users u ON cm.user_id = u.id
+              WHERE cm.project_id = ? AND cm.id > ?
+              ORDER BY cm.id ASC"
              project-id after-id])
-     (query ["SELECT id, username, message, created_at
-              FROM chat_messages
-              WHERE project_id = ?
-              ORDER BY id ASC
+     (query ["SELECT cm.id, cm.username, u.display_name, cm.message, cm.created_at
+              FROM chat_messages cm
+              JOIN users u ON cm.user_id = u.id
+              WHERE cm.project_id = ?
+              ORDER BY cm.id ASC
               LIMIT 100"
              project-id]))))
 
@@ -454,11 +472,12 @@
       {:return-keys true})
     ;; Auto-purge old messages
     (purge-old-chat-messages! project-id)
-    ;; Return the created message
-    (query-one ["SELECT id, username, message, created_at
-                 FROM chat_messages
-                 WHERE project_id = ? AND user_id = ?
-                 ORDER BY id DESC LIMIT 1"
+    ;; Return the created message with display_name
+    (query-one ["SELECT cm.id, cm.username, u.display_name, cm.message, cm.created_at
+                 FROM chat_messages cm
+                 JOIN users u ON cm.user_id = u.id
+                 WHERE cm.project_id = ? AND cm.user_id = ?
+                 ORDER BY cm.id DESC LIMIT 1"
                 project-id user-id])))
 
 (defn clear-chat!

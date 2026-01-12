@@ -8,10 +8,85 @@
    In local mode:
    - Owner is always 'local'
    - User can always edit any chunk
-   - File I/O uses Tauri API or browser File API via platform.cljs"
+   - File I/O uses Tauri API or browser File API via platform.cljs
+
+   Undo/Redo for structural operations:
+   - Maintains separate stacks for operations not captured by CodeMirror
+   - Same seamless flow as RemoteStore (CodeMirror first, then local stack)"
   (:require [tramando.store.protocol :as protocol]
             [tramando.model :as model]
             [reagent.core :as r]))
+
+;; =============================================================================
+;; Local Undo/Redo State (for structural operations)
+;; =============================================================================
+
+;; Undo/redo stacks for operations that CodeMirror doesn't capture
+;; (delete chunk, add chunk, accept/reject proposal, etc.)
+(defonce ^:private undo-stack (atom []))
+(defonce ^:private redo-stack (atom []))
+
+(defn- get-snapshot
+  "Get current state snapshot for undo."
+  []
+  {:chunks (model/get-chunks)
+   :metadata (model/get-metadata)})
+
+(defn- restore-snapshot!
+  "Restore a state snapshot."
+  [snapshot]
+  (swap! model/app-state assoc
+         :chunks (:chunks snapshot)
+         :metadata (:metadata snapshot)))
+
+(defn push-local-undo!
+  "Save current state as undo point before a structural modification.
+   Clears redo stack (new branch of history)."
+  []
+  (swap! undo-stack conj (get-snapshot))
+  (reset! redo-stack []))
+
+(defn pop-local-undo!
+  "Pop the last undo point and push current state to redo stack.
+   Returns true if undo was performed, false if stack was empty."
+  []
+  (if (seq @undo-stack)
+    (let [previous (peek @undo-stack)
+          current (get-snapshot)]
+      (swap! undo-stack pop)
+      (swap! redo-stack conj current)
+      (restore-snapshot! previous)
+      true)
+    false))
+
+(defn pop-local-redo!
+  "Pop the last redo point and push current state to undo stack.
+   Returns true if redo was performed, false if stack was empty."
+  []
+  (if (seq @redo-stack)
+    (let [next-state (peek @redo-stack)
+          current (get-snapshot)]
+      (swap! redo-stack pop)
+      (swap! undo-stack conj current)
+      (restore-snapshot! next-state)
+      true)
+    false))
+
+(defn local-can-undo?
+  "Check if local undo stack has operations."
+  []
+  (seq @undo-stack))
+
+(defn local-can-redo?
+  "Check if local redo stack has operations."
+  []
+  (seq @redo-stack))
+
+(defn clear-local-stacks!
+  "Clear both undo and redo stacks (e.g., when loading a new file)."
+  []
+  (reset! undo-stack [])
+  (reset! redo-stack []))
 
 ;; =============================================================================
 ;; LocalStore Record
@@ -24,6 +99,8 @@
 
   (load-project [_this project-id]
     ;; In local mode, project-id is either a filepath or nil (for new document)
+    ;; Clear undo stacks when loading new file
+    (clear-local-stacks!)
     (js/Promise.
      (fn [resolve _reject]
        (if project-id
@@ -78,9 +155,13 @@
     (model/update-chunk! id changes))
 
   (add-chunk! [_this opts]
+    ;; Push undo before structural change
+    (push-local-undo!)
     (apply model/add-chunk! (mapcat identity opts)))
 
   (delete-chunk! [_this id]
+    ;; Push undo before structural change
+    (push-local-undo!)
     (model/delete-chunk! id))
 
   ;; --- History ---

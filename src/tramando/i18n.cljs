@@ -91,6 +91,8 @@
     :discussion-comment "Commento"
     :discussion-proposal-accepted "Proposta accettata"
     :discussion-proposal-rejected "Proposta rifiutata"
+    :discussion-proposal-undo "Annulla"
+    :discussion-proposal-undo-confirm "Annullare questa decisione e ripristinare la proposta?"
     :claim-ownership "Riprendi"
     :ownership-claimed "Ownership acquisita"
     :help-tab-discussion "Commenti e proposte risolte per questo chunk"
@@ -266,6 +268,7 @@
     :help-tab-lettura "Visualizza il testo formattato, senza markup visibile."
     :help-settings "Tema, colori, e preferenze dell'applicazione."
     :help-metadata "Titolo, autore, lingua e altri metadati del progetto."
+    :versions "Cronologia versioni"
     :help-carica "Apri un file .trmd esistente."
     :help-salva "Salva il progetto corrente."
     :help-esporta "Esporta il progetto in formato MD o PDF."
@@ -468,6 +471,7 @@
     :ai-no-new-info "Nessuna nuova informazione trovata"
 
     ;; Annotation Context Menu
+    :add "Aggiungi"
     :add-annotation "Aggiungi annotazione"
     :edit-annotation "Modifica annotazione..."
     :delete-annotation "Elimina annotazione"
@@ -794,6 +798,7 @@
     :help-tab-lettura "View formatted text, without visible markup."
     :help-settings "Theme, colors, and application preferences."
     :help-metadata "Title, author, language, and other project metadata."
+    :versions "Version history"
     :help-carica "Open an existing .trmd file."
     :help-salva "Save the current project."
     :help-esporta "Export the project to MD or PDF format."
@@ -996,6 +1001,7 @@
     :ai-no-new-info "No new information found"
 
     ;; Annotation Context Menu
+    :add "Add"
     :add-annotation "Add annotation"
     :edit-annotation "Edit annotation..."
     :delete-annotation "Delete annotation"

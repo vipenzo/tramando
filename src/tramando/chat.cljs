@@ -121,9 +121,11 @@
 
 (defn- message-item
   "Single chat message"
-  [{:keys [username message created_at]}]
+  [{:keys [username display_name message created_at]}]
   (let [current-user (auth/get-username)
-        is-own (= username current-user)]
+        is-own (= username current-user)
+        ;; Use display_name from server, fallback to username
+        shown-name (or display_name username)]
     [:div {:style {:display "flex"
                    :flex-direction "column"
                    :align-items (if is-own "flex-end" "flex-start")
@@ -135,7 +137,7 @@
       (when-not is-own
         [:span {:style {:font-weight "bold"
                         :margin-right "4px"}}
-         username])
+         shown-name])
       (format-time created_at)]
      ;; Message bubble
      [:div {:style {:background (if is-own

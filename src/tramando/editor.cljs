@@ -1,5 +1,6 @@
 (ns tramando.editor
   (:require [clojure.string :as str]
+            [cljs.reader :as reader]
             [reagent.core :as r]
             [tramando.model :as model]
             [tramando.settings :as settings]
@@ -13,11 +14,12 @@
             [tramando.api :as api]
             [tramando.store.protocol :as protocol]
             [tramando.store.remote :as remote-store]
-            ["@codemirror/state" :refer [EditorState StateField StateEffect RangeSetBuilder]]
+            [tramando.store.local :as local-store]
+            ["@codemirror/state" :refer [EditorState StateField StateEffect RangeSetBuilder Prec]]
             ["@codemirror/view" :refer [EditorView keymap highlightActiveLine
                                         drawSelection Decoration ViewPlugin WidgetType]]
-            ["@codemirror/commands" :refer [defaultKeymap history historyKeymap
-                                            indentWithTab]]
+            ["@codemirror/commands" :refer [defaultKeymap history
+                                            indentWithTab undo redo undoDepth redoDepth]]
             ["@codemirror/language" :refer [indentOnInput bracketMatching
                                             defaultHighlightStyle syntaxHighlighting]]
             ["@codemirror/lang-markdown" :refer [markdown]]
@@ -198,35 +200,111 @@
       (catch js/Error _
         nil))))
 
-(def ^:private annotation-regex-for-ranges
-  "Regex to find annotations and their parts: [!TYPE@author:text:priority:comment]"
-  (js/RegExp. "\\[!(TODO|NOTE|FIX|PROPOSAL)(?:@([^:]+))?:([^:]*):([^:]*):([^\\]]*)\\]" "g"))
+(defn- find-edn-text-value-range
+  "Find the start and end positions of the :text value string in an EDN annotation.
+   Returns [text-content-start text-content-end] where content excludes quotes.
+   For proposals with sel=1, finds :proposed value instead."
+  [ann-str is-proposal? sel]
+  (let [;; Determine which key to look for
+        key-to-find (if (and is-proposal? (= sel 1)) ":proposed" ":text")
+        key-idx (str/index-of ann-str key-to-find)]
+    (when key-idx
+      ;; Find the opening quote after the key
+      (let [after-key (+ key-idx (count key-to-find))
+            quote-idx (str/index-of ann-str "\"" after-key)]
+        (when quote-idx
+          ;; Find the closing quote, handling escapes
+          (loop [i (inc quote-idx)
+                 escape false]
+            (when (< i (count ann-str))
+              (let [c (nth ann-str i)]
+                (cond
+                  escape (recur (inc i) false)
+                  (= c \\) (recur (inc i) true)
+                  (= c \") [(inc quote-idx) i]  ;; Return positions excluding quotes
+                  :else (recur (inc i) false))))))))))
+
+(defn- find-alt-value-range
+  "Find the range of a specific alternative in the :alts vector.
+   Returns [start end] positions within ann-str, or nil if not found."
+  [ann-str alt-index]
+  (let [alts-idx (str/index-of ann-str ":alts")]
+    (when alts-idx
+      ;; Find opening bracket of vector
+      (let [bracket-idx (str/index-of ann-str "[" alts-idx)]
+        (when bracket-idx
+          ;; Skip through alternatives until we reach the right index
+          (loop [i (inc bracket-idx)
+                 current-alt 0
+                 in-string false
+                 escape false
+                 string-start nil]
+            (when (< i (count ann-str))
+              (let [c (nth ann-str i)]
+                (cond
+                  ;; Handle escape
+                  escape (recur (inc i) current-alt in-string false string-start)
+                  (= c \\) (recur (inc i) current-alt in-string true string-start)
+
+                  ;; Inside string
+                  (and in-string (= c \"))
+                  (if (= current-alt alt-index)
+                    ;; Found our alternative - return range (excluding quotes)
+                    [(inc string-start) i]
+                    ;; Move to next alternative
+                    (recur (inc i) (inc current-alt) false false nil))
+
+                  in-string
+                  (recur (inc i) current-alt in-string false string-start)
+
+                  ;; Start of string
+                  (= c \")
+                  (recur (inc i) current-alt true false i)
+
+                  ;; End of vector
+                  (= c \]) nil
+
+                  :else
+                  (recur (inc i) current-alt in-string false string-start))))))))))
 
 (defn- get-hidden-ranges
   "Returns vector of {:from :to} for hidden parts of annotations.
-   When show-markup is false, the prefix [!TYPE@author: and suffix :priority:comment] are hidden."
+   When show-markup is false, only the :text content is shown.
+   Supports EDN format [!TYPE{:text \"...\"}]"
   [text]
-  (let [ranges (atom [])]
-    (set! (.-lastIndex annotation-regex-for-ranges) 0)
-    (loop []
-      (when-let [match (.exec annotation-regex-for-ranges text)]
-        (let [full-match (aget match 0)
-              type-str (aget match 1)
-              author-str (aget match 2)  ;; may be nil/undefined
-              selected-text (aget match 3)
-              start (.-index match)
-              end (+ start (count full-match))
-              ;; Hidden prefix: [!TYPE@author: (from start to after first colon)
-              ;; Length: 2 ([!) + type + @author if present + 1 (:)
-              author-len (if author-str (+ 1 (count author-str)) 0)  ;; +1 for @
-              prefix-end (+ start 2 (count type-str) author-len 1)
-              ;; Hidden suffix: :priority:comment] (from after selected text to end)
-              text-end (+ prefix-end (count selected-text))]
-          ;; Add hidden prefix range
-          (swap! ranges conj {:from start :to prefix-end})
-          ;; Add hidden suffix range
-          (swap! ranges conj {:from text-end :to end})
-          (recur))))
+  (let [ranges (atom [])
+        edn-annotations (annotations/parse-annotations text)]
+    ;; Process EDN annotations - hide everything except the displayed text
+    (doseq [ann edn-annotations]
+      (let [start (:start ann)
+            end (:end ann)
+            ann-str (subs text start end)
+            is-proposal? (annotations/is-proposal? ann)
+            is-ai-done? (annotations/is-ai-done? ann)
+            sel (cond
+                  is-proposal? (annotations/get-proposal-selection ann)
+                  is-ai-done? (annotations/get-ai-selection ann)
+                  :else 0)
+            ;; Find the range to display
+            text-range (cond
+                         ;; AI-DONE with sel > 0 - find in :alts vector
+                         (and is-ai-done? (pos? sel))
+                         (find-alt-value-range ann-str (dec sel))  ;; alts is 0-indexed, sel is 1-indexed
+
+                         ;; Proposal with sel=1 - find :proposed
+                         (and is-proposal? (= sel 1))
+                         (find-edn-text-value-range ann-str true 1)
+
+                         ;; Default - find :text
+                         :else
+                         (find-edn-text-value-range ann-str false 0))]
+        (when-let [[rel-text-start rel-text-end] text-range]
+          (let [text-start (+ start rel-text-start)
+                text-end (+ start rel-text-end)]
+            ;; Hide from annotation start to text start
+            (swap! ranges conj {:from start :to text-start})
+            ;; Hide from text end to annotation end
+            (swap! ranges conj {:from text-end :to end})))))
     @ranges))
 
 (defn- match-overlaps-hidden?
@@ -424,13 +502,17 @@
    (fn []
      (when-let [view @editor-view-ref]
        (let [doc-text (.. view -state -doc (toString))
-             ;; Find the annotation pattern containing this selected-text using JS regex for position
-             escaped-text (str/replace selected-text #"[.*+?^${}()|\\[\\]\\\\]" "\\\\$&")
-             js-pattern (js/RegExp. (str "\\[!(TODO|NOTE|FIX|PROPOSAL)(?:@[^:]+)?:" escaped-text ":[^\\]]*\\]") "g")
-             match (.exec js-pattern doc-text)]
-         (when match
-           (let [idx (.-index match)
-                 end-idx (+ idx (count (aget match 0)))]
+             ;; Use the annotation parser to find the annotation containing this text
+             all-annotations (annotations/parse-annotations doc-text)
+             matching-ann (first (filter #(= (annotations/get-text %) selected-text) all-annotations))]
+         ;; DEBUG
+         (js/console.log "=== navigate-to-annotation! ===")
+         (js/console.log "selected-text:" selected-text)
+         (js/console.log "all-annotations count:" (count all-annotations))
+         (js/console.log "matching-ann:" (pr-str matching-ann))
+         (when matching-ann
+           (let [idx (:start matching-ann)
+                 end-idx (:end matching-ann)]
              (when (>= idx 0)
                ;; Set flash decoration range and trigger update
                (reset! flash-decoration-atom {:from idx :to end-idx})
@@ -685,134 +767,107 @@
 (defn- create-annotation-decorations [view show-markup?]
   (let [builder #js []
         doc (.. view -state -doc)
-        text (.toString doc)]
-    ;; Reset regex
-    (set! (.-lastIndex annotation-regex) 0)
-    ;; Find all matches
-    (loop []
-      (when-let [match (.exec annotation-regex text)]
-        (let [full-match (aget match 0)
-              type-str (aget match 1)
-              author-str (aget match 2)  ;; may be nil/undefined
-              selected-text (aget match 3)
-              priority-str (aget match 4)
-              comment-text (aget match 5)
-              start (.-index match)
-              end (+ start (count full-match))
-              ;; Check if this is an AI-DONE annotation with a selection
-              is-ai-done? (= priority-str "AI-DONE")
-              ai-data (when is-ai-done?
-                        (annotations/parse-ai-data comment-text))
-              ai-sel (when ai-data (or (:sel ai-data) 0))
-              ai-alts (when ai-data (or (:alts ai-data) []))
-              has-ai-selection? (and is-ai-done? (pos? ai-sel) (<= ai-sel (count ai-alts)))
-              ;; Get alternative text if selected
-              alt-text (when has-ai-selection?
-                         (nth ai-alts (dec ai-sel)))
-              ;; Check if this is a PROPOSAL annotation with selection
-              is-proposal? (= type-str "PROPOSAL")
-              proposal-data (when is-proposal?
-                              (annotations/parse-proposal-data comment-text))
-              proposal-sel (when proposal-data (or (:sel proposal-data) 0))
-              has-proposal-selection? (and is-proposal? (pos? proposal-sel))
-              proposal-text (when has-proposal-selection?
-                              (:text proposal-data))
-              ;; Calculate positions of parts: [!TYPE@author:text:priority:comment]
-              ;; author-str may be undefined from JS regex, so check with some?
-              author-len (if (some? author-str) (+ 1 (count author-str)) 0) ; +1 for @
-              prefix-end (+ start 2 (count type-str) author-len 1) ; after [!TYPE@author:
-              text-start prefix-end
-              text-end (+ text-start (count selected-text))
-              suffix-start text-end ; from :priority:comment] to end
-              type-lower (str/lower-case type-str)
-              ;; Get author display name
-              author-display (when (some? author-str)
-                               (auth/get-cached-display-name author-str))
-              ;; Build tooltip with author prefix if present
-              base-tooltip (cond
-                             has-ai-selection?
-                             (str "AI alternative #" ai-sel " selected")
-                             ;; For PROPOSAL: show the proposed text, not the base64
-                             is-proposal?
-                             (if-let [proposed (:text proposal-data)]
-                               (str (t :proposal) ": " proposed)
-                               (t :proposal))
-                             (and (seq priority-str) (seq comment-text))
-                             (str "[" priority-str "] " comment-text)
-                             (seq comment-text) comment-text
-                             (seq priority-str) (str "[" priority-str "]")
-                             :else (str type-str " annotation"))
-              tooltip (if author-display
-                        (str author-display ": " base-tooltip)
-                        base-tooltip)]
-          (if show-markup?
-            ;; Markup mode: highlight entire annotation
-            (let [css-class (cond
-                              has-ai-selection? "cm-ai-selected"
-                              is-ai-done? "cm-annotation-note"
-                              has-proposal-selection? "cm-proposal-selected"
-                              :else (str "cm-annotation-" type-lower))]
-              (.push builder (.range (.mark Decoration #js {:class css-class})
-                                     start end)))
-            ;; Reading mode
-            (let [;; Check if annotation spans multiple lines (contains newline)
-                  annotation-text (subs text start end)
-                  spans-lines? (str/includes? annotation-text "\n")
-                  ;; Also check if alt-text contains newlines
-                  alt-spans-lines? (and alt-text (str/includes? alt-text "\n"))
-                  ;; Also check if proposal-text contains newlines
-                  proposal-spans-lines? (and proposal-text (str/includes? proposal-text "\n"))]
-              (cond
-                ;; AI-DONE with selection (single line annotation AND alternative): use widget with strikethrough
-                (and has-ai-selection? (not spans-lines?) (not alt-spans-lines?))
-                (.push builder (.range (.replace Decoration
-                                                 #js {:widget (create-ai-alternative-widget selected-text alt-text)})
-                                       start end))
+        text (.toString doc)
+        ;; Parse all annotations using the EDN parser
+        all-annotations (annotations/parse-annotations text)]
+    ;; Process each annotation
+    (doseq [ann all-annotations]
+      (let [start (:start ann)
+            end (:end ann)
+            type (:type ann)
+            type-lower (str/lower-case (name type))
+            selected-text (annotations/get-text ann)
+            author (annotations/get-author ann)
+            comment (annotations/get-comment ann)
+            priority (annotations/get-priority ann)
+            ;; Check annotation types
+            is-ai-done? (annotations/is-ai-done? ann)
+            is-ai-pending? (annotations/is-ai-pending? ann)
+            is-proposal? (annotations/is-proposal? ann)
+            ;; AI-DONE data
+            ai-sel (or (annotations/get-ai-selection ann) 0)
+            ai-alts (or (annotations/get-ai-alternatives ann) [])
+            has-ai-selection? (and is-ai-done? (pos? ai-sel) (<= ai-sel (count ai-alts)))
+            alt-text (when has-ai-selection? (nth ai-alts (dec ai-sel)))
+            ;; PROPOSAL data
+            proposal-sel (or (annotations/get-proposal-selection ann) 0)
+            has-proposal-selection? (and is-proposal? (pos? proposal-sel))
+            proposal-text (when has-proposal-selection? (annotations/get-proposed-text ann))
+            ;; Get author display name
+            author-display (when author (auth/get-cached-display-name author))
+            ;; Build tooltip
+            base-tooltip (cond
+                           has-ai-selection? (str "AI alternative #" ai-sel " selected")
+                           is-proposal? (str (t :proposal) ": " (or (annotations/get-proposed-text ann) ""))
+                           (and priority comment) (str "[" priority "] " comment)
+                           comment comment
+                           priority (str "[" priority "]")
+                           :else (str (name type) " annotation"))
+            tooltip (if author-display (str author-display ": " base-tooltip) base-tooltip)]
+        (if show-markup?
+          ;; Markup mode: highlight entire annotation
+          (let [css-class (cond
+                            has-ai-selection? "cm-ai-selected"
+                            is-ai-done? "cm-annotation-note"
+                            has-proposal-selection? "cm-proposal-selected"
+                            :else (str "cm-annotation-" type-lower))]
+            (.push builder (.range (.mark Decoration #js {:class css-class}) start end)))
+          ;; Reading mode: hide markup, show only text
+          (let [annotation-text (subs text start end)
+                spans-lines? (str/includes? annotation-text "\n")
+                alt-spans-lines? (and alt-text (str/includes? alt-text "\n"))
+                proposal-spans-lines? (and proposal-text (str/includes? proposal-text "\n"))]
+            (cond
+              ;; AI-DONE with selection (single line): use widget with strikethrough
+              (and has-ai-selection? (not spans-lines?) (not alt-spans-lines?))
+              (.push builder (.range (.replace Decoration
+                                               #js {:widget (create-ai-alternative-widget selected-text alt-text)})
+                                     start end))
 
-                ;; AI-DONE with selection but multiline: hide annotation, show alternative as plain text
-                (and has-ai-selection? (or spans-lines? alt-spans-lines?))
-                (do
-                  ;; Hide the entire annotation
-                  (.push builder (.range (.mark Decoration #js {:class "cm-annotation-hidden"})
-                                         start end))
-                  ;; Insert widget with alternative text at start position
-                  (.push builder (.range (.widget Decoration
-                                                  #js {:widget (create-text-widget alt-text "cm-ai-alternative-text")
-                                                       :side 1})
-                                         start)))
+              ;; AI-DONE with selection but multiline: hide annotation, show alternative
+              (and has-ai-selection? (or spans-lines? alt-spans-lines?))
+              (do
+                (.push builder (.range (.mark Decoration #js {:class "cm-annotation-hidden"}) start end))
+                (.push builder (.range (.widget Decoration
+                                                #js {:widget (create-text-widget alt-text "cm-ai-alternative-text")
+                                                     :side 1})
+                                       start)))
 
-                ;; PROPOSAL with selection (sel=1): show proposed text with widget
-                (and has-proposal-selection? (not spans-lines?) (not proposal-spans-lines?))
-                (.push builder (.range (.replace Decoration
-                                                 #js {:widget (create-ai-alternative-widget selected-text proposal-text)})
-                                       start end))
+              ;; PROPOSAL with selection (sel=1): show proposed text
+              (and has-proposal-selection? (not spans-lines?) (not proposal-spans-lines?))
+              (.push builder (.range (.replace Decoration
+                                               #js {:widget (create-ai-alternative-widget selected-text proposal-text)})
+                                     start end))
 
-                ;; PROPOSAL with selection but multiline: hide annotation, show proposal as plain text
-                (and has-proposal-selection? (or spans-lines? proposal-spans-lines?))
-                (do
-                  ;; Hide the entire annotation
-                  (.push builder (.range (.mark Decoration #js {:class "cm-annotation-hidden"})
-                                         start end))
-                  ;; Insert widget with proposal text at start position
-                  (.push builder (.range (.widget Decoration
-                                                  #js {:widget (create-text-widget proposal-text "cm-proposal-text")
-                                                       :side 1})
-                                         start)))
+              ;; PROPOSAL with selection but multiline
+              (and has-proposal-selection? (or spans-lines? proposal-spans-lines?))
+              (do
+                (.push builder (.range (.mark Decoration #js {:class "cm-annotation-hidden"}) start end))
+                (.push builder (.range (.widget Decoration
+                                                #js {:widget (create-text-widget proposal-text "cm-proposal-text")
+                                                     :side 1})
+                                       start)))
 
-                ;; Normal annotation: hide prefix/suffix, highlight text
-                :else
-                (do
-                  ;; Hide prefix [!TYPE:
-                  (.push builder (.range (.mark Decoration #js {:class "cm-annotation-hidden"})
-                                         start text-start))
-                  ;; Highlight selected text
-                  (.push builder (.range (.mark Decoration #js {:class (str "cm-annotation-text-" type-lower)
-                                                                :attributes #js {:title tooltip}})
-                                         text-start text-end))
-                  ;; Hide suffix :priority:comment]
-                  (.push builder (.range (.mark Decoration #js {:class "cm-annotation-hidden"})
-                                         suffix-start end))))))
-        (recur))))
+              ;; Normal annotation: hide entire markup except text, highlight text
+              :else
+              (let [;; For EDN format, we need to find where :text "..." appears
+                    ;; and show only that text. Use hidden ranges from get-hidden-ranges.
+                    hidden-ranges (get-hidden-ranges annotation-text)]
+                (if (seq hidden-ranges)
+                  ;; Use pre-calculated hidden ranges
+                  (doseq [{:keys [from to]} hidden-ranges]
+                    (let [abs-from (+ start from)
+                          abs-to (+ start to)]
+                      (.push builder (.range (.mark Decoration #js {:class "cm-annotation-hidden"})
+                                             abs-from abs-to))))
+                  ;; Fallback: hide entire annotation and show text as widget
+                  (do
+                    (.push builder (.range (.mark Decoration #js {:class "cm-annotation-hidden"}) start end))
+                    (.push builder (.range (.widget Decoration
+                                                    #js {:widget (create-text-widget selected-text (str "cm-annotation-text-" type-lower))
+                                                         :side 1
+                                                         :attributes #js {:title tooltip}})
+                                           start))))))))))
     ;; Process aspect links [@id]
     (set! (.-lastIndex aspect-link-regex) 0)
     (loop []
@@ -870,15 +925,24 @@
          (when (.-docChanged update)
            (let [content (.. update -state -doc (toString))
                  chunk (model/get-chunk chunk-id)
-                 owner (:owner chunk)
-                 current-user (model/get-current-owner)
-                 ;; Assign ownership if chunk has no real owner yet (legacy chunks with "local")
-                 should-claim? (and (= "local" owner)
-                                    (not= "local" current-user))
-                 changes (if should-claim?
-                           {:content content :owner current-user}
-                           {:content content})]
-             (model/update-chunk! chunk-id changes)))
+                 old-content (:content chunk)]
+             ;; Only process if content actually changed
+             ;; (editor recreation can fire docChanged even without real change)
+             (when (not= content old-content)
+               (let [owner (:owner chunk)
+                     current-user (model/get-current-owner)
+                     ;; Assign ownership if chunk has no real owner yet (legacy chunks with "local")
+                     should-claim? (and (= "local" owner)
+                                        (not= "local" current-user))
+                     changes (if should-claim?
+                               {:content content :owner current-user}
+                               {:content content})]
+                 (model/update-chunk! chunk-id changes)
+                 ;; Clear the synced flag - user made new changes that aren't synced yet
+                 (when (remote-store/get-project-id)
+                   (remote-store/clear-local-changes-synced!)
+                   ;; Notify presence when editing in remote mode
+                   (remote-store/notify-editing! chunk-id))))))
          js/undefined)))
 
 ;; Forward declarations for functions defined later in the file
@@ -1132,6 +1196,166 @@
 ;; Editor Creation
 ;; =============================================================================
 
+;; Custom keymap for seamless undo/redo
+;; After autosave, local changes are synced to server - undo should go directly to server.
+;; Otherwise, use CodeMirror undo first, then fall back to server/local undo.
+
+(def undo-redo-keymap
+  #js [#js {:key "Mod-z"
+            :run (fn [view]
+                   (let [depth (undoDepth (.-state view))
+                         ;; If local changes were synced, bypass CodeMirror and go to server
+                         synced? (remote-store/local-changes-synced?)
+                         has-server-undo? (and (remote-store/get-project-id)
+                                               (remote-store/server-can-undo?)
+                                               (model/is-project-owner?))]
+                     (cond
+                       ;; Priority 1: If synced to server and server has undo, go directly to server
+                       ;; This ensures undo after autosave reverts to pre-modification state
+                       (and synced? has-server-undo?)
+                       (do
+                         (js/console.log "Local changes synced, using server undo...")
+                         (remote-store/server-undo!)
+                         true)
+
+                       ;; Priority 2: CodeMirror has local undo (not yet synced)
+                       ;; Just use standard CodeMirror undo
+                       (pos? depth)
+                       (undo view)
+
+                       ;; Priority 3: Server undo available (CodeMirror exhausted)
+                       has-server-undo?
+                       (do
+                         (js/console.log "CodeMirror undo exhausted, trying server undo...")
+                         (remote-store/server-undo!)
+                         true)
+
+                       ;; Priority 4: Local mode with local undo available
+                       (and (not (remote-store/get-project-id))
+                            (local-store/local-can-undo?))
+                       (do
+                         (js/console.log "Using local undo stack...")
+                         (local-store/pop-local-undo!)
+                         true)
+
+                       ;; No undo available anywhere
+                       :else false)))}
+       #js {:key "Mod-Shift-z"
+            :run (fn [view]
+                   (let [depth (redoDepth (.-state view))]
+                     (if (pos? depth)
+                       ;; CodeMirror has redo available, use it
+                       (redo view)
+                       ;; No local redo - check remote or local mode
+                       (cond
+                         ;; Remote mode with server redo available
+                         (and (remote-store/get-project-id)
+                              (remote-store/server-can-redo?)
+                              (model/is-project-owner?))
+                         (do
+                           (js/console.log "CodeMirror redo exhausted, trying server redo...")
+                           (remote-store/server-redo!)
+                           true)
+
+                         ;; Local mode with local redo available
+                         (and (not (remote-store/get-project-id))
+                              (local-store/local-can-redo?))
+                         (do
+                           (js/console.log "CodeMirror redo exhausted, trying local redo...")
+                           (local-store/pop-local-redo!)
+                           true)
+
+                         ;; No redo available anywhere
+                         :else false))))}
+       ;; Also handle Mod-y for Windows-style redo
+       #js {:key "Mod-y"
+            :run (fn [view]
+                   (let [depth (redoDepth (.-state view))]
+                     (if (pos? depth)
+                       (redo view)
+                       (cond
+                         (and (remote-store/get-project-id)
+                              (remote-store/server-can-redo?)
+                              (model/is-project-owner?))
+                         (do
+                           (remote-store/server-redo!)
+                           true)
+
+                         (and (not (remote-store/get-project-id))
+                              (local-store/local-can-redo?))
+                         (do
+                           (local-store/pop-local-redo!)
+                           true)
+
+                         :else false))))}])
+
+;; =============================================================================
+;; Public Undo/Redo Functions (for toolbar buttons)
+;; =============================================================================
+
+(defn get-undo-source
+  "Returns the source of the next undo operation:
+   :codemirror - CodeMirror has local undo (not yet synced)
+   :server - Server undo available (remote mode, or synced local changes)
+   :local - Local undo available (local mode)
+   nil - No undo available"
+  []
+  (let [cm-depth (when @editor-view-ref
+                   (undoDepth (.-state @editor-view-ref)))
+        synced? (remote-store/local-changes-synced?)
+        has-server-undo? (and (remote-store/get-project-id)
+                              (remote-store/server-can-undo?)
+                              (model/is-project-owner?))]
+    (cond
+      ;; If synced to server and server has undo, go to server
+      (and synced? has-server-undo?) :server
+      ;; CodeMirror has local undo (not yet synced)
+      (and cm-depth (pos? cm-depth) (not synced?)) :codemirror
+      ;; Server undo available
+      has-server-undo? :server
+      ;; Local mode
+      (and (not (remote-store/get-project-id))
+           (local-store/local-can-undo?)) :local
+      :else nil)))
+
+(defn get-redo-source
+  "Returns the source of the next redo operation:
+   :codemirror - CodeMirror has local redo
+   :server - Server redo available (remote mode)
+   :local - Local redo available (local mode)
+   nil - No redo available"
+  []
+  (let [cm-depth (when @editor-view-ref
+                   (redoDepth (.-state @editor-view-ref)))]
+    (cond
+      (and cm-depth (pos? cm-depth)) :codemirror
+      (and (remote-store/get-project-id)
+           (remote-store/server-can-redo?)
+           (model/is-project-owner?)) :server
+      (and (not (remote-store/get-project-id))
+           (local-store/local-can-redo?)) :local
+      :else nil)))
+
+(defn do-undo!
+  "Perform undo from the appropriate source. Returns true if successful."
+  []
+  (case (get-undo-source)
+    :codemirror (when @editor-view-ref
+                  (undo @editor-view-ref))
+    :server (do (remote-store/server-undo!) true)
+    :local (do (local-store/pop-local-undo!) true)
+    false))
+
+(defn do-redo!
+  "Perform redo from the appropriate source. Returns true if successful."
+  []
+  (case (get-redo-source)
+    :codemirror (when @editor-view-ref
+                  (redo @editor-view-ref))
+    :server (do (remote-store/server-redo!) true)
+    :local (do (local-store/pop-local-redo!) true)
+    false))
+
 ;; Custom keymap for search
 (def search-keymap
   #js [#js {:key "Escape"
@@ -1180,6 +1404,8 @@
                               (highlightActiveLine)
                               (drawSelection)
                               (.-lineWrapping EditorView)
+                              ;; Custom undo/redo keymap with HIGHEST precedence to intercept before history
+                              (.highest Prec (.of keymap undo-redo-keymap))
                               (history)
                               (indentOnInput)
                               (bracketMatching)
@@ -1190,7 +1416,7 @@
                               search-highlight-plugin
                               flash-highlight-plugin
                               (.of keymap search-keymap)
-                              (.of keymap (.concat defaultKeymap historyKeymap searchKeymap #js [indentWithTab]))
+                              (.of keymap (.concat defaultKeymap searchKeymap #js [indentWithTab]))
                               (make-update-listener chunk-id)
                               (make-contextmenu-extension chunk-id)]
          extensions (if read-only?
@@ -1211,13 +1437,14 @@
 (defonce local-editor-view (atom nil))
 
 (defn- contains-annotation?
-  "Check if text contains any annotation markers"
+  "Check if text contains any annotation markers (EDN or legacy format)"
   [text]
-  (boolean (re-find #"\[!(TODO|NOTE|FIX|PROPOSAL)(?:@[^:]+)?:" text)))
+  (boolean (or (re-find #"\[!(TODO|NOTE|FIX|PROPOSAL)\{" text)
+               (re-find #"\[!(TODO|NOTE|FIX|PROPOSAL)(?:@[^:]+)?:" text))))
 
 (defn- wrap-selection-with-annotation!
-  "Wrap selected text with annotation syntax [!TYPE@user:text:priority:comment]
-   In server mode, adds current username. In Tauri/local mode, no @user is added."
+  "Wrap selected text with annotation in EDN format: [!TYPE{:text \"...\" :author \"...\" :priority N :comment \"...\"}]
+   In server mode, adds current username. In Tauri/local mode, no author is added."
   [annotation-type chunk selected-text & [priority comment]]
   ;; Prevent nested annotations
   (if (contains-annotation? selected-text)
@@ -1229,15 +1456,17 @@
         (when (and idx (>= idx 0))
           (let [from idx
                 to (+ from (count selected-text))
-                ;; Build annotation with provided priority and comment
-                priority-str (or priority "")
-                comment-str (or comment "")
-                ;; Add @username if logged in (server mode)
+                ;; Get author if logged in (server mode)
                 username (auth/get-username)
-                author-part (if (and username (not= username "local"))
-                              (str "@" username)
-                              "")
-                wrapped-text (str "[!" annotation-type author-part ":" selected-text ":" priority-str ":" comment-str "]")
+                author (when (and username (not= username "local")) username)
+                ;; Build EDN annotation data
+                data (cond-> {:text selected-text}
+                       author (assoc :author author)
+                       (and priority (seq priority)) (assoc :priority (if (re-matches #"\d+" priority)
+                                                                        (js/parseInt priority)
+                                                                        priority))
+                       (and comment (seq comment)) (assoc :comment comment))
+                wrapped-text (str "[!" annotation-type (pr-str data) "]")
                 ;; Position cursor at end of annotation
                 cursor-pos (+ from (count wrapped-text))]
             (.dispatch view #js {:changes #js {:from from :to to :insert wrapped-text}
@@ -1248,66 +1477,101 @@
 (context-menu/set-wrap-annotation-handler! wrap-selection-with-annotation!)
 
 (defn- delete-annotation!
-  "Delete an annotation from a chunk, keeping original text"
+  "Delete an annotation from a chunk, keeping original text.
+   Uses position-based replacement for reliability with both EDN and legacy formats."
   [annotation]
-  (let [{:keys [type selected-text chunk-id]} annotation]
-    (when-let [chunk (model/get-chunk chunk-id)]
-      (let [content (:content chunk)
-            ;; Pattern to match this annotation (with optional @author)
-            pattern (re-pattern (str "\\[!" (name type) "(?:@[^:]+)?:"
-                                     (str/replace selected-text #"[.*+?^${}()|\\[\\]\\\\]" "\\\\$&")
-                                     ":[^:]*:[^\\]]*\\]"))
-            new-content (str/replace content pattern selected-text)]
-        (when (not= content new-content)
-          (model/update-chunk! chunk-id {:content new-content})
-          (refresh-editor!))))))
+  (let [chunk-id (:chunk-id annotation)
+        ;; Get text from new format (:data) or old format
+        selected-text (or (get-in annotation [:data :text])
+                          (:selected-text annotation))
+        start (:start annotation)
+        end (:end annotation)]
+    (when (and chunk-id selected-text)
+      (when-let [chunk (model/get-chunk chunk-id)]
+        (let [content (:content chunk)]
+          ;; Use position-based replacement if we have positions
+          (if (and start end (<= 0 start) (<= end (count content)))
+            (let [new-content (str (subs content 0 start) selected-text (subs content end))]
+              (when (not= content new-content)
+                (model/update-chunk! chunk-id {:content new-content})
+                (refresh-editor!)))
+            ;; Fallback: pattern-based replacement for legacy annotations without positions
+            (let [type-name (name (:type annotation))
+                  escaped-text (str/replace selected-text #"[.*+?^${}()|\\[\\]\\\\]" "\\\\$&")
+                  ;; Try EDN pattern first, then legacy
+                  edn-pattern (re-pattern (str "\\[!" type-name "\\{[^}]*:text\\s+\"" escaped-text "\"[^}]*\\}\\]"))
+                  legacy-pattern (re-pattern (str "\\[!" type-name "(?:@[^:]+)?:" escaped-text ":[^:]*:[^\\]]*\\]"))
+                  new-content (-> content
+                                  (str/replace edn-pattern selected-text)
+                                  (str/replace legacy-pattern selected-text))]
+              (when (not= content new-content)
+                (model/update-chunk! chunk-id {:content new-content})
+                (refresh-editor!)))))))))
 
 ;; Set up handler for delete annotation from context menu
 (context-menu/set-delete-annotation-handler! delete-annotation!)
 
 (defn- parse-annotation-from-text
   "Try to parse an annotation from text that might be a complete annotation.
-   Returns annotation map or nil."
+   Supports both EDN and legacy formats. Returns annotation map or nil."
   [text chunk-id]
   (when (and text (str/starts-with? text "[!"))
-    (let [pattern (js/RegExp. "^\\[!(TODO|NOTE|FIX|PROPOSAL)(?:@([^:]+))?:([^:]*):([^:]*):([^\\]]*)\\]$")]
-      (when-let [match (.exec pattern text)]
-        {:type (keyword (aget match 1))
-         :author (when-let [a (aget match 2)] (str/trim a))
-         :selected-text (str/trim (aget match 3))
-         :priority (annotations/parse-priority (aget match 4))
-         :comment (str/trim (or (aget match 5) ""))
-         :chunk-id chunk-id}))))
+    ;; Try EDN format first: [!TYPE{...}]
+    (if-let [edn-match (re-find #"^\[!(TODO|NOTE|FIX|PROPOSAL)\{(.+)\}\]$" text)]
+      (try
+        (let [type-str (nth edn-match 1)
+              edn-str (str "{" (nth edn-match 2) "}")
+              data (reader/read-string edn-str)]
+          {:type (keyword type-str)
+           :data data
+           :chunk-id chunk-id})
+        (catch :default _ nil))
+      ;; Legacy format: [!TYPE@author:text:priority:comment]
+      (let [pattern (js/RegExp. "^\\[!(TODO|NOTE|FIX|PROPOSAL)(?:@([^:]+))?:([^:]*):([^:]*):([^\\]]*)\\]$")]
+        (when-let [match (.exec pattern text)]
+          {:type (keyword (aget match 1))
+           :data {:text (str/trim (aget match 3))
+                  :author (when-let [a (aget match 2)] (str/trim a))
+                  :priority (let [p (aget match 4)]
+                              (when (and p (seq (str/trim p)))
+                                (let [t (str/trim p)]
+                                  (cond
+                                    (= t "AI") :pending
+                                    (= t "AI-DONE") :done
+                                    (re-matches #"-?\d+\.?\d*" t) (js/parseFloat t)
+                                    :else t))))
+                  :comment (str/trim (or (aget match 5) ""))}
+           :chunk-id chunk-id})))))
+
+(defn- find-standard-annotation-at-position
+  "Find a standard annotation (TODO/NOTE/FIX) at position.
+   Uses the unified annotation parser that supports both EDN and legacy formats."
+  [text pos chunk-id]
+  (let [all-annotations (annotations/parse-annotations text)]
+    (first (filter (fn [ann]
+                     (and (contains? #{:TODO :NOTE :FIX} (:type ann))
+                          (>= pos (:start ann))
+                          (< pos (:end ann))))
+                   (map #(assoc % :chunk-id chunk-id) all-annotations)))))
+
+(defn- find-proposal-annotation-at-position
+  "Find a PROPOSAL annotation at position.
+   Uses the unified annotation parser that supports both EDN and legacy formats."
+  [text pos chunk-id]
+  (let [all-annotations (annotations/parse-annotations text)]
+    (first (filter (fn [ann]
+                     (and (= (:type ann) :PROPOSAL)
+                          (>= pos (:start ann))
+                          (< pos (:end ann))))
+                   (map #(assoc % :chunk-id chunk-id) all-annotations)))))
 
 (defn- find-annotation-at-position
   "Find if there's an annotation at the given character position in the text.
-   Uses JavaScript RegExp with lastIndex to accurately find match positions."
+   Handles both standard annotations (TODO/NOTE/FIX) and PROPOSAL annotations separately
+   because PROPOSAL text can contain colons."
   [text pos chunk-id]
-  ;; Use JavaScript RegExp with global flag to get match positions
-  (let [pattern (js/RegExp. "\\[!(TODO|NOTE|FIX|PROPOSAL)(?:@([^:]+))?:([^:]*):([^:]*):([^\\]]*)\\]" "g")]
-    (loop []
-      (let [match (.exec pattern text)]
-        (when match
-          (let [full-match (aget match 0)
-                type-str (aget match 1)
-                author-str (aget match 2)
-                selected-text (aget match 3)
-                priority-str (aget match 4)
-                comment-text (aget match 5)
-                start (.-index match)
-                end (+ start (count full-match))]
-            (if (and (>= pos start) (< pos end))
-              ;; Found annotation at position
-              {:type (keyword type-str)
-               :author (when author-str (str/trim author-str))
-               :selected-text (str/trim selected-text)
-               :priority (annotations/parse-priority priority-str)
-               :comment (str/trim (or comment-text ""))
-               :start start
-               :end end
-               :chunk-id chunk-id}
-              ;; Keep looking
-              (recur))))))))
+  (or (find-standard-annotation-at-position text pos chunk-id)
+      (find-proposal-annotation-at-position text pos chunk-id)))
 
 ;; =============================================================================
 ;; Editor Component
@@ -1683,23 +1947,25 @@
                                    :font-size "0.85rem"}
                            :on-click #(model/add-chunk! :parent-id (:id chunk))}
                   (t :create-child)])
-               [:button {:style {:background "transparent"
-                                 :color (if has-children?
-                                          (:text-muted colors)
-                                          (settings/get-color :danger))
-                                 :border (str "1px solid " (if has-children?
-                                                             (:text-muted colors)
-                                                             (settings/get-color :danger)))
-                                 :padding "6px 12px"
-                                 :border-radius "4px"
-                                 :cursor (if has-children? "not-allowed" "pointer")
-                                 :opacity (if has-children? 0.5 1)
-                                 :font-size "0.85rem"}
-                         :disabled has-children?
-                         :title (when has-children? (t :cannot-delete-has-children))
-                         :on-click #(when-not has-children?
-                                      (reset! confirming-delete? true))}
-                (t :delete-chunk)]]
+               ;; Delete button - only visible to project owner
+               (when (model/is-project-owner?)
+                 [:button {:style {:background "transparent"
+                                   :color (if has-children?
+                                            (:text-muted colors)
+                                            (settings/get-color :danger))
+                                   :border (str "1px solid " (if has-children?
+                                                               (:text-muted colors)
+                                                               (settings/get-color :danger)))
+                                   :padding "6px 12px"
+                                   :border-radius "4px"
+                                   :cursor (if has-children? "not-allowed" "pointer")
+                                   :opacity (if has-children? 0.5 1)
+                                   :font-size "0.85rem"}
+                           :disabled has-children?
+                           :title (when has-children? (t :cannot-delete-has-children))
+                           :on-click #(when-not has-children?
+                                        (reset! confirming-delete? true))}
+                  (t :delete-chunk)])]
               (when @error-msg
                 [:span {:style {:color (settings/get-color :danger) :font-size "0.75rem" :margin-top "4px" :display "block"}}
                  @error-msg])])])))))
@@ -1866,43 +2132,44 @@
                                    (reset! menu-open? false))}
                    (t :show-in-hierarchy)]
 
-                  [:div.dropdown-divider]
-
-                  ;; Delete
-                  (if @confirming-delete?
-                    [:div {:style {:padding "8px 12px"}}
-                     [:div {:style {:color (:danger colors) :font-size "11px" :margin-bottom "8px"}}
-                      (t :confirm)]
-                     [:div {:style {:display "flex" :gap "8px"}}
-                      [:button {:style {:background (:danger colors)
-                                        :color "white"
-                                        :border "none"
-                                        :padding "4px 12px"
-                                        :border-radius "4px"
-                                        :cursor "pointer"
-                                        :font-size "11px"}
-                                :on-click #(do (model/try-delete-chunk! (:id chunk))
-                                               (reset! confirming-delete? false)
-                                               (reset! menu-open? false))}
-                       (t :delete)]
-                      [:button {:style {:background "transparent"
-                                        :color (:text-muted colors)
-                                        :border (str "1px solid " (:border colors))
-                                        :padding "4px 12px"
-                                        :border-radius "4px"
-                                        :cursor "pointer"
-                                        :font-size "11px"}
-                                :on-click #(reset! confirming-delete? false)}
-                       (t :cancel)]]]
-                    [:button.dropdown-item.danger
-                     {:on-click #(when-not has-children?
-                                   (reset! confirming-delete? true))
-                      :disabled has-children?
-                      :title (when has-children? (t :cannot-delete-has-children))
-                      :style (when has-children?
-                               {:opacity 0.5
-                                :cursor "not-allowed"})}
-                     (t :delete-chunk)])])])]
+                  ;; Delete - only visible to project owner
+                  (when (model/is-project-owner?)
+                    [:<>
+                     [:div.dropdown-divider]
+                     (if @confirming-delete?
+                       [:div {:style {:padding "8px 12px"}}
+                        [:div {:style {:color (:danger colors) :font-size "11px" :margin-bottom "8px"}}
+                         (t :confirm)]
+                        [:div {:style {:display "flex" :gap "8px"}}
+                         [:button {:style {:background (:danger colors)
+                                           :color "white"
+                                           :border "none"
+                                           :padding "4px 12px"
+                                           :border-radius "4px"
+                                           :cursor "pointer"
+                                           :font-size "11px"}
+                                   :on-click #(do (model/try-delete-chunk! (:id chunk))
+                                                  (reset! confirming-delete? false)
+                                                  (reset! menu-open? false))}
+                          (t :delete)]
+                         [:button {:style {:background "transparent"
+                                           :color (:text-muted colors)
+                                           :border (str "1px solid " (:border colors))
+                                           :padding "4px 12px"
+                                           :border-radius "4px"
+                                           :cursor "pointer"
+                                           :font-size "11px"}
+                                   :on-click #(reset! confirming-delete? false)}
+                          (t :cancel)]]]
+                       [:button.dropdown-item.danger
+                        {:on-click #(when-not has-children?
+                                      (reset! confirming-delete? true))
+                         :disabled has-children?
+                         :title (when has-children? (t :cannot-delete-has-children))
+                         :style (when has-children?
+                                  {:opacity 0.5
+                                   :cursor "not-allowed"})}
+                        (t :delete-chunk)])])])])]
 
            ;; Row 2: Meta info (tags/aspects) - with reduced opacity
            (when-not is-container?
@@ -1925,21 +2192,23 @@
                                      (t :aspect-filtered-out)
                                      (t :click-to-navigate))}
                      (str "@" (or (:summary aspect) aspect-id))]
-                    [:button.tag-remove
-                     {:on-click #(model/remove-aspect-from-chunk! (:id chunk) aspect-id)
-                      :title (t :remove)}
-                     "×"]])))
+                    (when (can-edit-chunk? (:id chunk))
+                      [:button.tag-remove
+                       {:on-click #(model/remove-aspect-from-chunk! (:id chunk) aspect-id)
+                        :title (t :remove)}
+                       "×"])])))
 
-              ;; Add aspect button (pill style, dashed)
-              [:span.tag-pill.tag-pill-add
-               {:on-click #(selector/open-selector!
-                            {:title (t :select-aspect)
-                             :items (build-aspects-tree)
-                             :filter-placeholder (t :search-placeholder)
-                             :on-select (fn [item]
-                                          (when (and (:id item) (not= :category (:type item)))
-                                            (model/add-aspect-to-chunk! (:id chunk) (:id item))))})}
-               (str "+ " (t :aspect))]])])))))
+              ;; Add aspect button (pill style, dashed) - only for owners
+              (when (can-edit-chunk? (:id chunk))
+                [:span.tag-pill.tag-pill-add
+                 {:on-click #(selector/open-selector!
+                              {:title (t :select-aspect)
+                               :items (build-aspects-tree)
+                               :filter-placeholder (t :search-placeholder)
+                               :on-select (fn [item]
+                                            (when (and (:id item) (not= :category (:type item)))
+                                              (model/add-aspect-to-chunk! (:id chunk) (:id item))))})}
+                 (str "+ " (t :aspect))])])])))))
 
 ;; =============================================================================
 ;; Tab State
@@ -2064,18 +2333,19 @@
                         :title (t :click-to-navigate)
                         :on-click #(events/navigate-to-aspect! aspect-id)}
                  (str "@" (or (:summary aspect) aspect-id))]
-                [:button {:style {:background "none"
-                                  :border "none"
-                                  :color (:text-muted colors)
-                                  :cursor "pointer"
-                                  :padding "0 2px"
-                                  :font-size "0.9rem"
-                                  :line-height "1"}
-                          :title (t :remove)
-                          :on-click #(model/remove-aspect-from-chunk! (:id chunk) aspect-id)}
-                 "×"]])))
+                (when (can-edit-chunk? (:id chunk))
+                  [:button {:style {:background "none"
+                                    :border "none"
+                                    :color (:text-muted colors)
+                                    :cursor "pointer"
+                                    :padding "0 2px"
+                                    :font-size "0.9rem"
+                                    :line-height "1"}
+                            :title (t :remove)
+                            :on-click #(model/remove-aspect-from-chunk! (:id chunk) aspect-id)}
+                   "×"])])))
 
-          ;; Add aspect button (opens modal)
+          ;; Add aspect button (opens modal) - only for owners
           [:div {:style {:display "flex" :align-items "center" :gap "4px"}}
            [:button {:style {:background "transparent"
                              :color (:text-muted colors)
@@ -2487,13 +2757,19 @@
 (defn- discussion-entry
   "Render a single discussion entry (comment or resolved proposal)"
   [entry colors]
-  (let [is-proposal? (= (:type entry) :proposal)]
+  ;; Handle both keyword (:proposal) and string ("proposal") formats
+  (let [is-proposal? (#{:proposal "proposal"} (:type entry))
+        is-accepted? (#{:accepted "accepted"} (:answer entry))
+        ;; Convert usernames to display names
+        author-display (auth/get-cached-display-name (:author entry))
+        decided-by-display (when-let [db (:decided-by entry)]
+                             (auth/get-cached-display-name db))]
     [:div {:style {:padding "12px"
                    :margin-bottom "8px"
                    :background (:sidebar-bg colors)
                    :border-radius "6px"
                    :border-left (str "3px solid " (if is-proposal?
-                                                    (:accent colors)
+                                                    (if is-accepted? "#3fb950" "#f85149")
                                                     (:accent colors)))}}
      ;; Header: author + timestamp
      [:div {:style {:display "flex"
@@ -2501,19 +2777,27 @@
                     :margin-bottom "8px"
                     :font-size "0.8rem"
                     :color (:text-muted colors)}}
-      [:span {:style {:font-weight "500"}} (:author entry)]
+      [:span {:style {:font-weight "500"}} author-display]
       [:span (format-timestamp (:timestamp entry))]]
      ;; Content based on type
      (if is-proposal?
        ;; Proposal entry
        [:div
-        [:div {:style {:font-size "0.75rem"
-                       :text-transform "uppercase"
-                       :margin-bottom "6px"
-                       :color (:accent colors)}}
-         (if (= (:answer entry) :accepted)
-           (t :discussion-proposal-accepted)
-           (t :discussion-proposal-rejected))]
+        [:div {:style {:display "flex"
+                       :align-items "baseline"
+                       :gap "8px"
+                       :margin-bottom "6px"}}
+         [:span {:style {:font-size "0.75rem"
+                         :text-transform "uppercase"
+                         :color (if is-accepted? "#3fb950" "#f85149")}}
+          (if is-accepted?
+            (t :discussion-proposal-accepted)
+            (t :discussion-proposal-rejected))]
+         ;; Show who decided
+         (when decided-by-display
+           [:span {:style {:font-size "0.75rem"
+                           :color (:text-muted colors)}}
+            (str "da " decided-by-display)])]
         [:div {:style {:background (:editor-bg colors)
                        :padding "8px"
                        :border-radius "4px"

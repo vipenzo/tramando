@@ -69,19 +69,36 @@
 ;; JWT Token Management
 ;; =============================================================================
 
-(defn generate-token [user]
+(defn generate-token
+  "Generate JWT token including token_version for session invalidation."
+  [user]
   (let [now (Instant/now)
-        exp (.plus now (Duration/ofHours (:jwt-expiration-hours config)))]
+        exp (.plus now (Duration/ofHours (:jwt-expiration-hours config)))
+        token-version (or (:token_version user) 1)]
     (jwt/sign {:user-id (:id user)
                :username (:username user)
                :is-super-admin (= 1 (:is_super_admin user))
+               :token-version token-version
                :iat (.getEpochSecond now)
                :exp (.getEpochSecond exp)}
               (:jwt-secret config))))
 
-(defn verify-token [token]
+(defn verify-token
+  "Verify JWT token and check token_version against current user version.
+   Returns nil if token is invalid or session has been invalidated."
+  [token]
   (try
-    (jwt/unsign token (:jwt-secret config))
+    (when-let [claims (jwt/unsign token (:jwt-secret config))]
+      ;; Verify token version matches current user's version
+      (let [user (db/find-user-by-id (:user-id claims))
+            current-version (or (:token_version user) 1)
+            token-version (or (:token-version claims) 1)]
+        (when (not= current-version token-version)
+          (println "Token version mismatch for user" (:username claims)
+                   "- token:" token-version "db:" current-version))
+        (if (= current-version token-version)
+          claims
+          nil))) ;; Token version mismatch = session invalidated
     (catch Exception _
       nil)))
 
@@ -123,7 +140,8 @@
            :message "Registrazione completata. Attendi l'approvazione dell'amministratore."})))))
 
 (defn login!
-  "Authenticate user and return token. Check user status."
+  "Authenticate user and return token. Check user status.
+   Increments token_version to invalidate any previous sessions (single-login enforcement)."
   [{:keys [username password]}]
   (if-let [user (db/find-user-by-username username)]
     (cond
@@ -138,10 +156,12 @@
       (= "suspended" (:status user))
       {:error "Account sospeso"}
 
-      ;; All good
+      ;; All good - increment token version to invalidate previous sessions
       :else
-      {:user (dissoc user :password_hash)
-       :token (generate-token user)})
+      (let [new-version (db/increment-token-version! (:id user))
+            updated-user (assoc user :token_version new-version)]
+        {:user (dissoc updated-user :password_hash)
+         :token (generate-token updated-user)}))
     {:error "User not found"}))
 
 (defn get-current-user

@@ -139,9 +139,30 @@
   (api/clear-token-from-storage!)
   (swap! auth-state assoc :user nil :error nil))
 
+;; Callback to return to splash screen (set by views.cljs to avoid circular deps)
+(defonce on-return-to-splash (atom nil))
+
+(defn set-return-to-splash-callback! [callback]
+  (reset! on-return-to-splash callback))
+
+(defn- handle-session-invalid!
+  "Called when server returns 401 - session was invalidated (e.g., user logged in elsewhere)"
+  []
+  ;; Only handle if we think we're logged in
+  (when (logged-in?)
+    (js/console.warn "Session invalidated - another login detected")
+    (logout!)
+    ;; Return to splash screen
+    (when @on-return-to-splash
+      (@on-return-to-splash))
+    ;; Show alert to user
+    (js/alert "La tua sessione è stata terminata perché hai effettuato l'accesso da un altro dispositivo.")))
+
 (defn check-auth!
   "Check if there's a valid token and load user. Call on app startup."
   []
+  ;; Register callback for session invalidation (401 responses)
+  (api/set-session-invalid-callback! handle-session-invalid!)
   (api/load-server-url-from-storage!)
   (api/load-token-from-storage!)
   (if (api/get-token)
