@@ -297,14 +297,13 @@
                      :padding "6px 8px"
                      :border (str "1px solid " (:border colors))
                      :border-radius "4px"
-                     :background (:bg colors)
+                     :background (:sidebar colors)
                      :color text-color
                      :-webkit-text-fill-color text-color
                      :font-size "0.9rem"
-                     :box-sizing "border-box"
-                     :color-scheme "dark"}]
+                     :box-sizing "border-box"}]
     [:div {:style {:padding "12px"
-                   :background (:bg-secondary colors)
+                   :background (:tertiary colors)
                    :border-bottom (str "1px solid " (:border colors))}}
      [:div {:style {:margin-bottom "8px"}}
       [:input {:type "text"
