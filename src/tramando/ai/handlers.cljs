@@ -155,43 +155,106 @@
 ;; Phase 2: Handle AI Response - Store Alternatives in EDN
 ;; =============================================================================
 
+(defn- find-edn-pending-annotation
+  "Find EDN format pending annotation: [!NOTE{:text \"...\" :ai :pending ...}]
+   Returns the full match string or nil."
+  [content original-text]
+  ;; EDN format: [!NOTE{:text "..." :ai :pending :author "..."}]
+  ;; We need to find an annotation where :text matches and :ai is :pending
+  (let [;; Pattern to find any EDN annotation
+        edn-pattern #"\[!NOTE\{[^\}]+\}\]"]
+    (->> (re-seq edn-pattern content)
+         (filter (fn [ann]
+                   (try
+                     (let [edn-str (subs ann 6 (dec (count ann)))  ;; Remove [!NOTE and ]
+                           data (reader/read-string edn-str)]
+                       (and (= (:text data) original-text)
+                            (= (:ai data) :pending)))
+                     (catch :default _ false))))
+         first)))
+
+(defn- parse-edn-annotation
+  "Parse EDN annotation string to extract data map.
+   Input: [!NOTE{:text \"...\" :ai :pending ...}]
+   Returns the data map or nil."
+  [annotation-str]
+  (try
+    (let [edn-str (subs annotation-str 6 (dec (count annotation-str)))]
+      (reader/read-string edn-str))
+    (catch :default _ nil)))
+
+(defn- find-edn-done-annotation
+  "Find EDN format done annotation: [!NOTE{:text \"...\" :ai :done ...}]
+   Returns the full match string or nil."
+  [content original-text]
+  (let [edn-pattern #"\[!NOTE\{[^\}]+\}\]"]
+    (->> (re-seq edn-pattern content)
+         (filter (fn [ann]
+                   (try
+                     (let [edn-str (subs ann 6 (dec (count ann)))
+                           data (reader/read-string edn-str)]
+                       (and (= (:text data) original-text)
+                            (= (:ai data) :done)))
+                     (catch :default _ false))))
+         first)))
+
+(defn- find-edn-any-annotation
+  "Find any EDN format AI annotation (pending or done).
+   Returns the full match string or nil."
+  [content original-text]
+  (let [edn-pattern #"\[!NOTE\{[^\}]+\}\]"]
+    (->> (re-seq edn-pattern content)
+         (filter (fn [ann]
+                   (try
+                     (let [edn-str (subs ann 6 (dec (count ann)))
+                           data (reader/read-string edn-str)]
+                       (and (= (:text data) original-text)
+                            (#{:pending :done} (:ai data))))
+                     (catch :default _ false))))
+         first)))
+
 (defn complete-ai-annotation!
   "Complete an AI annotation by storing alternatives in EDN format.
    Called when AI response arrives for an :annotation template.
 
-   Updates the annotation to [!NOTE@user:text:AI-DONE:{:alts [...] :sel 0}]
-   Preserves the @author part if present."
+   Supports both:
+   - New EDN format: [!NOTE{:text \"...\" :ai :pending}] -> [!NOTE{:text \"...\" :ai :done :alts [...] :sel 0}]
+   - Legacy format: [!NOTE:text:AI:] -> [!NOTE:text:AI-DONE:base64]"
   [pending-key alternatives]
   (when-let [pending (get @pending-annotations pending-key)]
-    (let [{:keys [chunk-id original-text]} pending]
-      (when (and chunk-id (seq alternatives))
-        (when-let [chunk (model/get-chunk chunk-id)]
-          (let [current-content (:content chunk)
-                ;; Find the pending annotation and update it
-                ;; Allow optional @author and whitespace after [!NOTE(@user)?:
-                pending-pattern (re-pattern
-                                  (str "\\[!NOTE(@[^:]+)?:\\s*"
-                                       (escape-regex original-text)
-                                       "\\s*:AI:[^\\]]*\\]"))
-                match (re-find pending-pattern current-content)]
-            (when match
-              (let [;; Capture the @author part if present
-                    author-part (or (second match) "")
-                    ;; New annotation with AI-DONE and EDN data (preserving @author)
-                    edn-data (serialize-ai-data alternatives 0)
-                    done-annotation (str "[!NOTE" author-part ":" original-text ":AI-DONE:" edn-data "]")
-                    ;; Replace annotation in content
-                    new-content (str/replace current-content
-                                             pending-pattern
-                                             done-annotation)]
-                ;; Update chunk content with AI-DONE annotation
-                (model/update-chunk! chunk-id {:content new-content})
-                ;; Remove from pending
-                (swap! pending-annotations dissoc pending-key)
-                ;; Refresh editor to show changes
-                (events/refresh-editor!)
-                ;; Show toast
-                (events/show-toast! (str (t :ai-alternatives-received) " (" (count alternatives) ")"))))))))))
+    (let [{:keys [chunk-id original-text]} pending
+          chunk (model/get-chunk chunk-id)]
+      (when (and chunk-id (seq alternatives) chunk)
+        (let [current-content (:content chunk)
+              edn-match (find-edn-pending-annotation current-content original-text)]
+          (if edn-match
+            ;; New EDN format
+            (let [old-data (parse-edn-annotation edn-match)
+                  new-data (-> old-data
+                               (assoc :ai :done)
+                               (assoc :alts (vec alternatives))
+                               (assoc :sel 0))
+                  new-annotation (str "[!NOTE" (pr-str new-data) "]")
+                  new-content (str/replace current-content edn-match new-annotation)]
+              (model/update-chunk! chunk-id {:content new-content})
+              (swap! pending-annotations dissoc pending-key)
+              (events/refresh-editor!)
+              (events/show-toast! (str (t :ai-alternatives-received) " (" (count alternatives) ")")))
+            ;; Fallback: try legacy format
+            (let [pending-pattern (re-pattern
+                                    (str "\\[!NOTE(@[^:]+)?:\\s*"
+                                         (escape-regex original-text)
+                                         "\\s*:AI:[^\\]]*\\]"))
+                  match (re-find pending-pattern current-content)]
+              (when match
+                (let [author-part (or (second match) "")
+                      edn-data (serialize-ai-data alternatives 0)
+                      done-annotation (str "[!NOTE" author-part ":" original-text ":AI-DONE:" edn-data "]")
+                      new-content (str/replace current-content pending-pattern done-annotation)]
+                  (model/update-chunk! chunk-id {:content new-content})
+                  (swap! pending-annotations dissoc pending-key)
+                  (events/refresh-editor!)
+                  (events/show-toast! (str (t :ai-alternatives-received) " (" (count alternatives) ")")))))))))))
 
 ;; =============================================================================
 ;; Update Selection in Annotation
@@ -199,38 +262,41 @@
 
 (defn update-ai-selection!
   "Update the :sel value in an AI-DONE annotation.
-   chunk-id: the chunk containing the annotation
-   original-text: the selected text in the annotation
-   new-sel: the new selection index (0 = none, 1/2/3 = alternative)
-   Uses editor dispatch for undo support.
-   Preserves the @author part if present."
+   Supports both EDN and legacy formats."
   [chunk-id original-text new-sel]
   (when-let [chunk (model/get-chunk chunk-id)]
     (let [current-content (:content chunk)
-          ;; Pattern to find the AI-DONE annotation with this text (Base64 encoded data)
-          ;; Allow optional @author and whitespace after [!NOTE(@user)?:
-          pattern (re-pattern
-                    (str "\\[!NOTE(@[^:]+)?:\\s*"
-                         (escape-regex original-text)
-                         "\\s*:AI-DONE:([A-Za-z0-9+/=]+)\\]"))
-          match (re-find pattern current-content)]
-      (when match
-        (let [old-annotation (first match)
-              author-part (or (second match) "")
-              old-b64 (nth match 2)
-              old-data (parse-ai-data old-b64)]
-          (when old-data
-            (let [new-data (assoc old-data :sel new-sel)
-                  new-b64 (serialize-ai-data (:alts new-data) (:sel new-data))
-                  new-annotation (str "[!NOTE" author-part ":" original-text ":AI-DONE:" new-b64 "]")]
-              ;; Use editor replace for proper undo support
-              (if (events/replace-text-in-editor! old-annotation new-annotation)
-                ;; Editor transaction succeeded - force decoration refresh after short delay
-                (js/setTimeout #(events/refresh-editor!) 50)
-                ;; Fallback: direct model update if editor not available
-                (do
-                  (model/update-chunk! chunk-id {:content (str/replace current-content pattern new-annotation)})
-                  (events/refresh-editor!))))))))))
+          edn-match (find-edn-done-annotation current-content original-text)]
+      (if edn-match
+        ;; EDN format
+        (let [old-data (parse-edn-annotation edn-match)
+              new-data (assoc old-data :sel new-sel)
+              new-annotation (str "[!NOTE" (pr-str new-data) "]")]
+          (if (events/replace-text-in-editor! edn-match new-annotation)
+            (js/setTimeout #(events/refresh-editor!) 50)
+            (do
+              (model/update-chunk! chunk-id {:content (str/replace current-content edn-match new-annotation)})
+              (events/refresh-editor!))))
+        ;; Fallback: legacy format
+        (let [pattern (re-pattern
+                        (str "\\[!NOTE(@[^:]+)?:\\s*"
+                             (escape-regex original-text)
+                             "\\s*:AI-DONE:([A-Za-z0-9+/=]+)\\]"))
+              match (re-find pattern current-content)]
+          (when match
+            (let [old-annotation (first match)
+                  author-part (or (second match) "")
+                  old-b64 (nth match 2)
+                  old-data (parse-ai-data old-b64)]
+              (when old-data
+                (let [new-data (assoc old-data :sel new-sel)
+                      new-b64 (serialize-ai-data (:alts new-data) (:sel new-data))
+                      new-annotation (str "[!NOTE" author-part ":" original-text ":AI-DONE:" new-b64 "]")]
+                  (if (events/replace-text-in-editor! old-annotation new-annotation)
+                    (js/setTimeout #(events/refresh-editor!) 50)
+                    (do
+                      (model/update-chunk! chunk-id {:content (str/replace current-content pattern new-annotation)})
+                      (events/refresh-editor!))))))))))))
 
 ;; =============================================================================
 ;; Confirm Alternative (Apply Selection)
@@ -238,37 +304,40 @@
 
 (defn confirm-ai-alternative!
   "Apply the selected alternative: replace original text with selected alternative.
-   Removes the annotation completely. Uses editor dispatch for undo support."
+   Supports both EDN and legacy formats."
   [chunk-id original-text]
   (when-let [chunk (model/get-chunk chunk-id)]
     (let [current-content (:content chunk)
-          ;; Pattern to find the AI-DONE annotation (Base64 encoded data)
-          ;; Allow optional @author and whitespace after [!NOTE(@user)?:
-          pattern (re-pattern
-                    (str "\\[!NOTE(?:@[^:]+)?:\\s*"
-                         (escape-regex original-text)
-                         "\\s*:AI-DONE:([A-Za-z0-9+/=]+)\\]"))
-          match (re-find pattern current-content)]
-      (when match
-        (let [b64 (second match)
-              data (parse-ai-data b64)
-              sel (:sel data 0)
-              alts (:alts data [])]
-          (when (and (pos? sel) (<= sel (count alts)))
-            (let [selected-alt (nth alts (dec sel))
-                  full-annotation (first match)]
-              ;; Use editor replace for proper undo support
-              ;; This dispatches a transaction to CodeMirror which:
-              ;; 1. Updates the editor content
-              ;; 2. Goes through the update listener to sync to model
-              ;; 3. Gets added to undo history
-              (if (events/replace-text-in-editor! full-annotation selected-alt)
+          edn-match (find-edn-done-annotation current-content original-text)]
+      (if edn-match
+        ;; EDN format
+        (let [data (parse-edn-annotation edn-match)]
+          (when (and data (pos? (:sel data)))
+            (let [selected-alt (nth (:alts data) (dec (:sel data)))]
+              (if (events/replace-text-in-editor! edn-match selected-alt)
                 (events/show-toast! (t :ai-alternative-applied))
-                ;; Fallback: direct model update if editor not available
-                (let [final-content (str/replace current-content full-annotation selected-alt)]
-                  (model/update-chunk! chunk-id {:content final-content})
+                (do
+                  (model/update-chunk! chunk-id {:content (str/replace current-content edn-match selected-alt)})
                   (events/refresh-editor!)
-                  (events/show-toast! (t :ai-alternative-applied)))))))))))
+                  (events/show-toast! (t :ai-alternative-applied)))))))
+        ;; Fallback: legacy format
+        (let [pattern (re-pattern
+                        (str "\\[!NOTE(@[^:]+)?:\\s*"
+                             (escape-regex original-text)
+                             "\\s*:AI-DONE:([A-Za-z0-9+/=]+)\\]"))
+              match (re-find pattern current-content)]
+          (when match
+            (let [full-annotation (first match)
+                  b64-data (nth match 2)
+                  data (parse-ai-data b64-data)]
+              (when (and data (pos? (:sel data)))
+                (let [selected-alt (nth (:alts data) (dec (:sel data)))]
+                  (if (events/replace-text-in-editor! full-annotation selected-alt)
+                    (events/show-toast! (t :ai-alternative-applied))
+                    (do
+                      (model/update-chunk! chunk-id {:content (str/replace current-content full-annotation selected-alt)})
+                      (events/refresh-editor!)
+                      (events/show-toast! (t :ai-alternative-applied)))))))))))))
 
 ;; =============================================================================
 ;; Cancel AI Annotation
@@ -276,35 +345,42 @@
 
 (defn cancel-ai-annotation!
   "Remove an AI annotation, keeping the original text intact.
-   Uses editor dispatch for undo support."
+   Supports both EDN and legacy formats."
   [chunk-id original-text]
   (when-let [chunk (model/get-chunk chunk-id)]
     (let [current-content (:content chunk)
-          ;; Pattern to find any AI annotation (pending or done)
-          ;; Allow optional @author and whitespace after [!NOTE(@user)?:
-          pattern-done (re-pattern
-                         (str "\\[!NOTE(?:@[^:]+)?:\\s*"
-                              (escape-regex original-text)
-                              "\\s*:AI-DONE:[^\\]]*\\]"))
-          pattern-pending (re-pattern
-                            (str "\\[!NOTE(?:@[^:]+)?:\\s*"
-                                 (escape-regex original-text)
-                                 "\\s*:AI:[^\\]]*\\]"))
-          ;; Find the actual annotation text
-          match-done (re-find pattern-done current-content)
-          match-pending (re-find pattern-pending current-content)
-          annotation-to-remove (or match-done match-pending)]
-      (when annotation-to-remove
-        ;; Use editor replace for proper undo support
-        (if (events/replace-text-in-editor! annotation-to-remove original-text)
+          edn-match (find-edn-any-annotation current-content original-text)]
+      (if edn-match
+        ;; EDN format - just replace with original text
+        (if (events/replace-text-in-editor! edn-match original-text)
           (events/show-toast! (t :ai-annotation-removed))
-          ;; Fallback: direct model update if editor not available
-          (let [new-content (-> current-content
-                                (str/replace pattern-done original-text)
-                                (str/replace pattern-pending original-text))]
-            (model/update-chunk! chunk-id {:content new-content})
+          (do
+            (model/update-chunk! chunk-id {:content (str/replace current-content edn-match original-text)})
             (events/refresh-editor!)
-            (events/show-toast! (t :ai-annotation-removed))))))))
+            (events/show-toast! (t :ai-annotation-removed))))
+        ;; Fallback: legacy format
+        (let [pattern-done (re-pattern
+                             (str "\\[!NOTE(@[^:]+)?:\\s*"
+                                  (escape-regex original-text)
+                                  "\\s*:AI-DONE:[^\\]]*\\]"))
+              pattern-pending (re-pattern
+                                (str "\\[!NOTE(@[^:]+)?:\\s*"
+                                     (escape-regex original-text)
+                                     "\\s*:AI:[^\\]]*\\]"))
+              annotation-to-remove (or (re-find pattern-done current-content)
+                                       (re-find pattern-pending current-content))]
+          (when annotation-to-remove
+            (let [ann-str (if (vector? annotation-to-remove)
+                           (first annotation-to-remove)
+                           annotation-to-remove)]
+              (if (events/replace-text-in-editor! ann-str original-text)
+                (events/show-toast! (t :ai-annotation-removed))
+                (do
+                  (model/update-chunk! chunk-id {:content (-> current-content
+                                                              (str/replace pattern-done original-text)
+                                                              (str/replace pattern-pending original-text))})
+                  (events/refresh-editor!)
+                  (events/show-toast! (t :ai-annotation-removed)))))))))))
 
 ;; =============================================================================
 ;; Get Selected Alternative Text
@@ -317,34 +393,56 @@
   (when (ai-annotation-done? annotation)
     (let [comment (:comment annotation)
           data (parse-ai-data comment)
-          sel (:sel data 0)
-          alts (:alts data [])]
-      (when (and (pos? sel) (<= sel (count alts)))
-        (nth alts (dec sel))))))
+          sel (:sel data)
+          alts (:alts data)]
+      (when (and sel (pos? sel) alts)
+        (nth alts (dec sel) nil)))))
 
 ;; =============================================================================
-;; Aspect Creation (unchanged)
+;; API for AI Panel
+;; =============================================================================
+
+(defn handle-annotation-response!
+  "Called by AI panel when receiving response for an annotation template.
+   Routes the response to the annotation system."
+  [pending-key response-text]
+  ;; Parse alternatives from response (split by newlines, filter empty)
+  (let [alternatives (->> (str/split-lines response-text)
+                          (map str/trim)
+                          (filter #(not (str/blank? %)))
+                          ;; Remove numbering prefixes like "1." or "1)"
+                          (map #(str/replace % #"^\d+[\.\)]\s*" ""))
+                          (take 3)  ;; Max 3 alternatives
+                          vec)]
+    (when (seq alternatives)
+      (complete-ai-annotation! pending-key alternatives))))
+
+;; =============================================================================
+;; Aspect Creation from AI Response
 ;; =============================================================================
 
 (defn create-aspect-from-response!
-  "Create a new aspect from AI response.
-   aspect-type: :personaggi or :luoghi
-   response-text: the AI response with the aspect sheet"
+  "Create a new aspect chunk from AI response.
+   aspect-type: :character, :place, :theme
+   response: the AI response text containing name and description"
   [aspect-type response-text]
-  (let [{:keys [name content]} (templates/parse-aspect-sheet response-text aspect-type)
+  (let [;; Parse response - first line is the name, rest is content
+        lines (str/split-lines (str/trim response-text))
+        raw-name (first lines)
+        ;; Clean up name - remove prefixes like "Nome:" or "Name:"
+        name (-> raw-name
+                 (str/replace #"^(Nome|Name|Personaggio|Character|Luogo|Place|Tema|Theme)\s*:\s*" "")
+                 str/trim)
+        content (str/join "\n" (rest lines))
+        ;; Determine parent based on aspect type
         parent-id (case aspect-type
-                    :personaggi "personaggi"
-                    :luoghi "luoghi"
-                    :temi "temi"
+                    :character "personaggi"
+                    :place "luoghi"
+                    :theme "temi"
                     nil)
-        ;; Generate a slug-style ID from the name
-        new-id (-> name
-                   str/lower-case
-                   (str/replace #"\s+" "-")
-                   (str/replace #"[^a-z0-9-]" "")
-                   (subs 0 (min 30 (count name))))]
-    (when parent-id
-      ;; Create the new chunk
+        new-id (str (gensym "aspect-"))]
+    (when (and parent-id (not (str/blank? name)))
+      ;; Create the new aspect chunk
       (model/add-chunk! :id new-id
                         :parent-id parent-id
                         :summary name
@@ -369,7 +467,7 @@
   (r/atom {:showing false
            :aspect-id nil
            :aspect-name nil
-           :new-info nil}))  ;; renamed from new-content to new-info
+           :new-info nil}))
 
 (defn show-aspect-update-confirmation!
   "Show the update confirmation modal, or toast if no new info"
