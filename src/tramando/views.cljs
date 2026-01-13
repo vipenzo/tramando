@@ -1667,7 +1667,7 @@
                      :gap "8px"
                      :cursor "pointer"}
              :on-click #(reset! show-splash? true)}
-       [:img {:src "/images/icon_32x32.png"
+       [:img {:src (str (api/detect-base-path) "/images/icon_32x32.png")
               :style {:width "20px"
                       :height "20px"}}]
        [:span {:style {:font-family "'Georgia', serif"

@@ -6,7 +6,7 @@
 ;; Configuration
 ;; =============================================================================
 
-(defn- detect-base-path
+(defn detect-base-path
   "Rileva il BASE_PATH dal pathname corrente.
    Es: se pathname è /tramando/ o /tramando/index.html, ritorna /tramando
    Se pathname è / o /index.html, ritorna stringa vuota."
