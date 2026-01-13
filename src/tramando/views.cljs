@@ -99,6 +99,137 @@
   (reset! tutorial-open? true))
 
 ;; =============================================================================
+;; Global Dialog Component (replaces js/alert, js/confirm, js/prompt)
+;; =============================================================================
+
+(defn- dialog-button
+  "Styled button for dialogs"
+  [{:keys [on-click label primary? danger? disabled?]}]
+  [:button {:on-click on-click
+            :disabled disabled?
+            :style {:padding "8px 20px"
+                    :border-radius "6px"
+                    :border "none"
+                    :font-size "0.95rem"
+                    :cursor (if disabled? "not-allowed" "pointer")
+                    :opacity (if disabled? 0.5 1)
+                    :background (cond
+                                  danger? "#dc3545"
+                                  primary? (settings/get-color :accent)
+                                  :else (settings/get-color :editor-bg))
+                    :color (if (or primary? danger?)
+                             "white"
+                             (settings/get-color :text))}}
+   label])
+
+(defn global-dialog
+  "Global dialog component that renders alert/confirm/prompt dialogs.
+   Watches events/dialog-state and renders the appropriate dialog."
+  []
+  (let [input-value (r/atom "")]
+    (fn []
+      (when-let [{:keys [type message title on-close on-confirm on-cancel
+                         confirm-text cancel-text danger?
+                         default-value placeholder on-submit submit-text]} @events/dialog-state]
+        ;; Reset input value when dialog opens with a new default
+        (when (and (= type :prompt) (not= @input-value (or default-value "")))
+          (reset! input-value (or default-value "")))
+        [:div {:style {:position "fixed"
+                       :top 0 :left 0 :right 0 :bottom 0
+                       :background "rgba(0,0,0,0.5)"
+                       :display "flex"
+                       :align-items "center"
+                       :justify-content "center"
+                       :z-index 9999}
+               :on-click (fn [e]
+                           (when (= (.-target e) (.-currentTarget e))
+                             (case type
+                               :alert (do (events/close-dialog!) (when on-close (on-close)))
+                               :confirm (do (events/close-dialog!) (when on-cancel (on-cancel)))
+                               :prompt (do (events/close-dialog!) (when on-cancel (on-cancel))))))
+               :on-key-down (fn [e]
+                              (.stopPropagation e)
+                              (case (.-key e)
+                                "Escape" (do
+                                           (events/close-dialog!)
+                                           (case type
+                                             :alert (when on-close (on-close))
+                                             (:confirm :prompt) (when on-cancel (on-cancel))))
+                                "Enter" (when (not= (.-tagName (.-target e)) "TEXTAREA")
+                                          (case type
+                                            :alert (do (events/close-dialog!) (when on-close (on-close)))
+                                            :confirm (do (events/close-dialog!) (when on-confirm (on-confirm)))
+                                            :prompt (let [v (str/trim @input-value)]
+                                                      (when (seq v)
+                                                        (events/close-dialog!)
+                                                        (when on-submit (on-submit v))))))
+                                nil))}
+         [:div {:style {:background (settings/get-color :background)
+                        :border-radius "12px"
+                        :padding "24px"
+                        :min-width "320px"
+                        :max-width "450px"
+                        :box-shadow "0 8px 32px rgba(0,0,0,0.3)"}}
+          ;; Title
+          (when title
+            [:h3 {:style {:margin "0 0 12px 0"
+                          :font-weight "500"
+                          :font-size "1.1rem"
+                          :color (settings/get-color :text)}}
+             title])
+          ;; Message
+          [:p {:style {:margin "0 0 20px 0"
+                       :color (settings/get-color :text)
+                       :line-height "1.5"}}
+           message]
+          ;; Input for prompt
+          (when (= type :prompt)
+            [:input {:type "text"
+                     :auto-focus true
+                     :value @input-value
+                     :placeholder placeholder
+                     :on-change #(reset! input-value (.. % -target -value))
+                     :style {:width "100%"
+                             :padding "10px 12px"
+                             :margin-bottom "20px"
+                             :border-radius "6px"
+                             :border (str "1px solid " (settings/get-color :border))
+                             :background (settings/get-color :editor-bg)
+                             :color (settings/get-color :text)
+                             :font-size "1rem"
+                             :box-sizing "border-box"}}])
+          ;; Buttons
+          [:div {:style {:display "flex"
+                         :justify-content "flex-end"
+                         :gap "10px"}}
+           (case type
+             :alert
+             [dialog-button {:on-click #(do (events/close-dialog!) (when on-close (on-close)))
+                             :label "OK"
+                             :primary? true}]
+
+             :confirm
+             [:<>
+              [dialog-button {:on-click #(do (events/close-dialog!) (when on-cancel (on-cancel)))
+                              :label (or cancel-text (t :cancel))}]
+              [dialog-button {:on-click #(do (events/close-dialog!) (when on-confirm (on-confirm)))
+                              :label (or confirm-text "OK")
+                              :primary? (not danger?)
+                              :danger? danger?}]]
+
+             :prompt
+             [:<>
+              [dialog-button {:on-click #(do (events/close-dialog!) (when on-cancel (on-cancel)))
+                              :label (or cancel-text (t :cancel))}]
+              [dialog-button {:on-click #(let [v (str/trim @input-value)]
+                                           (when (seq v)
+                                             (events/close-dialog!)
+                                             (when on-submit (on-submit v))))
+                              :label (or submit-text "OK")
+                              :primary? true
+                              :disabled? (empty? (str/trim @input-value))}]])]]]))))
+
+;; =============================================================================
 ;; Settings Modal
 ;; =============================================================================
 
@@ -631,7 +762,8 @@
                                           (let [content (-> evt .-target .-result)
                                                 result (settings/import-settings! content)]
                                             (when (:error result)
-                                              (js/alert (:error result))))))
+                                              (events/show-alert! (:error result)
+                                                                  {:title (t :error)})))))
                                   (.readAsText reader file))
                                 (set! (-> e .-target .-value) "")))}]
         [:button {:style {:flex 1
@@ -1276,7 +1408,8 @@
                                           ;; Import DOCX
                                           (-> (model/import-docx! array-buffer)
                                               (.catch (fn [err]
-                                                        (js/alert (str "Errore importazione DOCX: " err))))))))
+                                                        (events/show-alert! (str "Errore importazione DOCX: " err)
+                                                                            {:title (t :error)})))))))
                                 (.readAsArrayBuffer reader file)))
                             ;; Reset input
                             (set! (-> e .-target .-value) "")
@@ -2348,6 +2481,8 @@
          [ai-ui/aspect-update-modal]
          ;; Toast notification
          [editor/toast-component]
+         ;; Global Dialog (alert/confirm/prompt)
+         [global-dialog]
          ;; Settings Modal
          (when @settings/settings-open?
            [settings-modal])

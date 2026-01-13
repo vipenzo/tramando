@@ -2934,8 +2934,12 @@
                                :border-radius "4px"
                                :font-size "0.75rem"
                                :cursor "pointer"}
-                       :on-click #(when (js/confirm (t :discussion-clear-confirm))
-                                    (model/clear-discussion! chunk-id))}
+                       :on-click #(events/show-confirm!
+                                    (t :discussion-clear-confirm)
+                                    {:title (t :discussion-clear)
+                                     :danger? true
+                                     :confirm-text (t :discussion-clear)
+                                     :on-confirm (fn [] (model/clear-discussion! chunk-id))})}
               (t :discussion-clear)])]]
 
          ;; Transfer ownership form

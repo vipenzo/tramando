@@ -19,12 +19,11 @@ async function loginAndOpenProject(page, username, password) {
   await page.reload();
   await page.waitForTimeout(500);
 
-  const serverButton = page.getByRole('button', { name: /server|online/i });
-  await serverButton.click();
-  await page.waitForTimeout(500);
-
-  await page.getByPlaceholder(/username|utente/i).fill(username);
-  await page.getByPlaceholder(/password/i).fill(password);
+  // Il form di login server è già visibile nella splash (pannello destro)
+  // Prima imposta l'URL del server di test
+  await page.getByPlaceholder('Server URL').fill(TEST_SERVER);
+  await page.getByPlaceholder('Username').fill(username);
+  await page.getByPlaceholder('Password').fill(password);
   await page.getByRole('button', { name: /accedi|login/i }).click();
 
   await page.waitForFunction(() => {
@@ -32,9 +31,10 @@ async function loginAndOpenProject(page, username, password) {
   }, { timeout: 15000 }).catch(() => {});
   await page.waitForTimeout(1000);
 
-  const projectItem = page.locator('.project-item, [data-project-id]').first();
-  if (await projectItem.isVisible({ timeout: 5000 }).catch(() => false)) {
-    await projectItem.click();
+  // Click on the project name text (the clickable area inside project cards)
+  const projectName = page.getByText('Alice Project 1');
+  if (await projectName.isVisible({ timeout: 5000 }).catch(() => false)) {
+    await projectName.click();
     await page.waitForTimeout(1000);
   }
 

@@ -502,7 +502,9 @@
         has-errors? (= 1 (:has_validation_errors project))
         errors-tooltip (when has-errors?
                          (format-validation-errors (:validation_errors project)))]
-    [:div {:style {:background (if is-owner?
+    [:div {:data-testid "project-card"
+           :data-project-id (:id project)
+           :style {:background (if is-owner?
                                  (settings/get-color :sidebar)
                                  (settings/get-color :background))
                    :border (str "1px solid " (if has-errors?
@@ -737,7 +739,7 @@
                            :border (str "1px solid " (settings/get-color :border))
                            :border-radius "4px"
                            :cursor "pointer"}}
-          "↑ " (t :import)]
+          "↓ " (t :import)]
          [:button {:on-click (fn []
                               (when-not @creating?
                                 (reset! creating? true)
@@ -857,7 +859,8 @@
                                                                (create-project-with-content! (md-to-trmd md-content))))
                                                       (.catch (fn [err]
                                                                 (reset! importing? false)
-                                                                (js/alert (str "Errore importazione DOCX: " err))))))))
+                                                                (events/show-alert! (str "Errore importazione DOCX: " err)
+                                                                                    {:title (t :error)})))))))
                                         (.readAsArrayBuffer reader file))
                                       ;; TRMD/MD/TXT: read as text
                                       (do

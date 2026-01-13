@@ -1,7 +1,8 @@
 (ns tramando.auth
   "Stato autenticazione e gestione sessione"
   (:require [reagent.core :as r]
-            [tramando.api :as api]))
+            [tramando.api :as api]
+            [tramando.events :as events]))
 
 ;; =============================================================================
 ;; Auth State
@@ -156,7 +157,8 @@
     (when @on-return-to-splash
       (@on-return-to-splash))
     ;; Show alert to user
-    (js/alert "La tua sessione è stata terminata perché hai effettuato l'accesso da un altro dispositivo.")))
+    (events/show-alert! "La tua sessione è stata terminata perché hai effettuato l'accesso da un altro dispositivo."
+                        {:title "Sessione terminata"})))
 
 (defn check-auth!
   "Check if there's a valid token and load user. Call on app startup."

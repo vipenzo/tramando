@@ -18,12 +18,11 @@ async function loginAndGetProjects(page, username, password) {
   await page.reload();
   await page.waitForTimeout(500);
 
-  const serverButton = page.getByRole('button', { name: /server|online/i });
-  await serverButton.click();
-  await page.waitForTimeout(500);
-
-  await page.getByPlaceholder(/username|utente/i).fill(username);
-  await page.getByPlaceholder(/password/i).fill(password);
+  // Il form di login server è già visibile nella splash (pannello destro)
+  // Prima imposta l'URL del server di test
+  await page.getByPlaceholder('Server URL').fill(TEST_SERVER);
+  await page.getByPlaceholder('Username').fill(username);
+  await page.getByPlaceholder('Password').fill(password);
   await page.getByRole('button', { name: /accedi|login/i }).click();
 
   await page.waitForFunction(() => {
@@ -39,9 +38,9 @@ async function loginAndOpenProject(page, username, password, projectName = null)
   // Clicca sul progetto specificato o sul primo disponibile
   let projectItem;
   if (projectName) {
-    projectItem = page.locator('.project-item, [data-project-id]').filter({ hasText: projectName }).first();
+    projectItem = page.locator('[data-testid="project-card"]').filter({ hasText: projectName }).first();
   } else {
-    projectItem = page.locator('.project-item, [data-project-id]').first();
+    projectItem = page.locator('[data-testid="project-card"]').first();
   }
 
   if (await projectItem.isVisible({ timeout: 5000 }).catch(() => false)) {
@@ -85,10 +84,10 @@ test.describe('COLLAB-003: Collaboratore vede progetto in lista', () => {
     await loginAndGetProjects(page, 'bob', 'bob123');
 
     // Cerca un progetto che non sia di Bob (progetto di Alice)
-    const aliceProject = page.locator('.project-item, [data-project-id]').filter({ hasText: /alice|project/i });
+    const aliceProject = page.locator('[data-testid="project-card"]').filter({ hasText: /alice|project/i });
 
     // Bob dovrebbe vedere almeno un progetto (suo o condiviso)
-    const projectItems = page.locator('.project-item, [data-project-id]');
+    const projectItems = page.locator('[data-testid="project-card"]');
     const count = await projectItems.count();
 
     // Bob dovrebbe avere accesso ad almeno un progetto
@@ -100,7 +99,7 @@ test.describe('COLLAB-003: Collaboratore vede progetto in lista', () => {
 
     // I progetti di cui Bob è collaboratore potrebbero avere un indicatore
     // (icona, badge "collaboratore", o stile diverso)
-    const projectItems = page.locator('.project-item, [data-project-id]');
+    const projectItems = page.locator('[data-testid="project-card"]');
     const count = await projectItems.count();
 
     if (count > 0) {
@@ -117,7 +116,7 @@ test.describe('COLLAB-004: Collaboratore non può eliminare progetto', () => {
     await loginAndGetProjects(page, 'bob', 'bob123');
 
     // Cerca un progetto (presumibilmente di Alice, di cui Bob è collaboratore)
-    const projectItem = page.locator('.project-item, [data-project-id]').first();
+    const projectItem = page.locator('[data-testid="project-card"]').first();
 
     if (await projectItem.isVisible({ timeout: 3000 }).catch(() => false)) {
       // Hover o right-click per vedere le opzioni
@@ -139,7 +138,7 @@ test.describe('COLLAB-004: Collaboratore non può eliminare progetto', () => {
   test('collaboratore non può eliminare progetto da menu contestuale', async ({ page }) => {
     await loginAndGetProjects(page, 'bob', 'bob123');
 
-    const projectItem = page.locator('.project-item, [data-project-id]').first();
+    const projectItem = page.locator('[data-testid="project-card"]').first();
 
     if (await projectItem.isVisible({ timeout: 3000 }).catch(() => false)) {
       // Right-click sul progetto

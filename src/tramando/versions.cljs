@@ -8,7 +8,8 @@
             [tramando.model :as model]
             [tramando.settings :as settings]
             [tramando.i18n :as i18n :refer [t]]
-            [tramando.store.remote :as remote-store]))
+            [tramando.store.remote :as remote-store]
+            [tramando.events :as events]))
 
 ;; =============================================================================
 ;; State
@@ -157,40 +158,55 @@
                                 :tag-name ""
                                 :tag-message "")
                          (load-versions!))
-                       (js/alert (or (:error result) "Failed to create tag")))))
+                       (events/show-alert! (or (:error result) "Failed to create tag")
+                                           {:title (t :error)}))))
             (.catch (fn [err]
-                      (js/alert (str "Error: " err)))))))))
+                      (events/show-alert! (str "Error: " err)
+                                          {:title (t :error)}))))))))
 
 (defn restore-version! [ref]
   "Restore a version by reloading the content from that version."
   (when-let [project-id (remote-store/get-project-id)]
-    (when (js/confirm (str "Ripristinare questa versione? Le modifiche non salvate andranno perse."))
-      (-> (api/get-version-content project-id ref)
-          (.then (fn [result]
-                   (when (:ok result)
-                     (let [content (get-in result [:data :content])]
-                       ;; Reload the content and mark as modified to trigger save
-                       (model/reload-from-remote! content (remote-store/get-project-name))
-                       ;; Trigger a sync to save the restored version
-                       (when-let [callback @model/on-modified-callback]
-                         (callback))
-                       (swap! versions-state assoc :visible? false)))))
-          (.catch (fn [err]
-                    (js/alert (str "Error restoring version: " err))))))))
+    (events/show-confirm!
+     "Ripristinare questa versione? Le modifiche non salvate andranno perse."
+     {:title "Ripristina versione"
+      :danger? true
+      :confirm-text "Ripristina"
+      :on-confirm
+      (fn []
+        (-> (api/get-version-content project-id ref)
+            (.then (fn [result]
+                     (when (:ok result)
+                       (let [content (get-in result [:data :content])]
+                         ;; Reload the content and mark as modified to trigger save
+                         (model/reload-from-remote! content (remote-store/get-project-name))
+                         ;; Trigger a sync to save the restored version
+                         (when-let [callback @model/on-modified-callback]
+                           (callback))
+                         (swap! versions-state assoc :visible? false)))))
+            (.catch (fn [err]
+                      (events/show-alert! (str "Error restoring version: " err)
+                                          {:title (t :error)})))))})))
 
 (defn fork-version! [ref]
   "Create a new project from a specific version."
   (when-let [project-id (remote-store/get-project-id)]
-    (let [new-name (js/prompt "Nome del nuovo progetto:"
-                              (str (remote-store/get-project-name) " (fork)"))]
-      (when (seq new-name)
+    (events/show-prompt!
+     "Nome del nuovo progetto:"
+     {:title "Fork versione"
+      :default-value (str (remote-store/get-project-name) " (fork)")
+      :submit-text "Crea"
+      :on-submit
+      (fn [new-name]
         (-> (api/fork-version! project-id ref new-name)
             (.then (fn [result]
                      (if (:ok result)
-                       (js/alert (str "Progetto '" new-name "' creato con successo!"))
-                       (js/alert (or (:error result) "Failed to fork version")))))
+                       (events/show-alert! (str "Progetto '" new-name "' creato con successo!"))
+                       (events/show-alert! (or (:error result) "Failed to fork version")
+                                           {:title (t :error)}))))
             (.catch (fn [err]
-                      (js/alert (str "Error: " err)))))))))
+                      (events/show-alert! (str "Error: " err)
+                                          {:title (t :error)})))))})))
 
 ;; =============================================================================
 ;; UI Components

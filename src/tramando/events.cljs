@@ -104,3 +104,66 @@
   (if-let [nav-fn @navigate-to-aspect-fn]
     (nav-fn aspect-id)
     false))
+
+;; =============================================================================
+;; Global Dialog System (replaces js/alert, js/confirm, js/prompt)
+;; =============================================================================
+
+(defonce dialog-state (r/atom nil))
+
+(defn show-alert!
+  "Show an alert dialog with a message and OK button.
+   Options:
+   - :title - dialog title (optional)
+   - :on-close - callback when dialog is closed (optional)"
+  ([message] (show-alert! message {}))
+  ([message {:keys [title on-close]}]
+   (reset! dialog-state {:type :alert
+                         :message message
+                         :title title
+                         :on-close on-close})))
+
+(defn show-confirm!
+  "Show a confirm dialog with a message and OK/Cancel buttons.
+   Options:
+   - :title - dialog title (optional)
+   - :on-confirm - callback when user confirms
+   - :on-cancel - callback when user cancels (optional)
+   - :confirm-text - custom text for confirm button (optional)
+   - :cancel-text - custom text for cancel button (optional)
+   - :danger? - if true, confirm button is red (for destructive actions)"
+  [message {:keys [title on-confirm on-cancel confirm-text cancel-text danger?]}]
+  (reset! dialog-state {:type :confirm
+                        :message message
+                        :title title
+                        :on-confirm on-confirm
+                        :on-cancel on-cancel
+                        :confirm-text confirm-text
+                        :cancel-text cancel-text
+                        :danger? danger?}))
+
+(defn show-prompt!
+  "Show a prompt dialog with a message, input field, and OK/Cancel buttons.
+   Options:
+   - :title - dialog title (optional)
+   - :default-value - initial value for input (optional)
+   - :placeholder - placeholder text for input (optional)
+   - :on-submit - callback with input value when user submits
+   - :on-cancel - callback when user cancels (optional)
+   - :submit-text - custom text for submit button (optional)
+   - :cancel-text - custom text for cancel button (optional)"
+  [message {:keys [title default-value placeholder on-submit on-cancel submit-text cancel-text]}]
+  (reset! dialog-state {:type :prompt
+                        :message message
+                        :title title
+                        :default-value default-value
+                        :placeholder placeholder
+                        :on-submit on-submit
+                        :on-cancel on-cancel
+                        :submit-text submit-text
+                        :cancel-text cancel-text}))
+
+(defn close-dialog!
+  "Close the current dialog"
+  []
+  (reset! dialog-state nil))

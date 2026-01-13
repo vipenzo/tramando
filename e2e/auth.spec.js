@@ -14,6 +14,8 @@ import { test, expect } from '@playwright/test';
  * sono stati spostati ai test manuali.
  */
 
+const TEST_SERVER = 'http://localhost:3001';
+
 test.describe('AUTH-001: Registrazione', () => {
 
   test('form di login è visibile dalla splash server', async ({ page }) => {
@@ -22,22 +24,15 @@ test.describe('AUTH-001: Registrazione', () => {
     await page.reload();
     await page.waitForTimeout(500);
 
-    // Clicca su modalità server
-    const serverButton = page.getByRole('button', { name: /server|online/i });
-    if (await serverButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await serverButton.click();
-      await page.waitForTimeout(500);
+    // Il form di login server è già visibile nella splash (pannello destro)
+    const loginField = page.getByPlaceholder('Username');
+    await expect(loginField).toBeVisible({ timeout: 5000 });
 
-      // Dovrebbe mostrare il form di login
-      const loginField = page.getByPlaceholder(/username|utente/i);
-      await expect(loginField).toBeVisible({ timeout: 5000 });
+    const passwordField = page.getByPlaceholder('Password');
+    await expect(passwordField).toBeVisible({ timeout: 5000 });
 
-      const passwordField = page.getByPlaceholder(/password/i);
-      await expect(passwordField).toBeVisible({ timeout: 5000 });
-
-      const loginBtn = page.getByRole('button', { name: /accedi|login/i });
-      await expect(loginBtn).toBeVisible({ timeout: 5000 });
-    }
+    const loginBtn = page.getByRole('button', { name: /accedi|login/i });
+    await expect(loginBtn).toBeVisible({ timeout: 5000 });
   });
 
   test('registrazione richiede username e password', async ({ page }) => {
@@ -46,25 +41,19 @@ test.describe('AUTH-001: Registrazione', () => {
     await page.reload();
     await page.waitForTimeout(500);
 
-    // Vai in server mode
-    const serverButton = page.getByRole('button', { name: /server|online/i });
-    if (await serverButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await serverButton.click();
+    // Il form di login server è già visibile nella splash (pannello destro)
+    // Cerca il bottone registra
+    const registerBtn = page.getByRole('button', { name: /registra|register|sign up/i });
+    if (await registerBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await registerBtn.click();
       await page.waitForTimeout(500);
 
-      // Cerca il bottone registra
-      const registerBtn = page.getByRole('button', { name: /registra|register|sign up/i });
-      if (await registerBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-        await registerBtn.click();
-        await page.waitForTimeout(500);
+      // Verifica che ci siano i campi necessari
+      const usernameField = page.getByPlaceholder('Username');
+      const passwordField = page.getByPlaceholder('Password');
 
-        // Verifica che ci siano i campi necessari
-        const usernameField = page.getByPlaceholder(/username|utente/i);
-        const passwordField = page.getByPlaceholder(/password/i);
-
-        await expect(usernameField).toBeVisible({ timeout: 3000 });
-        await expect(passwordField).toBeVisible({ timeout: 3000 });
-      }
+      await expect(usernameField).toBeVisible({ timeout: 3000 });
+      await expect(passwordField).toBeVisible({ timeout: 3000 });
     }
   });
 
@@ -78,30 +67,25 @@ test.describe('AUTH-005: Logout e sessione', () => {
     await page.reload();
     await page.waitForTimeout(500);
 
-    // Vai in server mode
-    const serverButton = page.getByRole('button', { name: /server|online/i });
-    if (await serverButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await serverButton.click();
-      await page.waitForTimeout(500);
+    // Il form di login server è già visibile nella splash (pannello destro)
+    // Prima imposta l'URL del server di test, poi login
+    await page.getByPlaceholder('Server URL').fill(TEST_SERVER);
+    await page.getByPlaceholder('Username').fill('alice');
+    await page.getByPlaceholder('Password').fill('alice123');
+    await page.getByRole('button', { name: /accedi|login/i }).click();
 
-      // Login con credenziali valide
-      await page.getByPlaceholder(/username|utente/i).fill('alice');
-      await page.getByPlaceholder(/password/i).fill('alice123');
-      await page.getByRole('button', { name: /accedi|login/i }).click();
+    // Aspetta che il login completi
+    await page.waitForFunction(() => {
+      return !document.body.innerText.includes('Caricamento');
+    }, { timeout: 15000 }).catch(() => {});
+    await page.waitForTimeout(1000);
 
-      // Aspetta che il login completi
-      await page.waitForFunction(() => {
-        return !document.body.innerText.includes('Caricamento');
-      }, { timeout: 15000 }).catch(() => {});
-      await page.waitForTimeout(1000);
+    // Verifica che il token sia stato salvato
+    const hasToken = await page.evaluate(() => {
+      return localStorage.getItem('tramando-auth-token') !== null;
+    });
 
-      // Verifica che il token sia stato salvato
-      const hasToken = await page.evaluate(() => {
-        return localStorage.getItem('tramando-auth-token') !== null;
-      });
-
-      expect(hasToken).toBeTruthy();
-    }
+    expect(hasToken).toBeTruthy();
   });
 
   test('rimozione token causa ritorno a splash', async ({ page }) => {
@@ -110,37 +94,33 @@ test.describe('AUTH-005: Logout e sessione', () => {
     await page.reload();
     await page.waitForTimeout(500);
 
-    // Login prima
-    const serverButton = page.getByRole('button', { name: /server|online/i });
-    if (await serverButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await serverButton.click();
-      await page.waitForTimeout(500);
+    // Il form di login server è già visibile nella splash (pannello destro)
+    // Prima imposta l'URL del server di test, poi login
+    await page.getByPlaceholder('Server URL').fill(TEST_SERVER);
+    await page.getByPlaceholder('Username').fill('alice');
+    await page.getByPlaceholder('Password').fill('alice123');
+    await page.getByRole('button', { name: /accedi|login/i }).click();
 
-      await page.getByPlaceholder(/username|utente/i).fill('alice');
-      await page.getByPlaceholder(/password/i).fill('alice123');
-      await page.getByRole('button', { name: /accedi|login/i }).click();
+    // Aspetta che il login completi e vediamo i progetti
+    await expect(page.getByText('Alice Project 1')).toBeVisible({ timeout: 15000 });
 
-      // Aspetta che il login completi e vediamo i progetti
-      await expect(page.getByText('Alice Project 1')).toBeVisible({ timeout: 15000 });
+    // Ora rimuovi il token
+    await page.evaluate(() => {
+      localStorage.removeItem('tramando-auth-token');
+    });
 
-      // Ora rimuovi il token
-      await page.evaluate(() => {
-        localStorage.removeItem('tramando-auth-token');
-      });
+    // Ricarica
+    await page.reload();
+    await page.waitForTimeout(1000);
 
-      // Ricarica
-      await page.reload();
-      await page.waitForTimeout(1000);
+    // Dovremmo vedere la splash (scelta locale/server)
+    const hasSplash = await page.evaluate(() => {
+      const text = document.body.innerText.toLowerCase();
+      return text.includes('locale') || text.includes('server') ||
+             text.includes('local') || text.includes('nuovo');
+    });
 
-      // Dovremmo vedere la splash (scelta locale/server)
-      const hasSplash = await page.evaluate(() => {
-        const text = document.body.innerText.toLowerCase();
-        return text.includes('locale') || text.includes('server') ||
-               text.includes('local') || text.includes('nuovo');
-      });
-
-      expect(hasSplash).toBeTruthy();
-    }
+    expect(hasSplash).toBeTruthy();
   });
 
 });
@@ -173,27 +153,22 @@ test.describe('AUTH-006: Accesso non autorizzato', () => {
     await page.reload();
     await page.waitForTimeout(500);
 
-    // Vai in server mode
-    const serverButton = page.getByRole('button', { name: /server|online/i });
-    if (await serverButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await serverButton.click();
-      await page.waitForTimeout(500);
+    // Il form di login server è già visibile nella splash (pannello destro)
+    // Prima imposta l'URL del server di test, poi prova login con credenziali errate
+    await page.getByPlaceholder('Server URL').fill(TEST_SERVER);
+    await page.getByPlaceholder('Username').fill('alice');
+    await page.getByPlaceholder('Password').fill('wrongpassword');
+    await page.getByRole('button', { name: /accedi|login/i }).click();
 
-      // Prova login con credenziali errate
-      await page.getByPlaceholder(/username|utente/i).fill('alice');
-      await page.getByPlaceholder(/password/i).fill('wrongpassword');
-      await page.getByRole('button', { name: /accedi|login/i }).click();
+    await page.waitForTimeout(2000);
 
-      await page.waitForTimeout(2000);
+    // NON dovremmo vedere i progetti
+    const hasProjects = await page.getByText('Alice Project').isVisible({ timeout: 2000 }).catch(() => false);
+    expect(hasProjects).toBeFalsy();
 
-      // NON dovremmo vedere i progetti
-      const hasProjects = await page.getByText('Alice Project').isVisible({ timeout: 2000 }).catch(() => false);
-      expect(hasProjects).toBeFalsy();
-
-      // Dovrebbe mostrare un errore
-      const hasError = await page.getByText(/error|errat|invalid|non valido/i).isVisible({ timeout: 3000 }).catch(() => false);
-      expect(hasError).toBeTruthy();
-    }
+    // Dovrebbe mostrare un errore
+    const hasError = await page.getByText(/error|errat|invalid|non valido/i).isVisible({ timeout: 3000 }).catch(() => false);
+    expect(hasError).toBeTruthy();
   });
 
 });

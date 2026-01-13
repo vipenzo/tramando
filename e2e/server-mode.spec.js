@@ -63,46 +63,40 @@ test.describe('Tramando - Server Mode Login', () => {
   test('può fare login con credenziali valide', async ({ page }) => {
     await page.goto('/');
 
-    // Clicca su modalità server
-    const serverButton = page.getByRole('button', { name: /server|online/i });
-    if (await serverButton.isVisible().catch(() => false)) {
-      await serverButton.click();
-      await page.waitForTimeout(500);
+    // Il form di login server è già visibile nella splash (pannello destro)
+    await expect(page.getByPlaceholder('Username')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByPlaceholder('Password')).toBeVisible({ timeout: 5000 });
 
-      // Dovrebbe mostrare il form di login
-      await expect(page.getByPlaceholder(/username|utente/i)).toBeVisible({ timeout: 5000 });
-      await expect(page.getByPlaceholder(/password/i)).toBeVisible({ timeout: 5000 });
+    // Prima imposta l'URL del server di test
+    await page.getByPlaceholder('Server URL').fill(API_URL);
 
-      // Inserisci credenziali
-      await page.getByPlaceholder(/username|utente/i).fill('alice');
-      await page.getByPlaceholder(/password/i).fill('alice123');
+    // Inserisci credenziali
+    await page.getByPlaceholder('Username').fill('alice');
+    await page.getByPlaceholder('Password').fill('alice123');
 
-      // Clicca login
-      await page.getByRole('button', { name: /accedi|login/i }).click();
+    // Clicca login
+    await page.getByRole('button', { name: /accedi|login/i }).click();
 
-      // Dovrebbe mostrare la lista progetti dopo login
-      await expect(page.getByText(/progetti|projects/i).first()).toBeVisible({ timeout: 10000 });
-    }
+    // Dovrebbe mostrare la lista progetti dopo login
+    await expect(page.getByText(/progetti|projects/i).first()).toBeVisible({ timeout: 10000 });
   });
 
   test('mostra errore con credenziali errate', async ({ page }) => {
     await page.goto('/');
 
-    const serverButton = page.getByRole('button', { name: /server|online/i });
-    if (await serverButton.isVisible().catch(() => false)) {
-      await serverButton.click();
-      await page.waitForTimeout(500);
+    // Il form di login server è già visibile nella splash (pannello destro)
+    // Prima imposta l'URL del server di test
+    await page.getByPlaceholder('Server URL').fill(API_URL);
 
-      // Inserisci credenziali errate
-      await page.getByPlaceholder(/username|utente/i).fill('alice');
-      await page.getByPlaceholder(/password/i).fill('wrongpassword');
+    // Inserisci credenziali errate
+    await page.getByPlaceholder('Username').fill('alice');
+    await page.getByPlaceholder('Password').fill('wrongpassword');
 
-      // Clicca login
-      await page.getByRole('button', { name: /accedi|login/i }).click();
+    // Clicca login
+    await page.getByRole('button', { name: /accedi|login/i }).click();
 
-      // Dovrebbe mostrare un errore
-      await expect(page.getByText(/invalid|error|errat/i).first()).toBeVisible({ timeout: 5000 });
-    }
+    // Dovrebbe mostrare un errore
+    await expect(page.getByText(/invalid|error|errat/i).first()).toBeVisible({ timeout: 5000 });
   });
 
 });

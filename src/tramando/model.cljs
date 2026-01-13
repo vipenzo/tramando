@@ -1587,31 +1587,19 @@
       (save-file-as!))))
 
 (defn export-md!
-  "Export as .md file (without frontmatter)"
+  "Export as .md file (without frontmatter) - shows save dialog"
   []
   (let [content (serialize-chunks (get-chunks))
-        filename (str/replace (get-filename) #"\.trmd$" ".md")
-        blob (js/Blob. #js [content] #js {:type "text/markdown"})
-        url (js/URL.createObjectURL blob)
-        a (js/document.createElement "a")]
-    (set! (.-href a) url)
-    (set! (.-download a) filename)
-    (.click a)
-    (js/URL.revokeObjectURL url)))
+        filename (str/replace (get-filename) #"\.trmd$" ".md")]
+    (platform/save-file-as! content filename nil)))
 
 (defn export-trmd!
-  "Export as .trmd file (with frontmatter) - downloads the file locally"
+  "Export as .trmd file (with frontmatter) - shows save dialog"
   []
   (let [content (serialize-file (get-chunks) (:metadata @app-state))
         filename (let [f (get-filename)]
-                   (if (str/ends-with? f ".trmd") f (str f ".trmd")))
-        blob (js/Blob. #js [content] #js {:type "text/plain"})
-        url (js/URL.createObjectURL blob)
-        a (js/document.createElement "a")]
-    (set! (.-href a) url)
-    (set! (.-download a) filename)
-    (.click a)
-    (js/URL.revokeObjectURL url)))
+                   (if (str/ends-with? f ".trmd") f (str f ".trmd")))]
+    (platform/save-file-as! content filename nil)))
 
 (defn import-md-content!
   "Import markdown content, parsing it and appending chunks to current project.
@@ -2084,6 +2072,10 @@
   (platform/clear-file-handle!)
   ;; Reset filepath (new project has no file yet)
   (swap! app-state assoc :filepath nil)
+  ;; Clear existing chunks to start fresh
+  (swap! app-state assoc :chunks [])
+  ;; Reset metadata for new project
+  (swap! app-state assoc :metadata {:title "Nuovo progetto" :author ""})
   ;; First ensure aspect containers exist
   (ensure-aspect-containers!)
   ;; Reset history
