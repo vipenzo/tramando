@@ -689,14 +689,18 @@
   (js/eval "
     (function(WidgetType) {
       class TextWidget extends WidgetType {
-        constructor(text, cssClass) {
+        constructor(text, cssClass, tooltip) {
           super();
           this.text = text;
           this.cssClass = cssClass;
+          this.tooltip = tooltip || '';
         }
         toDOM() {
           let span = document.createElement('span');
           span.className = this.cssClass;
+          if (this.tooltip) {
+            span.title = this.tooltip;
+          }
           // Handle newlines by creating text nodes and br elements
           let parts = this.text.split('\\n');
           for (let i = 0; i < parts.length; i++) {
@@ -708,7 +712,7 @@
           return span;
         }
         eq(other) {
-          return other.text === this.text && other.cssClass === this.cssClass;
+          return other.text === this.text && other.cssClass === this.cssClass && other.tooltip === this.tooltip;
         }
         ignoreEvent() { return false; }
       }
@@ -718,8 +722,10 @@
 
 (def TextWidgetClass (TextWidget WidgetType))
 
-(defn- create-text-widget [text css-class]
-  (TextWidgetClass. text css-class))
+(defn- create-text-widget
+  "Create a text widget with optional tooltip"
+  ([text css-class] (TextWidgetClass. text css-class nil))
+  ([text css-class tooltip] (TextWidgetClass. text css-class tooltip)))
 
 ;; Widget for AI alternative: shows original (striked) + alternative (normal)
 (def AiAlternativeWidget
@@ -767,7 +773,9 @@
         doc (.. view -state -doc)
         text (.toString doc)
         ;; Parse all annotations using the EDN parser
-        all-annotations (annotations/parse-annotations text)]
+        all-annotations (annotations/parse-annotations text)
+        ;; Check if there's an active flash
+        flash-range @flash-decoration-atom]
     ;; Process each annotation
     (doseq [ann all-annotations]
       (let [start (:start ann)
@@ -778,6 +786,10 @@
             author (annotations/get-author ann)
             comment (annotations/get-comment ann)
             priority (annotations/get-priority ann)
+            ;; Check if this annotation should flash
+            is-flashing? (and flash-range
+                              (= start (:from flash-range))
+                              (= end (:to flash-range)))
             ;; Check annotation types
             is-ai-done? (annotations/is-ai-done? ann)
             is-ai-pending? (annotations/is-ai-pending? ann)
@@ -846,26 +858,18 @@
                                                      :side 1})
                                        start)))
 
-              ;; Normal annotation: hide entire markup except text, highlight text
+              ;; Normal annotation: hide entire markup, show parsed text as widget
+              ;; This ensures escaped characters (like \") display correctly
               :else
-              (let [;; For EDN format, we need to find where :text "..." appears
-                    ;; and show only that text. Use hidden ranges from get-hidden-ranges.
-                    hidden-ranges (get-hidden-ranges annotation-text)]
-                (if (seq hidden-ranges)
-                  ;; Use pre-calculated hidden ranges
-                  (doseq [{:keys [from to]} hidden-ranges]
-                    (let [abs-from (+ start from)
-                          abs-to (+ start to)]
-                      (.push builder (.range (.mark Decoration #js {:class "cm-annotation-hidden"})
-                                             abs-from abs-to))))
-                  ;; Fallback: hide entire annotation and show text as widget
-                  (do
-                    (.push builder (.range (.mark Decoration #js {:class "cm-annotation-hidden"}) start end))
-                    (.push builder (.range (.widget Decoration
-                                                    #js {:widget (create-text-widget selected-text (str "cm-annotation-text-" type-lower))
-                                                         :side 1
-                                                         :attributes #js {:title tooltip}})
-                                           start))))))))))
+              (let [base-class (str "cm-annotation-text-" type-lower)
+                    css-class (if is-flashing?
+                                (str base-class " cm-annotation-flash")
+                                base-class)]
+                (.push builder (.range (.mark Decoration #js {:class "cm-annotation-hidden"}) start end))
+                (.push builder (.range (.widget Decoration
+                                                #js {:widget (create-text-widget selected-text css-class tooltip)
+                                                     :side 1})
+                                       start))))))))
     ;; Process aspect links [@id]
     (set! (.-lastIndex aspect-link-regex) 0)
     (loop []
@@ -899,16 +903,21 @@
 (def annotation-highlight
   (.define ViewPlugin
            (fn [^js view]
-             (let [show? @annotations/show-markup?]
+             (let [show? @annotations/show-markup?
+                   flash? @flash-decoration-atom]
                #js {:decorations (create-annotation-decorations view show?)
                     :showMarkup show?
+                    :flashRange flash?
                     :update (fn [^js vu] ; vu = ViewUpdate
                               (this-as this
                                 (let [^js this this
-                                      current-show? @annotations/show-markup?]
+                                      current-show? @annotations/show-markup?
+                                      current-flash? @flash-decoration-atom]
                                   (when (or (.-docChanged vu)
-                                            (not= (.-showMarkup this) current-show?))
+                                            (not= (.-showMarkup this) current-show?)
+                                            (not= (.-flashRange this) current-flash?))
                                     (set! (.-showMarkup this) current-show?)
+                                    (set! (.-flashRange this) current-flash?)
                                     (set! (.-decorations this)
                                           (create-annotation-decorations (.-view vu) current-show?))))))}))
            #js {:decorations (fn [^js v] (.-decorations v))}))
