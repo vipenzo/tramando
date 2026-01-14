@@ -774,17 +774,25 @@
   "Submenu for AI assistant actions"
   [parent-rect chunk selected-text]
   (let [linked-aspects (when chunk (templates/get-linked-aspects chunk))
-        has-linked-aspects? (seq linked-aspects)]
+        has-linked-aspects? (seq linked-aspects)
+        ;; Calculate position to avoid going off-screen
+        window-height (.-innerHeight js/window)
+        ;; Estimate submenu height: ~14 items * 34px + separators
+        estimated-height 520
+        ;; Position from top, but adjust if would go off bottom
+        ideal-top (:top parent-rect)
+        adjusted-top (min ideal-top (- window-height estimated-height 20))]
     [:div {:style {:position "fixed"
                    :left (str (+ (:right parent-rect) 2) "px")
-                   :top (str (:top parent-rect) "px")
+                   :top (str (max 10 adjusted-top) "px")
                    :background (settings/get-color :sidebar)
                    :border (str "1px solid " (settings/get-color :border))
                    :border-radius "6px"
                    :box-shadow "0 4px 12px rgba(0,0,0,0.3)"
                    :min-width "180px"
-                   :z-index 10002
-                   :overflow "hidden"}}
+                   :max-height (str (- window-height 40) "px")
+                   :overflow-y "auto"
+                   :z-index 10002}}
      ;; Main AI actions
      [menu-item {:label (t :ai-expand)
                  :on-click #(handle-action! :expand)}]

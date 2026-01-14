@@ -16,7 +16,7 @@
             [tramando.store.remote :as remote-store]
             [tramando.store.local :as local-store]
             ["@codemirror/state" :refer [EditorState StateField StateEffect RangeSetBuilder Prec]]
-            ["@codemirror/view" :refer [EditorView keymap highlightActiveLine
+            ["@codemirror/view" :refer [EditorView keymap
                                         drawSelection Decoration ViewPlugin WidgetType]]
             ["@codemirror/commands" :refer [defaultKeymap history
                                             indentWithTab undo redo undoDepth redoDepth]]
@@ -40,11 +40,9 @@
                ".cm-cursor" #js {:borderLeftColor "var(--color-accent)"}
                "&.cm-focused .cm-selectionBackground" #js {:backgroundColor "rgba(74, 159, 142, 0.3)"}
                ".cm-selectionBackground" #js {:backgroundColor "rgba(74, 159, 142, 0.2)"}
-               ".cm-activeLine" #js {:backgroundColor "var(--color-accent-muted)"}
                ".cm-gutters" #js {:backgroundColor "var(--color-sidebar)"
                                   :color "var(--color-text-muted)"
                                   :borderRight "1px solid var(--color-border)"}
-               ".cm-activeLineGutter" #js {:backgroundColor "var(--color-editor-bg)"}
                "&" #js {:backgroundColor "var(--color-background)"}
                ;; Annotation styles - full markup mode (all use accent color)
                ".cm-annotation-todo" #js {:backgroundColor "var(--color-accent-muted)"
@@ -1400,8 +1398,7 @@
    (create-editor-state content chunk-id false))
   ([content chunk-id read-only?]
    (let [base-extensions #js [tramando-theme
-                              ;; lineNumbers removed for cleaner writing experience
-                              (highlightActiveLine)
+                              ;; highlightActiveLine removed - was confusing with selection
                               (drawSelection)
                               (.-lineWrapping EditorView)
                               ;; Custom undo/redo keymap with HIGHEST precedence to intercept before history
