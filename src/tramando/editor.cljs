@@ -2252,29 +2252,42 @@
 ;; =============================================================================
 
 (defn- get-children-tree
-  "Build tree of children for a given parent id"
-  [parent-id]
-  (let [children (model/get-children parent-id)]
-    (mapv (fn [c]
-            {:id (:id c)
-             :title (or (:summary c) (:id c))
-             :type (keyword (:parent-id c))
-             :children (get-children-tree (:id c))})
-          children)))
+  "Build tree of children for a given parent id.
+   If threshold is provided, filter by priority >= threshold."
+  ([parent-id] (get-children-tree parent-id nil))
+  ([parent-id threshold]
+   (let [children (model/get-children parent-id)
+         ;; Filter by threshold if provided
+         filtered (if threshold
+                    (filter #(>= (or (:priority %) 0) threshold) children)
+                    children)
+         ;; Sort by priority (descending) then alphabetically
+         sorted (sort-by (fn [a] [(- (or (:priority a) 0))
+                                  (.toLowerCase (or (:summary a) ""))])
+                         filtered)]
+     (mapv (fn [c]
+             {:id (:id c)
+              :title (or (:summary c) (:id c))
+              :type (keyword (:parent-id c))
+              :priority (:priority c)
+              :children (get-children-tree (:id c) threshold)})
+           sorted))))
 
 (defn build-aspects-tree
-  "Build tree structure for aspect selection"
+  "Build tree structure for aspect selection.
+   Respects the priority threshold settings from the sidebar."
   []
-  [{:id "personaggi" :title (t :personaggi) :type :category :expanded true
-    :children (get-children-tree "personaggi")}
-   {:id "luoghi" :title (t :luoghi) :type :category :expanded false
-    :children (get-children-tree "luoghi")}
-   {:id "temi" :title (t :temi) :type :category :expanded false
-    :children (get-children-tree "temi")}
-   {:id "sequenze" :title (t :sequenze) :type :category :expanded false
-    :children (get-children-tree "sequenze")}
-   {:id "timeline" :title (t :timeline) :type :category :expanded false
-    :children (get-children-tree "timeline")}])
+  (let [get-threshold (fn [id] (settings/get-aspect-threshold id))]
+    [{:id "personaggi" :title (t :personaggi) :type :category :expanded true
+      :children (get-children-tree "personaggi" (get-threshold "personaggi"))}
+     {:id "luoghi" :title (t :luoghi) :type :category :expanded false
+      :children (get-children-tree "luoghi" (get-threshold "luoghi"))}
+     {:id "temi" :title (t :temi) :type :category :expanded false
+      :children (get-children-tree "temi" (get-threshold "temi"))}
+     {:id "sequenze" :title (t :sequenze) :type :category :expanded false
+      :children (get-children-tree "sequenze" (get-threshold "sequenze"))}
+     {:id "timeline" :title (t :timeline) :type :category :expanded false
+      :children (get-children-tree "timeline" (get-threshold "timeline"))}]))
 
 (defn- build-structure-tree
   "Build tree of structural chunks (non-aspect)"
