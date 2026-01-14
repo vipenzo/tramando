@@ -48,6 +48,23 @@
     false))
 
 ;; =============================================================================
+;; Editor View Reference (shared to avoid circular deps)
+;; =============================================================================
+
+;; Store the CodeMirror EditorView reference - set by editor when mounted
+(defonce editor-view-ref (atom nil))
+
+(defn set-editor-view!
+  "Register the CodeMirror EditorView instance"
+  [view]
+  (reset! editor-view-ref view))
+
+(defn get-editor-view
+  "Get the current CodeMirror EditorView instance"
+  []
+  @editor-view-ref)
+
+;; =============================================================================
 ;; Chunk Navigation (for clicking chunk links, expands parent hierarchy)
 ;; =============================================================================
 

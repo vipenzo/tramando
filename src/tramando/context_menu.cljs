@@ -729,18 +729,6 @@
                  :background (settings/get-color :border)
                  :margin "4px 0"}}])
 
-(defn- menu-section-header
-  "Section header in menu"
-  [label]
-  [:div {:style {:padding "8px 12px"
-                 :font-size "11px"
-                 :font-weight "600"
-                 :text-transform "uppercase"
-                 :letter-spacing "0.5px"
-                 :color (settings/get-color :accent)
-                 :border-bottom (str "1px solid " (settings/get-color :border))}}
-   label])
-
 (defn- submenu
   "Submenu component that appears to the right"
   [{:keys [items parent-rect]}]
@@ -782,35 +770,60 @@
                      :color (settings/get-color :danger)
                      :action #(handle-wrap-annotation! "FIX")}]}])
 
-(defn- tone-submenu
-  "Submenu for tone options"
-  [parent-rect]
-  [submenu {:parent-rect parent-rect
-            :items [{:id :tone-dark
-                     :label (t :ai-tone-dark)
-                     :action #(handle-action! :tone-dark)}
-                    {:id :tone-light
-                     :label (t :ai-tone-light)
-                     :action #(handle-action! :tone-light)}
-                    {:id :tone-formal
-                     :label (t :ai-tone-formal)
-                     :action #(handle-action! :tone-formal)}
-                    {:id :tone-casual
-                     :label (t :ai-tone-casual)
-                     :action #(handle-action! :tone-casual)}
-                    {:id :tone-poetic
-                     :label (t :ai-tone-poetic)
-                     :action #(handle-action! :tone-poetic)}]}])
-
-(defn- aspects-submenu
-  "Submenu for updating linked aspects"
-  [parent-rect chunk]
-  (let [linked-aspects (templates/get-linked-aspects chunk)]
-    [submenu {:parent-rect parent-rect
-              :items (for [aspect linked-aspects]
-                       {:id (:id aspect)
-                        :label (or (:summary aspect) (:id aspect))
-                        :action #(handle-action! :update-aspect :aspect-id (:id aspect))})}]))
+(defn- ai-assistant-submenu
+  "Submenu for AI assistant actions"
+  [parent-rect chunk selected-text]
+  (let [linked-aspects (when chunk (templates/get-linked-aspects chunk))
+        has-linked-aspects? (seq linked-aspects)]
+    [:div {:style {:position "fixed"
+                   :left (str (+ (:right parent-rect) 2) "px")
+                   :top (str (:top parent-rect) "px")
+                   :background (settings/get-color :sidebar)
+                   :border (str "1px solid " (settings/get-color :border))
+                   :border-radius "6px"
+                   :box-shadow "0 4px 12px rgba(0,0,0,0.3)"
+                   :min-width "180px"
+                   :z-index 10002
+                   :overflow "hidden"}}
+     ;; Main AI actions
+     [menu-item {:label (t :ai-expand)
+                 :on-click #(handle-action! :expand)}]
+     [menu-item {:label (t :ai-rephrase)
+                 :on-click #(handle-action! :rephrase)}]
+     [menu-separator]
+     ;; Tone options (inline, not nested)
+     [menu-item {:label (t :ai-tone-dark)
+                 :on-click #(handle-action! :tone-dark)}]
+     [menu-item {:label (t :ai-tone-light)
+                 :on-click #(handle-action! :tone-light)}]
+     [menu-item {:label (t :ai-tone-formal)
+                 :on-click #(handle-action! :tone-formal)}]
+     [menu-item {:label (t :ai-tone-casual)
+                 :on-click #(handle-action! :tone-casual)}]
+     [menu-item {:label (t :ai-tone-poetic)
+                 :on-click #(handle-action! :tone-poetic)}]
+     [menu-separator]
+     ;; Creation actions
+     [menu-item {:label (t :ai-create-character)
+                 :on-click #(handle-action! :create-character)}]
+     [menu-item {:label (t :ai-create-place)
+                 :on-click #(handle-action! :create-place)}]
+     [menu-item {:label (t :ai-suggest-conflict)
+                 :on-click #(handle-action! :suggest-conflict)}]
+     [menu-item {:label (t :ai-analyze-consistency)
+                 :on-click #(handle-action! :analyze-consistency)}]
+     ;; Extract info for linked aspects
+     (when (and has-linked-aspects? (seq selected-text))
+       [:<>
+        [menu-separator]
+        (for [aspect linked-aspects]
+          ^{:key (:id aspect)}
+          [menu-item {:label (str (t :ai-extract-info) ": " (or (:summary aspect) (:id aspect)))
+                      :on-click #(handle-action! :update-aspect :aspect-id (:id aspect))}])])
+     [menu-separator]
+     ;; Ask (free input)
+     [menu-item {:label (t :ai-ask)
+                 :on-click #(handle-action! :ask)}]]))
 
 (defn- calculate-submenu-rect
   "Calculate the position rect for a submenu based on the menu item"
@@ -1209,12 +1222,51 @@
 ;; Selection Context Menu (text selected, no annotation)
 ;; =============================================================================
 
+(defn- handle-cut!
+  "Cut selected text to clipboard"
+  []
+  (when-let [selected-text (:selected-text @menu-state)]
+    (-> (js/navigator.clipboard.writeText selected-text)
+        (.then (fn []
+                 ;; Delete the selected text from editor
+                 (when-let [view @events/editor-view-ref]
+                   (let [state (.-state view)
+                         selection (.-selection state)
+                         main-range (.main selection)
+                         from (.-from main-range)
+                         to (.-to main-range)]
+                     (when (< from to)
+                       (.dispatch view #js {:changes #js {:from from :to to :insert ""}}))))
+                 (events/show-toast! (t :copied))))))
+  (hide-menu!))
+
+(defn- handle-copy!
+  "Copy selected text to clipboard"
+  []
+  (when-let [selected-text (:selected-text @menu-state)]
+    (-> (js/navigator.clipboard.writeText selected-text)
+        (.then (fn [] (events/show-toast! (t :copied))))))
+  (hide-menu!))
+
+(defn- handle-paste!
+  "Paste from clipboard"
+  []
+  (-> (js/navigator.clipboard.readText)
+      (.then (fn [text]
+               (when (and text (seq text))
+                 (when-let [view @events/editor-view-ref]
+                   (let [state (.-state view)
+                         selection (.-selection state)
+                         main-range (.main selection)
+                         from (.-from main-range)
+                         to (.-to main-range)]
+                     (.dispatch view #js {:changes #js {:from from :to to :insert text}})))))))
+  (hide-menu!))
+
 (defn- selection-context-menu
   "Context menu for selected text"
   [{:keys [x y chunk selected-text open-submenu]}]
   (let [menu-width 220
-        linked-aspects (when chunk (templates/get-linked-aspects chunk))
-        has-linked-aspects? (seq linked-aspects)
         ai-configured? (ai-configured?)]
     [:div {:style {:position "fixed"
                    :left (str x "px")
@@ -1228,6 +1280,18 @@
                    :overflow "visible"}
            :on-click #(.stopPropagation %)}
 
+     ;; Clipboard section (Cut/Copy/Paste)
+     [menu-item {:label (str (t :cut) "  ⌘X")
+                 :on-click handle-cut!
+                 :disabled? (empty? selected-text)}]
+     [menu-item {:label (str (t :copy) "  ⌘C")
+                 :on-click handle-copy!
+                 :disabled? (empty? selected-text)}]
+     [menu-item {:label (str (t :paste) "  ⌘V")
+                 :on-click handle-paste!}]
+
+     [menu-separator]
+
      ;; Annotation section
      [:div {:style {:position "relative"}
             :on-mouse-enter #(open-submenu! :annotation)
@@ -1235,70 +1299,30 @@
                                (close-submenu!))}
       [menu-item {:label (t :add-annotation)
                   :has-submenu? true
-                  :submenu-key :annotation}]
+                  :submenu-key :annotation
+                  :disabled? (empty? selected-text)}]
       (when (= open-submenu :annotation)
-        [annotation-submenu (calculate-submenu-rect x y 0 menu-width)])]
+        [annotation-submenu (calculate-submenu-rect x y 4 menu-width)])]
 
      ;; Proposal section (collaborative)
-     [menu-separator]
      [menu-item {:label (t :proposal-create)
                  :on-click handle-create-proposal!
-                 :icon "💬"}]
+                 :disabled? (empty? selected-text)}]
 
-     ;; AI section (only if configured)
+     ;; AI section (only if configured) - as a submenu
      (when ai-configured?
        [:<>
         [menu-separator]
-        [menu-section-header (t :ai-assistant)]
-
-        ;; Main AI actions
-        [menu-item {:label (t :ai-expand)
-                    :on-click #(handle-action! :expand)}]
-        [menu-item {:label (t :ai-rephrase)
-                    :on-click #(handle-action! :rephrase)}]
-
-        ;; Tone submenu
         [:div {:style {:position "relative"}
-               :on-mouse-enter #(open-submenu! :tone)
-               :on-mouse-leave #(when (= open-submenu :tone)
+               :on-mouse-enter #(open-submenu! :ai-assistant)
+               :on-mouse-leave #(when (= open-submenu :ai-assistant)
                                   (close-submenu!))}
-         [menu-item {:label (t :ai-tone)
+         [menu-item {:label (t :ai-assistant)
                      :has-submenu? true
-                     :submenu-key :tone}]
-         (when (= open-submenu :tone)
-           [tone-submenu (calculate-submenu-rect x y 4 menu-width)])]
-
-        [menu-separator]
-
-        ;; Creation actions
-        [menu-item {:label (t :ai-create-character)
-                    :on-click #(handle-action! :create-character)}]
-        [menu-item {:label (t :ai-create-place)
-                    :on-click #(handle-action! :create-place)}]
-        [menu-item {:label (t :ai-suggest-conflict)
-                    :on-click #(handle-action! :suggest-conflict)}]
-        [menu-item {:label (t :ai-analyze-consistency)
-                    :on-click #(handle-action! :analyze-consistency)}]
-
-        ;; Extract info submenu (only if chunk has linked aspects and text is selected)
-        (when (and has-linked-aspects? (seq selected-text))
-          [:<>
-           [menu-separator]
-           [:div {:style {:position "relative"}
-                  :on-mouse-enter #(open-submenu! :aspects)
-                  :on-mouse-leave #(when (= open-submenu :aspects)
-                                     (close-submenu!))}
-            [menu-item {:label (t :ai-extract-info)
-                        :has-submenu? true
-                        :submenu-key :aspects}]
-            (when (= open-submenu :aspects)
-              [aspects-submenu (calculate-submenu-rect x y 10 menu-width) chunk])]])
-
-        [menu-separator]
-
-        ;; Ask (free input)
-        [menu-item {:label (t :ai-ask)
-                    :on-click #(handle-action! :ask)}]])]))
+                     :submenu-key :ai-assistant
+                     :disabled? (empty? selected-text)}]
+         (when (= open-submenu :ai-assistant)
+           [ai-assistant-submenu (calculate-submenu-rect x y 7 menu-width) chunk selected-text])]])]))
 
 ;; =============================================================================
 ;; Main Context Menu Component

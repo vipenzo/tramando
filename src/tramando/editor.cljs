@@ -131,8 +131,8 @@
            :replace-text ""}))
 
 ;; Toast state is defined in events namespace
+;; editor-view-ref is defined in events namespace to avoid circular deps
 
-(defonce editor-view-ref (atom nil))
 (defonce search-input-ref (atom nil))
 (defonce replace-input-ref (atom nil))
 (defonce search-debounce-timer (atom nil))
@@ -145,7 +145,7 @@
   "Replace text in the CodeMirror view through a transaction (supports undo).
    Returns true if replacement was made, false otherwise."
   [search-text replacement-text]
-  (when-let [view @editor-view-ref]
+  (when-let [view @events/editor-view-ref]
     (let [doc-text (.. view -state -doc (toString))
           idx (.indexOf doc-text search-text)]
       (when (>= idx 0)
@@ -340,13 +340,13 @@
   ;; Use requestAnimationFrame to ensure state is updated before refresh
   (js/requestAnimationFrame
    (fn []
-     (when-let [view @editor-view-ref]
+     (when-let [view @events/editor-view-ref]
        (.dispatch view #js {})))))
 
 (defn update-search!
   "Update search matches based on current state"
   []
-  (when-let [view @editor-view-ref]
+  (when-let [view @events/editor-view-ref]
     (let [{:keys [text case-sensitive regex]} @editor-search-state
           doc-text (.. view -state -doc (toString))
           show-markup? @annotations/show-markup?
@@ -400,7 +400,7 @@
 (defn navigate-to-match!
   "Navigate to match at index and scroll into view"
   [index]
-  (when-let [view @editor-view-ref]
+  (when-let [view @events/editor-view-ref]
     (let [matches (:matches @editor-search-state)]
       (when (and (seq matches) (<= 0 index) (< index (count matches)))
         (let [{:keys [from]} (nth matches index)]
@@ -500,7 +500,7 @@
   [selected-text]
   (js/setTimeout
    (fn []
-     (when-let [view @editor-view-ref]
+     (when-let [view @events/editor-view-ref]
        (let [doc-text (.. view -state -doc (toString))
              ;; Use the annotation parser to find the annotation containing this text
              all-annotations (annotations/parse-annotations doc-text)
@@ -526,8 +526,8 @@
                (js/setTimeout
                 (fn []
                   (reset! flash-decoration-atom nil)
-                  (when @editor-view-ref
-                    (.dispatch @editor-view-ref #js {})))
+                  (when @events/editor-view-ref
+                    (.dispatch @events/editor-view-ref #js {})))
                 2600))))))) 300))
 
 (defn toast-component []
@@ -548,7 +548,7 @@
 (defn replace-current-match!
   "Replace the current match with the replace text"
   []
-  (when-let [view @editor-view-ref]
+  (when-let [view @events/editor-view-ref]
     (let [{:keys [matches current-index replace-text text regex case-sensitive]} @editor-search-state]
       (when (and (seq matches) (< current-index (count matches)))
         (let [{:keys [from to]} (nth matches current-index)
@@ -575,7 +575,7 @@
 (defn replace-all-matches!
   "Replace all matches with the replace text"
   []
-  (when-let [view @editor-view-ref]
+  (when-let [view @events/editor-view-ref]
     (let [{:keys [matches replace-text text regex case-sensitive]} @editor-search-state
           match-count (count matches)]
       (when (pos? match-count)
@@ -609,7 +609,7 @@
   "Scroll to the first occurrence of a pattern in the editor.
    Pattern should be a string (will be escaped for regex)."
   [pattern]
-  (when-let [^js view @editor-view-ref]
+  (when-let [^js view @events/editor-view-ref]
     (let [doc-text (.. view -state -doc (toString))
           ;; Escape special regex characters and create pattern
           escaped (-> pattern
@@ -1113,7 +1113,7 @@
   "Open context menu for current selection or annotation at cursor.
    Called by keyboard shortcut (Cmd+M). Returns true if menu was opened."
   []
-  (when-let [^js view @editor-view-ref]
+  (when-let [^js view @events/editor-view-ref]
     (let [state (.-state view)
           sel (.. state -selection -main)
           sel-from (.-from sel)
@@ -1300,8 +1300,8 @@
    :local - Local undo available (local mode)
    nil - No undo available"
   []
-  (let [cm-depth (when @editor-view-ref
-                   (undoDepth (.-state @editor-view-ref)))
+  (let [cm-depth (when @events/editor-view-ref
+                   (undoDepth (.-state @events/editor-view-ref)))
         synced? (remote-store/local-changes-synced?)
         has-server-undo? (and (remote-store/get-project-id)
                               (remote-store/server-can-undo?)
@@ -1325,8 +1325,8 @@
    :local - Local redo available (local mode)
    nil - No redo available"
   []
-  (let [cm-depth (when @editor-view-ref
-                   (redoDepth (.-state @editor-view-ref)))]
+  (let [cm-depth (when @events/editor-view-ref
+                   (redoDepth (.-state @events/editor-view-ref)))]
     (cond
       (and cm-depth (pos? cm-depth)) :codemirror
       (and (remote-store/get-project-id)
@@ -1340,8 +1340,8 @@
   "Perform undo from the appropriate source. Returns true if successful."
   []
   (case (get-undo-source)
-    :codemirror (when @editor-view-ref
-                  (undo @editor-view-ref))
+    :codemirror (when @events/editor-view-ref
+                  (undo @events/editor-view-ref))
     :server (do (remote-store/server-undo!) true)
     :local (do (local-store/pop-local-undo!) true)
     false))
@@ -1350,8 +1350,8 @@
   "Perform redo from the appropriate source. Returns true if successful."
   []
   (case (get-redo-source)
-    :codemirror (when @editor-view-ref
-                  (redo @editor-view-ref))
+    :codemirror (when @events/editor-view-ref
+                  (redo @events/editor-view-ref))
     :server (do (remote-store/server-redo!) true)
     :local (do (local-store/pop-local-redo!) true)
     false))
@@ -1602,7 +1602,7 @@
                 view (create-editor-view @editor-ref state)
                 saved-pos (model/get-cursor-pos (:id chunk))]
             (reset! editor-view view)
-            (reset! editor-view-ref view) ;; Store in global ref for search
+            (reset! events/editor-view-ref view) ;; Store in global ref for search
             (reset! last-chunk-id (:id chunk))
             (reset! last-show-markup @annotations/show-markup?)
             ;; Store view in local-editor-view for annotation handler
@@ -1651,7 +1651,7 @@
                                   (model/get-cursor-pos (:id chunk))
                                   current-pos)]
                   (reset! editor-view view)
-                  (reset! editor-view-ref view) ;; Update global ref
+                  (reset! events/editor-view-ref view) ;; Update global ref
                   (reset! last-chunk-id (:id chunk))
                   (reset! last-show-markup show-markup?)
                   (reset! last-refresh-counter refresh-counter)
@@ -1697,7 +1697,7 @@
             (model/set-cursor-pos! @last-chunk-id pos)))
         (when @editor-view
           (.destroy @editor-view))
-        (reset! editor-view-ref nil))
+        (reset! events/editor-view-ref nil))
 
       :reagent-render
       (fn []
