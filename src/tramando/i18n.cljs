@@ -67,6 +67,9 @@
     :reset-theme "Reset tema"
     :theme-light "Tema chiaro"
     :theme-dark "Tema scuro"
+    :focus-mode "Modalità Focus"
+    :exit-focus "Esci da Focus"
+    :font-size "Dimensione carattere"
 
     ;; Editor
     :edit "Modifica"
@@ -601,6 +604,9 @@
     :reset-theme "Reset theme"
     :theme-light "Light theme"
     :theme-dark "Dark theme"
+    :focus-mode "Focus Mode"
+    :exit-focus "Exit Focus"
+    :font-size "Font size"
 
     ;; Editor
     :edit "Edit"

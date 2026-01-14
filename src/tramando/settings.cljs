@@ -77,7 +77,9 @@
                        :luoghi 0
                        :temi 0
                        :sequenze 0
-                       :timeline 0}})
+                       :timeline 0}
+   ;; Editor font size (14 = default, range 12-28)
+   :editor-font-size 14})
 
 ;; =============================================================================
 ;; Settings State
@@ -122,7 +124,13 @@
         (reset! settings merged)
         ;; Sync language with i18n module
         (when-let [lang (:language @settings)]
-          (i18n/set-language! lang)))
+          (i18n/set-language! lang))
+        ;; Apply editor font size to DOM (delayed to allow function definition)
+        (js/setTimeout
+         #(when-let [root (.-documentElement js/document)]
+            (.setProperty (.-style root) "--editor-font-size"
+                          (str (or (:editor-font-size merged) 14) "px")))
+         100))
       (catch :default e
         (js/console.warn "Failed to load settings:" e)))))
 
@@ -260,6 +268,36 @@
   [thresholds]
   (swap! settings assoc :aspect-thresholds thresholds)
   (save-settings!))
+
+;; =============================================================================
+;; Editor Font Size
+;; =============================================================================
+
+(def font-size-min 12)
+(def font-size-max 28)
+(def font-size-default 14)
+
+(defn get-editor-font-size
+  "Get current editor font size"
+  []
+  (or (:editor-font-size @settings) font-size-default))
+
+(defn set-editor-font-size!
+  "Set editor font size and apply to DOM"
+  [size]
+  (let [clamped (max font-size-min (min font-size-max size))]
+    (swap! settings assoc :editor-font-size clamped)
+    (save-settings!)
+    ;; Apply to DOM via CSS variable
+    (when-let [root (.-documentElement js/document)]
+      (.setProperty (.-style root) "--editor-font-size" (str clamped "px")))))
+
+(defn apply-editor-font-size!
+  "Apply current font size to DOM (call on app startup)"
+  []
+  (let [size (get-editor-font-size)]
+    (when-let [root (.-documentElement js/document)]
+      (.setProperty (.-style root) "--editor-font-size" (str size "px")))))
 
 ;; =============================================================================
 ;; AI Settings Operations

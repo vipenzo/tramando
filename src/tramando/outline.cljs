@@ -401,17 +401,19 @@
                   (str (t :priority) " ≥" threshold))]
     [:div {:style {:display "flex"
                    :align-items "center"
-                   :gap "1px"
-                   :margin-left "auto"
+                   :gap "2px"
+                   :background "rgba(0,0,0,0.3)"
+                   :border-radius "4px"
+                   :padding "2px 4px"
                    :font-size "0.75rem"}
            :on-click #(.stopPropagation %)}
      ;; Decrease button
      [:button {:style {:background "transparent"
                        :border "none"
-                       :color (if can-decrease? (:text-muted colors) (:text-dim colors))
+                       :color (if can-decrease? (:text colors) (:text-dim colors))
                        :cursor (if can-decrease? "pointer" "default")
-                       :padding "0 2px"
-                       :font-size "0.8rem"
+                       :padding "0 3px"
+                       :font-size "0.85rem"
                        :line-height 1}
                :disabled (not can-decrease?)
                :title (t :decrease-threshold)
@@ -421,20 +423,20 @@
                              (set-threshold! container-id (nth threshold-steps (dec current-idx)))))}
       "−"]
      ;; Current value (with tooltip showing filtered count)
-     [:span {:style {:color (if (pos? threshold) (:accent colors) (:text-dim colors))
-                     :min-width "10px"
+     [:span {:style {:color (if (pos? threshold) (:accent colors) (:text colors))
+                     :min-width "14px"
                      :text-align "center"
-                     :font-weight (when (pos? threshold) "600")
+                     :font-weight "600"
                      :cursor "default"}
              :title tooltip}
       threshold]
      ;; Increase button
      [:button {:style {:background "transparent"
                        :border "none"
-                       :color (if can-increase? (:text-muted colors) (:text-dim colors))
+                       :color (if can-increase? (:text colors) (:text-dim colors))
                        :cursor (if can-increase? "pointer" "default")
-                       :padding "0 2px"
-                       :font-size "0.8rem"
+                       :padding "0 3px"
+                       :font-size "0.85rem"
                        :line-height 1}
                :disabled (not can-increase?)
                :title (t :increase-threshold)
@@ -460,22 +462,57 @@
         icon (aspect-icon id)
         ;; Use translated name if available
         display-name (t (keyword id))]
-    [:div {:style {:margin-bottom "8px"}}
+    [:div {:style {:margin-bottom "8px"
+                   :background "rgba(255,255,255,0.03)"
+                   :border-radius "6px"
+                   :padding "6px 8px"}}
      [:div {:style {:display "flex"
                     :align-items "center"
-                    :cursor "pointer"
-                    :padding "4px 0"
+                    :justify-content "space-between"
                     :color color
-                    :font-size "0.85rem"}
-            :on-click #(toggle-expanded! id)}
-      [:span {:style {:margin-right "4px" :font-size "0.7rem"}}
-       (if is-collapsed? "▶" "▼")]
-      [:span {:style {:margin-right "6px"}} icon]
-      display-name
-      [help/help-icon help-key {:below? true}]
-      ;; Threshold widget (only when there are aspects)
-      (when (pos? total-count)
-        [threshold-widget id total-count filtered-count])]
+                    :font-size "0.85rem"}}
+      ;; Left side: arrow, icon, name
+      [:div {:style {:display "flex"
+                     :align-items "center"
+                     :gap "6px"}}
+       [:span {:style {:font-size "0.7rem" :cursor "pointer"}
+               :on-click #(toggle-expanded! id)}
+        (if is-collapsed? "▶" "▼")]
+       [:span {:style {:cursor "pointer"}
+               :on-click #(toggle-expanded! id)} icon]
+       [:span {:style {:cursor "pointer"}
+               :title (t (get help/texts help-key))
+               :on-click #(toggle-expanded! id)}
+        display-name]]
+      ;; Right side: add button + threshold widget
+      [:div {:style {:display "flex"
+                     :align-items "center"
+                     :gap "6px"}}
+       ;; Add button (only for owners)
+       (when (model/is-project-owner?)
+         [:button {:style {:background (:text-muted colors)
+                           :border "none"
+                           :color (:sidebar colors)
+                           :cursor "pointer"
+                           :font-size "0.75rem"
+                           :font-weight "bold"
+                           :width "18px"
+                           :height "18px"
+                           :line-height "16px"
+                           :text-align "center"
+                           :padding "0"
+                           :border-radius "3px"}
+                   :title (str (t :new-aspect) " " display-name)
+                   :on-mouse-over (fn [e]
+                                    (set! (.. e -target -style -background) (:accent colors)))
+                   :on-mouse-out (fn [e]
+                                   (set! (.. e -target -style -background) (:text-muted colors)))
+                   :on-click (fn [e]
+                               (.stopPropagation e)
+                               (model/add-aspect! id))}
+          "+"])
+       ;; Threshold widget
+       [threshold-widget id total-count filtered-count]]]
      (when-not is-collapsed?
        (if (seq filtered-children)
          [:div {:style {:margin-left "8px"}}
@@ -488,63 +525,6 @@
             (t :all-filtered)  ;; All aspects are below threshold
             (t :no-aspects))]))]))
 
-;; =============================================================================
-;; New Aspect Dropdown
-;; =============================================================================
-
-(defn new-aspect-dropdown []
-  (let [open? (r/atom false)]
-    (fn []
-      (let [colors (:colors @settings/settings)]
-        ;; Only show for project owners
-        (when (model/is-project-owner?)
-          [:div {:style {:position "relative" :margin-top "8px"}}
-           [:button
-            {:style {:background "transparent"
-                     :color (:text-muted colors)
-                     :border (str "1px dashed " (:border colors))
-                     :padding "6px 12px"
-                     :border-radius "4px"
-                     :cursor "pointer"
-                     :width "100%"
-                     :font-size "0.8rem"
-                     :display "flex"
-                     :justify-content "space-between"
-                     :align-items "center"
-                     :transition "all 0.15s"}
-             :on-mouse-over (fn [e]
-                              (set! (.. e -currentTarget -style -borderColor) (:accent colors))
-                              (set! (.. e -currentTarget -style -color) (:accent colors)))
-             :on-mouse-out (fn [e]
-                             (when-not @open?
-                               (set! (.. e -currentTarget -style -borderColor) (:border colors))
-                               (set! (.. e -currentTarget -style -color) (:text-muted colors))))
-             :on-click #(swap! open? not)}
-            [:span (str "+ " (t :new-aspect))]
-            [:span {:style {:font-size "0.7rem"}} (if @open? "▲" "▼")]]
-           (when @open?
-             [:div {:style {:position "absolute"
-                            :top "100%"
-                            :left 0
-                            :right 0
-                            :background (:sidebar colors)
-                            :border (str "1px solid " (:border colors))
-                            :border-radius "4px"
-                            :margin-top "4px"
-                            :z-index 100}}
-              (doall
-               (for [{:keys [id]} model/aspect-containers]
-                 ^{:key id}
-                 [:div {:style {:padding "8px 12px"
-                                :cursor "pointer"
-                                :font-size "0.85rem"
-                                :color (container-color id)}
-                        :on-mouse-over (fn [e] (set! (.. e -target -style -background) (:editor-bg colors)))
-                        :on-mouse-out (fn [e] (set! (.. e -target -style -background) "transparent"))
-                        :on-click (fn []
-                                    (model/add-aspect! id)
-                                    (reset! open? false))}
-                  (t (keyword id))]))])])))))
 
 ;; =============================================================================
 ;; Annotations Section
@@ -1019,8 +999,7 @@
           (doall
            (for [container model/aspect-containers]
              ^{:key (:id container)}
-             [aspect-container-section container]))
-          [new-aspect-dropdown]]])]]))
+             [aspect-container-section container]))]])]]))
 
 ;; =============================================================================
 ;; Outline Stats

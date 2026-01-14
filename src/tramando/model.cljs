@@ -815,6 +815,9 @@
 ;; Right panel (annotations) collapsed state - shared between outline and versions
 (defonce right-panel-collapsed? (r/atom false))
 
+;; Focus mode - hides sidebar and right panel, shows only editor
+(defonce focus-mode? (r/atom false))
+
 (def ^:private saved-fade-delay-ms 2000)
 
 (def ^:private localstorage-key "tramando-autosave")

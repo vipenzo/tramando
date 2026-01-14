@@ -1806,6 +1806,12 @@
 
       ;; === GROUP 3: View tools ===
       [header-separator colors]
+      ;; Focus mode toggle
+      [:button
+       {:style (header-icon-style colors :active? @model/focus-mode?)
+        :title (if @model/focus-mode? (t :exit-focus) (t :focus-mode))
+        :on-click #(swap! model/focus-mode? not)}
+       (if @model/focus-mode? "⊡" "⊞")]
       ;; View toggle (Mappa)
       [:button
        {:style (header-icon-style colors :active? (= @view-mode :radial))
@@ -1928,8 +1934,28 @@
         [:span (if has-children?
                  (str (format-number total-words) " (" (format-number own-words) ") " (t :ai-context-words))
                  (str (format-number own-words) " " (t :ai-context-words)))])]
-     ;; Right side: markup toggle, autosave status, file status
+     ;; Right side: font size slider, markup toggle, autosave status, file status
      [:div.status-item
+      ;; Font size slider (compact)
+      [:div {:style {:display "flex"
+                     :align-items "center"
+                     :gap "4px"
+                     :margin-right "8px"}}
+       [:span {:style {:font-size "10px" :opacity "0.6"}} "A"]
+       [:input {:type "range"
+                :min settings/font-size-min
+                :max settings/font-size-max
+                :value (settings/get-editor-font-size)
+                :style {:width "50px"
+                        :height "4px"
+                        :cursor "pointer"
+                        :accent-color (:accent colors)}
+                :title (str (t :font-size) ": " (settings/get-editor-font-size) "px")
+                :on-change (fn [e]
+                             (settings/set-editor-font-size!
+                              (js/parseInt (.. e -target -value))))}]
+       [:span {:style {:font-size "14px" :opacity "0.6"}} "A"]]
+      [:span.status-separator "•"]
       ;; Markup toggle
       [:div.toggle-switch {:on-click (fn []
                                        (swap! annotations/show-markup? not)
@@ -1983,9 +2009,12 @@
                       :pointer-events "none"}}])
      (if chunk
        [:div {:style {:position "relative" :z-index 1 :display "flex" :flex-direction "column" :height "100%"}}
-        [:div.editor-header
-         [editor/compact-header]]
-        [editor/tab-bar]
+        ;; Hide header in focus mode
+        (when-not @model/focus-mode?
+          [:div.editor-header
+           [editor/compact-header]])
+        (when-not @model/focus-mode?
+          [editor/tab-bar])
         [editor/tab-content]]
        [:div {:style {:display "flex"
                       :align-items "center"
@@ -2045,9 +2074,12 @@
         (.preventDefault e)
         (editor/open-context-menu-for-selection!))
 
-      ;; Escape closes settings, export dropdown, editor search, and global filter
+      ;; Escape closes focus mode, settings, export dropdown, editor search, and global filter
       (= key "escape")
       (do
+        ;; Exit focus mode first (highest priority)
+        (when @model/focus-mode?
+          (reset! model/focus-mode? false))
         (when @settings/settings-open?
           (reset! settings/settings-open? false))
         (when @export-dropdown-open?
@@ -2462,15 +2494,19 @@
          [:div.main-container {:style {:flex 1
                                        :display "flex"
                                        :overflow "hidden"}}
-          [outline/outline-panel]
+          ;; Left sidebar - hidden in focus mode
+          (when-not @model/focus-mode?
+            [outline/outline-panel])
           (case current-view
             :radial [radial/radial-view]
             [editor-panel])
-          ;; Right panel (Annotations) - hidden when versions panel is visible
-          (when-not (versions/versions-visible?)
+          ;; Right panel (Annotations) - hidden in focus mode or when versions panel is visible
+          (when (and (not @model/focus-mode?)
+                     (not (versions/versions-visible?)))
             [outline/annotations-panel])
-          ;; Versions Panel (for git history) - inside main container
-          [versions/versions-panel]]
+          ;; Versions Panel (for git history) - inside main container, hidden in focus mode
+          (when-not @model/focus-mode?
+            [versions/versions-panel])]
          ;; Status bar
          [status-bar]
          ;; AI Assistant Panel
